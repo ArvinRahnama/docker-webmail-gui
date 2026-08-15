@@ -146,6 +146,13 @@ Every threat named in the project brief, with our actual exposure and control. *
 
 **Mitigations:** no secrets in the repository, in the frontend bundle, or in browser storage. `.env.example` carries no real values. Secrets are masked in the UI, and **revealing one is an audited event**. API responses never contain passwords, private keys or tokens. Pino has a **mandatory redaction list** so secrets cannot reach logs through an accidental object dump. **DKIM private keys are never read into the API layer** — only public records are parsed. TLS parsing touches the certificate, never the key.
 
+**Two redaction properties learned empirically (2026-08-16), not assumed.** Both were found by testing the logger against Pino rather than reading its docs, and both are requirements, not implementation trivia:
+
+1. **`set-cookie` must be redacted, not just `cookie`.** `cookie` covers the inbound request header; the _response_ `set-cookie` header is what carries a live session token. Anything logging response headers — or an error object holding them — would otherwise leak an active session.
+2. **Pino's redaction is case-sensitive.** Verified: with paths `['authorization', '*.authorization']`, a key spelled `Authorization` passes through **unredacted** while `authorization` is censored. Node and Fastify lowercase inbound request headers, so `req.headers.authorization` is safe; the exposure is header-shaped objects arriving from anywhere else — responses from the broker client, parsed configuration, hand-built log payloads. The redaction paths therefore expand each sensitive key into its case variants mechanically, so that adding a key to the list cannot silently miss them.
+
+A test asserts both, and states why, so that neither is "simplified" away later.
+
 **Honest exception:** backup archives contain DKIM and TLS private keys by necessity. Download is audited and gated.
 
 ### 3.11 Log injection

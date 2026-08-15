@@ -20,7 +20,9 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "typecheck": "tsc --build",
-    "check": "npm run lint && npm run typecheck && npm run test"
+    "check:deps": "node scripts/check-dep-consistency.mjs",
+    "check:licenses": "node scripts/check-licenses.mjs",
+    "check": "npm run check:deps && npm run lint && npm run format:check && npm run typecheck && npm run test"
   },
   "devDependencies": {
     "@cyclonedx/cyclonedx-npm": "^1.19.3",

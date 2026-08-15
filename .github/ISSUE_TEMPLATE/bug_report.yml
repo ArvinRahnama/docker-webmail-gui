@@ -1,0 +1,112 @@
+name: Bug report
+description: Report a problem with the panel itself (not docker-mailserver, and not a security vulnerability).
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to file a bug report. Please fill in as much
+        detail as you can — reports without reproduction steps are hard to act on.
+
+        **If this is a security vulnerability, stop here** and use the private
+        advisory flow instead (see the confirmation checkbox at the end of this
+        form).
+
+  - type: input
+    id: version
+    attributes:
+      label: Docker Webmail GUI version
+      description: The panel's version (shown in the UI footer) or the image tag/commit you deployed.
+      placeholder: e.g. 0.1.0, or a commit SHA
+    validations:
+      required: true
+
+  - type: dropdown
+    id: deployment-method
+    attributes:
+      label: Deployment method
+      options:
+        - Installer script (install.sh)
+        - Docker Compose (manual)
+        - Built from source
+        - Other (describe in "What happened?")
+    validations:
+      required: true
+
+  - type: input
+    id: host-os
+    attributes:
+      label: Host OS and architecture
+      placeholder: e.g. Debian 12, x86_64
+    validations:
+      required: true
+
+  - type: input
+    id: docker-version
+    attributes:
+      label: Docker version
+      description: Output of `docker version --format '{{.Server.Version}}'`.
+      placeholder: e.g. 27.3.1
+    validations:
+      required: true
+
+  - type: input
+    id: dms-version
+    attributes:
+      label: docker-mailserver version/tag
+      placeholder: e.g. ghcr.io/docker-mailserver/docker-mailserver:14.0.0
+    validations:
+      required: true
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: A clear, specific description of the bug.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect to happen?
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: Numbered steps, ideally from a clean state.
+      placeholder: |
+        1. Go to ...
+        2. Click ...
+        3. See error
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: >
+        Paste relevant panel, broker, or docker-mailserver log output.
+        **Redact email addresses, domains, IP addresses, tokens, and any other
+        secrets before pasting** — this is a public issue.
+      render: shell
+
+  - type: checkboxes
+    id: not-a-vulnerability
+    attributes:
+      label: Confirmation
+      options:
+        - label: >
+            This is a functional bug, not a security vulnerability. If it involved
+            an auth/authz bypass, injection, path traversal, secret exposure, an
+            escape from the broker's operation allowlist, or similar, I would
+            instead use the private security advisory flow described in
+            SECURITY.md (Security → Report a vulnerability) rather than this
+            public form.
+          required: true

@@ -1,0 +1,18 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "out",
+    "rootDir": "src",
+    // Vite (esbuild/Rollup) does the actual transpile + bundle; tsc here
+    // only typechecks and participates in the solution's composite build
+    // graph, so it emits declarations/build-info only, never JS.
+    "emitDeclarationOnly": true,
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "jsx": "react-jsx",
+    // Bundler-owned build, not run directly by Node — see
+    // tsconfig.base.json's comment on this split.
+    "moduleResolution": "bundler"
+  },
+  "include": ["src"],
+  "references": [{ "path": "../../packages/shared" }]
+}

@@ -1,0 +1,70 @@
+# Wired up ahead of schedule. Milestone M13 ("Packaging + installer" — see
+# IMPLEMENTATION_PLAN.md §3) is what actually adds the multi-stage Dockerfiles
+# under docker/ (see ARCHITECTURE.md's repository layout). No Dockerfile exists
+# in this repository yet, so this workflow must not fail the build: the
+# discovery step below simply finds nothing, the build matrix is empty, and the
+# job succeeds as a no-op. Once M13 lands a Dockerfile anywhere under docker/,
+# this workflow picks it up automatically. It never pushes an image
+# (push: false) — this is a build-only smoke test, not a release pipeline.
+
+name: Docker
+
+on:
+  workflow_dispatch: {}
+  push:
+    branches:
+      - main
+    paths:
+      - "docker/**"
+
+permissions:
+  contents: read
+
+jobs:
+  discover:
+    name: Discover Dockerfiles
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      dockerfiles: ${{ steps.find.outputs.dockerfiles }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Find Dockerfiles under docker/
+        id: find
+        shell: bash
+        run: |
+          if [ -d docker ]; then
+            files="$(find docker -type f -iname 'Dockerfile*' | sort | jq -R . | jq -sc .)"
+          else
+            files="[]"
+          fi
+          echo "dockerfiles=${files}" >> "$GITHUB_OUTPUT"
+          echo "Found: ${files}"
+
+  build:
+    name: Build (no push)
+    needs: discover
+    if: needs.discover.outputs.dockerfiles != '[]'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        dockerfile: ${{ fromJSON(needs.discover.outputs.dockerfiles) }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          push: false

@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "compilerOptions": {
+    "target": "ES2023",
+    "lib": ["ES2023"],
+    "module": "ESNext",
+    "moduleDetection": "force",
+
+    // Every workspace package.json sets "type": "module"; every import in
+    // this codebase is a real ES module import/export, never a type-only
+    // one silently elided at a different place than it was written.
+    "verbatimModuleSyntax": true,
+    "isolatedModules": true,
+    "resolveJsonModule": true,
+
+    // Project-references / solution-style build (tsconfig.json at the
+    // root references every workspace). Each workspace tsconfig sets its
+    // own outDir/rootDir and, where it has workspace dependencies, its own
+    // "references". See ARCHITECTURE.md §3 (TypeScript strict, everywhere)
+    // and §4 (repository layout).
+    "composite": true,
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "incremental": true,
+
+    // Required strict flags (non-negotiable per the M1 brief).
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+
+    // Practical companions to the above. skipLibCheck avoids paying the
+    // cost of type-checking third-party .d.ts files; forceConsistentCasingInFileNames
+    // matters specifically because this repo is developed on a
+    // case-insensitive Windows filesystem but deployed to case-sensitive
+    // Linux containers, where a casing mismatch is a runtime crash, not a
+    // warning.
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "allowUnreachableCode": false,
+    "allowUnusedLabels": false,
+
+    "newLine": "lf"
+  }
+}

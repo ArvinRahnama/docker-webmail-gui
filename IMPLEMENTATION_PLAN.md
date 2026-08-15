@@ -21,7 +21,7 @@ This is the execution plan. It does not restate what the companion documents own
 
 The brief forbids bloat, so dependencies are budgeted and justified. Anything not on this list needs a reason at review time.
 
-**`apps/server`** — `fastify`, `@fastify/cookie`, `@fastify/helmet`, `@fastify/rate-limit`, `@fastify/static`, `@fastify/multipart`, `zod`, `better-sqlite3`, `@node-rs/argon2`, `pino`, `undici`, `tar`.
+**`apps/server`** — `fastify`, `@fastify/cookie`, `@fastify/helmet`, `@fastify/rate-limit`, `@fastify/static`, `@fastify/multipart`, `zod`, `@node-rs/argon2`, `pino`, `undici`, `tar`. SQLite is the **`node:sqlite` built-in** — no dependency, no native build (`ARCHITECTURE.md` §3.1).
 
 **`apps/broker`** — `fastify`, `zod`, `dockerode`, `pino`. **Deliberately four.** Every dependency here is a host-root-adjacent liability.
 
@@ -117,6 +117,7 @@ M1–M6 are sequential. M7–M11 are mostly parallel once M4–M6 land. M12 runs
 | **DMS changes config-file formats on upgrade** | Medium | High — silent misreads | No API exists, so this is structural. Fixture-based parser tests fail loudly; parsers return `Unknown` rather than guessing; capability detection at startup |
 | **A broker bug becomes host compromise** | Low | Critical | Four dependencies, no business logic, no DB; every change is security-reviewed |
 | **Destructive operation loses mail** | Low | Critical | Volume deletion blocked outright; no bulk mailbox delete; explicit `-y`/`-n`; tiered confirmation; backup gate before restore |
+| **`node:sqlite` is Stability 1.2 (RC), not Stable** | Medium | Low | API is unlikely to move within an LTS runtime, and all access goes through hand-written typed repositories, so a driver swap touches one module. Chosen over `better-sqlite3` because that addon had no Node 24 prebuild and fell back to a compiler, which would break installs on platforms like ARM64 Linux — see `ARCHITECTURE.md` §3.1. Revisit if the API changes before 1.0 |
 | **No local Docker slows verification** | Certain | Medium | Fake drivers by default; CI on Linux is the integration authority; documented manual procedures for anything CI cannot reach |
 | **Runtime-verification items resolve badly** | Medium | Low–Medium | Six items tracked in `FEATURE_MATRIX.md`, each with a documented fallback; none is load-bearing for a whole feature |
 | **CSP breaks the app and gets disabled** | Medium | Medium | CSP tuned against the real app in M12 and covered by a test; self-hosted fonts remove the main CDN pressure |

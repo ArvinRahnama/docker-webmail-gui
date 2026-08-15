@@ -1,0 +1,24 @@
+{
+  "name": "@dwg/broker",
+  "version": "0.1.0",
+  "private": true,
+  "license": "Apache-2.0",
+  "type": "module",
+  "description": "Privileged Docker broker. Tiny, rarely changes, holds the Docker socket. Allowlists operations and target containers; never accepts a container spec from the web tier — see ARCHITECTURE.md §2 and §6.",
+  "main": "./dist/index.js",
+  "scripts": {
+    "dev": "node --watch src/index.ts",
+    "build": "tsc --build",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@dwg/shared": "^0.1.0",
+    "dockerode": "^4.0.3",
+    "fastify": "^5.2.0",
+    "pino": "^9.6.0",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@types/dockerode": "^3.3.31"
+  }
+}

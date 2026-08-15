@@ -1,0 +1,14 @@
+{
+  // Solution-style root config: builds nothing itself, only orders the
+  // workspace projects for `tsc --build` (see the root package.json
+  // "typecheck" script). Run `tsc --build` from the repo root to typecheck
+  // (and, for the Node-executed packages, compile) everything in
+  // dependency order.
+  "files": [],
+  "references": [
+    { "path": "packages/shared" },
+    { "path": "apps/server" },
+    { "path": "apps/broker" },
+    { "path": "apps/web" }
+  ]
+}

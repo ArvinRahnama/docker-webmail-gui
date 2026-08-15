@@ -65,7 +65,7 @@ Stated plainly, because overclaiming here would be its own security failure:
 | Runtime | **Node.js 24 LTS** | Available; native fetch/undici, stable test runner, good SQLite story |
 | Backend | **Fastify** | MIT, fast, schema-first validation, mature plugin set (`@fastify/cookie`, `helmet`, `rate-limit`, `static`). Express is slower and less schema-native; Hono is excellent but its Node adapter is less battle-tested for long-lived SSE streams |
 | Validation | **Zod** | One schema → runtime validation + static type + OpenAPI-ish docs. Non-negotiable given the shared-contract goal |
-| State | **better-sqlite3** | Single file, synchronous API (simpler correctness in a low-concurrency admin tool), no server. **Not `node:sqlite`** — Stability 1.2 "Release Candidate" in Node 24; we will not ship v1 on an RC |
+| State | **`node:sqlite`** (Node built-in) | Single file, synchronous API (simpler correctness in a low-concurrency admin tool), no server, and **zero native compilation**. See §3.1 — this reverses an earlier decision |
 | Data access | **Hand-written SQL + typed repositories + a small migration runner** | ~11 tables. An ORM (Drizzle/Kysely) adds a dependency and a codegen step to save little. Keeps the dependency count honest per the brief's anti-bloat rule |
 | Password hashing | **`@node-rs/argon2`** (Argon2id) | Prebuilt binaries — no node-gyp toolchain at install time, which matters for a self-hosted product. We implement no cryptography ourselves |
 | Docker client | **`dockerode`** — in the broker only | Apache-2.0. Exec requires HTTP connection hijacking plus the 8-byte multiplexed-stream demux; that is exactly where hand-rolled bugs hide. Accepted cost: heavier transitive tree, so it is pinned and audited |
@@ -74,7 +74,19 @@ Stated plainly, because overclaiming here would be its own security failure:
 | Tests | **Vitest** (unit/integration), **Playwright** (E2E) | |
 | Logging | **Pino** | Structured JSON, fast, with a mandatory redaction list |
 
-### 3.1 Deliberate omissions
+### 3.1 SQLite driver: why this reversed
+
+The plan originally specified `better-sqlite3` and explicitly rejected `node:sqlite` as a Release Candidate. Attempting the first install reversed it, and the reason matters beyond convenience.
+
+`better-sqlite3` is a native addon. On this Node 24 host no prebuilt binary was available, so `npm install` fell back to `node-gyp` and failed for want of a C++ toolchain. The dev-environment breakage is the small part. The significant part is what it implies: **if prebuilds lag for Node 24 on one common platform, they lag on others** — most importantly **ARM64 Linux**, which is an entirely ordinary place to self-host a small mail server (a Pi, an ARM VPS). A self-hosted product whose install can fail on a compiler error has a real adoption problem, and "install build-essential first" is not an acceptable answer for an appliance-shaped tool.
+
+Removing the native addon also removes a C++ dependency from a security-sensitive service, which is a genuine, if secondary, benefit.
+
+`node:sqlite` is verified working on Node 24.19.0 with no flag, and its `DatabaseSync`/`prepare`/`run`/`all` surface is close enough to `better-sqlite3` that the repository layer hides the difference either way.
+
+**The RC concern was real and is not dismissed** — it is downgraded to a managed risk (`IMPLEMENTATION_PLAN.md` §4). Stability 1.2 in an LTS runtime means the API is unlikely to move, and because all database access already goes through hand-written typed repositories (§7.3), swapping the driver later touches one module rather than the codebase.
+
+### 3.2 Deliberate omissions
 
 No Redis (SQLite covers sessions, jobs and rate limits at this scale). No message queue (the in-process job runner is sufficient for one-at-a-time maintenance operations). No ORM. No Kubernetes. No microservices — the broker is a privilege boundary, not a service decomposition. **No WebSocket**: every real-time need here is server→client only, so SSE covers it (§8).
 

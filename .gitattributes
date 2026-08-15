@@ -1,0 +1,58 @@
+# Default: normalise everything to LF in the repo, checked out as LF too.
+# This project is developed on a Windows host but deployed to Linux
+# containers, so a single, consistent line ending avoids the CRLF diff
+# noise and shell-script breakage that mixed endings cause on Linux.
+* text=auto eol=lf
+
+# Explicit text types (kept in LF regardless of platform).
+*.ts text eol=lf
+*.tsx text eol=lf
+*.js text eol=lf
+*.jsx text eol=lf
+*.mjs text eol=lf
+*.cjs text eol=lf
+*.json text eol=lf
+*.md text eol=lf
+*.mdx text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.html text eol=lf
+*.css text eol=lf
+*.svg text eol=lf
+*.sh text eol=lf
+*.env text eol=lf
+*.env.example text eol=lf
+.gitattributes text eol=lf
+.gitignore text eol=lf
+.editorconfig text eol=lf
+Dockerfile text eol=lf
+*.dockerfile text eol=lf
+
+# Shell scripts must never be checked out with CRLF — a CRLF shebang
+# line fails to execute inside Linux containers and in the installer.
+*.sh text eol=lf
+installer/* text eol=lf
+
+# Binary types — never touched by line-ending normalisation or diffed as text.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.ico binary
+*.avif binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.otf binary
+*.eot binary
+*.pdf binary
+*.zip binary
+*.tar binary
+*.gz binary
+*.tgz binary
+*.7z binary
+*.node binary
+*.db binary
+*.sqlite binary
+*.sqlite3 binary

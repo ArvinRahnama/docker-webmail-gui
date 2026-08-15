@@ -1,0 +1,161 @@
+# License Audit — Docker Webmail GUI
+
+## 1. Decision
+
+**License: Apache License 2.0 — SPDX identifier `Apache-2.0`.**
+
+Decided **2026-08-15** by the project owner, selected from a researched four-way shortlist (MIT, Apache-2.0, GPL-3.0, AGPL-3.0) documented in `docs/research/04-licensing.md`. That research is the source of record for the analysis; this document records the decision itself and its justification for compliance purposes — it does not re-open the choice.
+
+---
+
+## 2. Why Apache-2.0
+
+- **Permissive for consumers, with a free patent grant.** Apache-2.0 gives downstream users the same practical freedoms as MIT — use, modify, redistribute, sublicense, no copyleft — but adds an express patent license (§3) and a patent-retaliation clause (a litigant who sues over patents reading on the Work loses their license to it). That protection costs users nothing beyond what MIT already asks of them.
+- **Internally consistent with our own dependency tree.** Core dependencies are already Apache-2.0: TypeScript, dockerode, drizzle-orm, class-variance-authority, and Playwright. Licensing our own code Apache-2.0 removes any "why is our license different from half our stack" inconsistency.
+- **Matches the permissive posture of what we sit on top of.** `docker-mailserver` itself is MIT, and the closest structural comparable — Dockge, a single-container web panel driving Docker/Compose from a UI, from the same author as Uptime Kuma — is also MIT. Apache-2.0 stays in that same permissive family while adding patent terms neither of those provides.
+- **Suits a self-hosted admin tool's adoption profile.** This category of tool is adopted by administrators evaluating it for their own infrastructure and redistributed by downstream packagers (homelab catalogs, distro maintainers). Both groups are maximized by permissive licensing and measurably reduced by copyleft (detail in §3).
+
+---
+
+## 3. Alternatives considered and rejected
+
+The brief required not defaulting to MIT — the decision below was a researched, four-way comparison (MIT, Apache-2.0, GPL-3.0, AGPL-3.0), not a reflexive pick.
+
+| License | Verdict | Reasoning |
+|---|---|---|
+| **AGPL-3.0** | Runner-up, rejected | AGPL's §13 (network-use copyleft) buys real, specific protection in exactly one scenario: a third party — an MSP, a hosting company — takes the project, modifies it, and resells it as a hosted service to *their own* customers without contributing back. That's a plausible risk for a self-hosted "open alternative" category tool. But in the modal deployment, the "remote user" interacting with it over the network *is* the same admin who deployed it and already holds the source — §13 grants that person no right they don't already have. In the common case AGPL buys zero marginal protection while imposing full marginal adoption cost: reflexive AGPL-avoidance at companies, and hesitance among some self-hosters even where the clause would never fire. |
+| **GPL-3.0** | Rejected, dominated | No §13 network clause, so it does nothing AGPL-3.0 doesn't already do better against the one scenario (SaaS-wrapping) where copyleft would matter here — while still carrying all of GPL's distribution-copyleft adoption friction. No scenario in this project favors GPL-3.0 over *both* Apache-2.0 and AGPL-3.0 at once. |
+| **MIT** | Rejected, dominated | Grants the same practical freedoms as Apache-2.0 to downstream users, but forgoes Apache-2.0's express patent grant and retaliation clause. For infrastructure software operating in container-orchestration territory, giving that up costs nothing to keep and buys real (if currently low-probability) protection — a poor trade to decline by default. |
+
+---
+
+## 4. Compatibility finding
+
+The dependency-license audit found **nothing in the proposed stack that blocks any of MIT, Apache-2.0, GPL-3.0, or AGPL-3.0** as our own project license:
+
+- Every MIT / ISC / BlueOak-1.0.0 / Apache-2.0 / dual-licensed (MIT OR Apache-2.0) package in the tree is unconditionally compatible with a permissive project license.
+- The FSF treats Apache-2.0 as one-way compatible with GPLv3, so the Apache-2.0 packages already in our tree (TypeScript, dockerode, drizzle-orm, class-variance-authority, Playwright) would have been safe to bundle even under GPL-3.0 or AGPL-3.0.
+- The one real incompatibility class — GPL-2.0-only code cannot be absorbed into an Apache-2.0 codebase — never becomes live here because our only GPL-2.0 components (ClamAV, Fail2ban) run as separate OS processes, never linked or bundled into our code (§7).
+
+**Dependency compatibility was therefore not the deciding constraint.** All four candidates were technically viable. The decision rested on project strategy — adoption profile, patent posture, consistency with the surrounding ecosystem — not on anything the dependency graph forced.
+
+---
+
+## 5. Third-party dependency inventory
+
+Reproduced from `docs/research/04-licensing.md` (Task 1). Project was greenfield — zero dependencies installed — at research time; every row is the *proposed* stack, audited pre-adoption.
+
+### Frontend
+
+| Package | License | SPDX | Maintained? | Notes / risk |
+|---|---|---|---|---|
+| react, react-dom | MIT | `MIT` | Yes (Meta) | Routine. |
+| vite | MIT | `MIT` | Yes | Routine. |
+| typescript | **Apache-2.0** | `Apache-2.0` | Yes (Microsoft; native-Go compiler shipped 2026) | Not MIT like most of the JS toolchain — permissive, includes a patent grant. No incompatibility with any candidate project license. [CONFIRMED: https://github.com/microsoft/TypeScript/blob/main/LICENSE.txt] |
+| tailwindcss | MIT | `MIT` | Yes | Current major = v4 (stable since 2025-01-22, Lightning-CSS engine, breaking config-format changes from v3). [CONFIRMED: https://tailwindcss.com/blog/tailwindcss-v4] |
+| @radix-ui/* | MIT | `MIT` | Yes (WorkOS-backed since 2024) | Routine. |
+| **shadcn/ui** | MIT (of the copied code) | `MIT` | Actively developed | **Not an npm dependency.** The `shadcn` CLI copies component source directly into our repo (`src/components/ui/`), which we then own/maintain. Only the underlying primitives (Radix, or Base UI) install as real npm packages. Never appears in `node_modules` or `package.json` — **invisible to SBOM/license scanners**; attribution is a manual obligation (§6, §8). [CONFIRMED: https://github.com/shadcn-ui/ui/blob/main/LICENSE.md] |
+| lucide-react | ISC | `ISC` | Yes (fork of Feather Icons) | ISC is permissive-equivalent to MIT; no practical difference. [CONFIRMED: https://github.com/lucide-icons/lucide] |
+| class-variance-authority (cva) | **Apache-2.0** | `Apache-2.0` | Yes (Joe Bell) | Not MIT; still fully permissive with a patent grant. [CONFIRMED via npm registry license field] |
+| clsx | MIT | `MIT` | Yes | Trivial, stable. |
+| tailwind-merge | MIT | `MIT` | Yes | Routine. |
+| @tanstack/react-query, react-table, react-virtual | MIT | `MIT` | Yes (TanStack) | Routine. |
+| recharts | MIT | `MIT` | Yes (v3 rewrite in progress) | Routine. |
+| sonner | MIT | `MIT` | Yes, small bus factor (Emil Kowalski) | Feature-complete; low maintainer count ≠ unmaintained. |
+| cmdk | MIT | `MIT` | Yes, small bus factor (pacocoursey) | Same caveat as sonner. |
+| react-hook-form | MIT | `MIT` | Yes | Routine. |
+| zod | MIT | `MIT` | Yes (v4 shipped) | Routine. |
+| date-fns | MIT | `MIT` | Yes (v4, ESM-first) | Routine. |
+| **@xterm/xterm** | MIT | `MIT` | Yes | Confirmed current name — old `xterm` / `xterm-addon-*` packages are deprecated (typosquat-prevention rename); use scoped `@xterm/xterm` + `@xterm/addon-*` only. [CONFIRMED: https://github.com/xtermjs/xterm.js/issues/4859] |
+
+#### Editor component: CodeMirror 6 vs Monaco (Sieve/config editor)
+
+| Package | License | SPDX | Bundle weight | Verdict |
+|---|---|---|---|---|
+| `@codemirror/*` (CM6) | MIT | `MIT` | Modular/tree-shakeable, ≈150–300KB uncompressed core; a minimal setup can land ≈50KB. [CONFIRMED: https://blog.replit.com/codemirror] | **Recommended.** Same license as Monaco; far lighter for an admin panel that isn't a full IDE. |
+| `monaco-editor` | MIT | `MIT` | ≈5–10MB uncompressed. [CONFIRMED: https://blog.replit.com/codemirror] | Licensing is a non-issue (both MIT) — the decision is bundle weight/UX. Monaco is 20–100× heavier for this use case. |
+
+### Backend (Node 24 + TS)
+
+| Package | License | SPDX | Maintained? | Notes / risk |
+|---|---|---|---|---|
+| fastify + @fastify/{cookie,helmet,rate-limit,static,websocket,multipart} | MIT | `MIT` | Yes | Routine — all official first-party plugins. |
+| dockerode | **Apache-2.0** | `Apache-2.0` | Yes (apocas) | Not MIT; permissive with patent grant. [CONFIRMED via npm/GitHub license field] |
+| better-sqlite3 | MIT | `MIT` | Yes | Mature, synchronous, battle-tested native binding. |
+| **`node:sqlite` (built-in)** | Node.js core license (MIT) | `MIT` | Yes (Node core) | **Not yet "Stable."** Node 24.19 docs mark it Stability 1.2 — "Release candidate" (one step below Stability 2 "Stable"; API can still shift). [CONFIRMED: https://nodejs.org/docs/latest-v24.x/api/sqlite.html] **v1 ships on `better-sqlite3`**; revisit `node:sqlite` once it reaches Stability 2. |
+| drizzle-orm | **Apache-2.0** | `Apache-2.0` | Yes | Not MIT; permissive. [CONFIRMED via npm/GitHub license field] |
+| kysely | MIT | `MIT` | Yes | Routine. |
+| argon2 (npm, ranisalt) | MIT | `MIT` | Yes | Native binding wrapping the reference Argon2 C implementation. |
+| @node-rs/argon2 | MIT | `MIT` | Yes (napi-rs) | Rust/napi-rs alternative to `argon2`; pick one, not both. |
+| pino | MIT | `MIT` | Yes | Routine. |
+| undici | MIT | `MIT` | Yes (Node.js org itself) | Routine. |
+| tar (npm, isaacs/node-tar) | **BlueOak-1.0.0** | `BlueOak-1.0.0` | Yes | **Surprising SPDX id** — see §6. [CONFIRMED via npm package registry license field] |
+| tar-fs | MIT | `MIT` | Yes | Routine. |
+
+### Testing / CI (tooling)
+
+| Package | License | SPDX | Maintained? | Notes / risk |
+|---|---|---|---|---|
+| vitest | MIT | `MIT` | Yes | Routine. |
+| playwright | **Apache-2.0** | `Apache-2.0` | Yes (Microsoft) | Not MIT; permissive. |
+| @testing-library/react | MIT | `MIT` | Yes | Routine. |
+| eslint | MIT | `MIT` | Yes | Routine. |
+| @typescript-eslint/* | MIT | `MIT` | Yes | Routine. |
+| prettier | MIT | `MIT` | Yes | Routine. |
+| biome | **MIT OR Apache-2.0** (dual, user's choice) | `MIT OR Apache-2.0` | Yes (biomejs org) | Dual-licensed; permissive either way. [CONFIRMED: https://github.com/biomejs/biome/blob/main/LICENSE-MIT + adjacent Apache-2.0 file] Actively maintained fork of the discontinued "Rome" toolchain. |
+
+**Rollup:** nothing in this stack is copyleft, CLA-encumbered, or shows evidence of abandonment (>18mo silent). Several packages are Apache-2.0 rather than MIT (TypeScript, dockerode, drizzle-orm, class-variance-authority, Playwright) — a permissive upgrade (patent grant), not a risk. CVE/vulnerability scanning was out of scope for this license audit; `npm audit` / Dependabot / OSV-Scanner should be wired into CI separately and continuously.
+
+---
+
+## 6. Notable license findings
+
+1. **`tar` (npm, isaacs/node-tar) is `BlueOak-1.0.0`, not the ISC most other isaacs packages use.** isaacs has been relicensing packages (`glob`, `rimraf`, `tar`, …) from ISC to the Blue Oak Model License 1.0.0 — still short, permissive, no copyleft, but uncommon enough that some license scanners misclassify it as "unknown." **Verify the SBOM tool selected in §8 recognizes `BlueOak-1.0.0` as permissive** before trusting a clean CI scan.
+2. **shadcn/ui is copy-pasted MIT source, not an npm dependency.** The `shadcn` CLI writes component source directly into the repo; it never appears in `node_modules` or a `package.json` dependency list. **No automated scanner in §8 will ever see it** — this is a permanent gap in any automated license inventory, not a one-time setup task, and requires manual NOTICE attribution (mechanics in §8).
+3. **`node:sqlite` is Stability 1.2 — "Release candidate" — in Node 24, not yet Stable.** [CONFIRMED: https://nodejs.org/docs/latest-v24.x/api/sqlite.html] License is a non-issue (Node core, MIT) but the API surface can still shift; v1 ships on `better-sqlite3` (MIT, stable, feature-complete) instead, with a re-evaluation once `node:sqlite` reaches Stability 2.
+4. **Inter and JetBrains Mono, the bundled UI and monospace fonts, are both SIL Open Font License 1.1** — permissive for bundling and redistribution, but a distinct license family from MIT/Apache-2.0 with its own attribution mechanics, so both need explicit NOTICE entries (§8). [CONFIRMED: https://github.com/rsms/inter/blob/master/LICENSE.txt] [CONFIRMED: https://github.com/JetBrains/JetBrainsMono/blob/master/OFL.txt]
+
+---
+
+## 7. Integrated components and whether they bind us
+
+Docker Webmail GUI controls the mail stack over the Docker Engine API and by invoking CLIs (`setup`, `doveadm`, `postqueue`, `fail2ban-client`, …) inside separate containers. It does not link against any mail-server code.
+
+| Component | License | SPDX |
+|---|---|---|
+| docker-mailserver | MIT | `MIT` |
+| Postfix | IBM Public License 1.0, or (user's option, since 3.2.5) Eclipse Public License 2.0 | `IPL-1.0 OR EPL-2.0` |
+| Dovecot | Split by path, not one project-wide license: `src/lib/`, `src/auth/`, `src/lib-sql/` = MIT; everything else = LGPL-2.1 | `MIT AND LGPL-2.1` |
+| Rspamd | Apache-2.0 (relicensed from BSD-2-Clause) | `Apache-2.0` |
+| ClamAV | GPL-2.0 (Cisco-owned) | `GPL-2.0-only` (assumed `-only`; not independently re-verified) |
+| Fail2ban | GPL-2.0 | `GPL-2.0-only` (assumed `-only`; not independently re-verified) |
+| Docker Engine / moby | Apache-2.0 | `Apache-2.0` |
+| tecnativa/docker-socket-proxy | Apache-2.0 | `Apache-2.0` |
+
+**None of these bind us.** We never link against any of them — every interaction crosses a container/exec or network boundary: our backend calls the Docker Engine API (or the docker-socket-proxy) to run a CLI command inside a *separate* container, or speaks a wire protocol (IMAP/HTTP) to a separate process. That is squarely the FSF's own published "mere aggregation" position:
+
+> "Mere aggregation of two programs means putting them side by side on the same CD-ROM or hard disk. We use this term in the case where they are separate programs, not parts of a single program. … Pipes, sockets and command-line arguments are communication mechanisms normally used between two separate programs." — [https://www.gnu.org/licenses/gpl-faq.html]
+
+ClamAV and Fail2ban (GPL-2.0, the only strong-copyleft components here) are invoked as independent OS processes, not linked. Dovecot's LGPL-2.1 half is moot for a more direct reason still: LGPL's copyleft triggers specifically on *linking* to form a combined work, and we never link against Dovecot at all — we shell out to `doveadm` or speak IMAP to it. Postfix's IPL/EPL obligations attach to distributing Postfix's own covered source files, which we never touch or redistribute.
+
+**Honest caveat:** the FSF's own FAQ flags that the "separate programs" reading isn't unconditional — communication "intimate enough" to exchange complex internal data structures could still be read as a combined work. That is a genuinely debated edge in the abstract. It does not describe this project: we exchange plain-text CLI output and JSON/HTTP over the Docker API, not shared memory or internal data structures, so the carve-out doesn't reach our design. (`docker-mailserver`, MIT, is the party actually bundling these components into one container image at build time — that packaging question is theirs, not ours, since we never build or redistribute that image.)
+
+**No AGPL component exists anywhere upstream in this list.** No upstream integration imposes a network-copyleft obligation on us today, independent of what we chose for our own code in §1.
+
+---
+
+## 8. Compliance mechanics
+
+- **`LICENSE`** at repo root — full, unmodified Apache-2.0 text. Present (this audit's companion file).
+- **`NOTICE`** — not strictly required by Apache-2.0 unless an upstream dependency ships NOTICE content that must be carried forward (§4(d) of the license), but should exist as the standing home for third-party attributions: the shadcn/ui MIT line, Inter (SIL OFL 1.1), JetBrains Mono (SIL OFL 1.1), and any Apache-2.0 dependency that itself ships NOTICE content.
+- **`"license": "Apache-2.0"`** in every `package.json` — root and every workspace package (npm workspaces; license/SBOM tooling reads this field per package, not just at the root).
+- **Per-file SPDX headers are *not* required** by Apache-2.0, but a short `SPDX-License-Identifier: Apache-2.0` header is recommended on substantial source files — machine-checkable, aligns with the REUSE specification — in preference to the old full-boilerplate-per-file convention.
+- **No CLA needed.** Apache-2.0 requires none from contributors; a lightweight DCO sign-off is an optional, low-friction alternative if contribution provenance ever matters.
+- **SBOM generation in CI:** **`@cyclonedx/cyclonedx-npm`** — purpose-built for npm, explicit workspace support (covers every workspace's dependencies without hand-listing them), reads the lockfile directly, outputs standard CycloneDX JSON/XML consumable by GitHub's dependency-submission API, Dependency-Track, GUAC, etc. Add as a devDependency plus one CI step. Optionally layer **Syft** at the container-build step to additionally capture the shipped *image's* contents (OS packages + baked-in npm output) — complementary, since the deliverable is a Docker image, not just source.
+- **CI gate:** the SBOM/license job runs on every CI build and **fails when a newly introduced dependency carries a non-permissive (copyleft) license** — the mechanism that keeps this decision enforced going forward instead of being re-litigated per-PR.
+
+---
+
+## 9. Disclaimer
+
+This document is an engineering analysis prepared from the project's own research, not legal advice. License compatibility and copyleft-triggering questions — especially the process/network-boundary reasoning in §7 — have real, occasionally unsettled edges. Anything load-bearing (a dispute, an indemnification request, a redistribution scenario not covered above) should go past a lawyer before being relied on.

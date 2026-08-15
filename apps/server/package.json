@@ -23,7 +23,7 @@
     "pino": "^9.6.0",
     "tar": "^7.4.3",
     "undici": "^7.2.0",
-    "zod": "^3.24.1"
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@types/tar": "^6.1.13"

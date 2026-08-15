@@ -12,7 +12,7 @@
   },
   "dependencies": {
     "@dwg/shared": "^0.1.0",
-    "@hookform/resolvers": "^3.9.1",
+    "@hookform/resolvers": "^5.7.1",
     "@tanstack/react-query": "^5.62.11",
     "@tanstack/react-table": "^9.1.2",
     "@tanstack/react-virtual": "^3.11.2",

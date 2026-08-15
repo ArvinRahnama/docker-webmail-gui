@@ -118,6 +118,14 @@ export default [
     },
     rules: {
       ...tsPlugin.configs.recommended.rules,
+      // TypeScript's own compiler already catches genuine
+      // undefined-variable errors (and does so more accurately than
+      // ESLint can). Left on, `no-undef` false-positives on ambient
+      // TS-only globals such as the `NodeJS` namespace
+      // (`NodeJS.ProcessEnv`, `NodeJS.Signals`, ...), which is standard,
+      // idiomatic Node+TS code, not a real bug. This is typescript-eslint's
+      // own documented recommendation.
+      'no-undef': 'off',
       'no-restricted-syntax': ['error', ...restrictedSyntaxSecurityRules],
       'no-restricted-imports': [
         'error',

@@ -54,11 +54,77 @@ function majorOf(range) {
   return match ? match[1] : null;
 }
 
+/**
+ * Second check: does what is actually installed match what is declared?
+ *
+ * Declaration consistency alone is not enough, as we found the hard way. On
+ * 2026-08-16 the manifests were corrected to zod ^4 and package-lock.json
+ * recorded 4.4.3, but `npm install` was failing on an unrelated ERESOLVE
+ * conflict, so node_modules kept zod 3.25.76. Fifty-five tests passed
+ * against v3 while every manifest claimed v4 — and the moment v4 was really
+ * installed, typecheck failed immediately.
+ *
+ * Tests are especially poor at catching this: vitest strips types with
+ * esbuild without checking them, so a suite can be entirely green while the
+ * code does not compile against the version it claims to use.
+ *
+ * Skipped when node_modules is absent (a CI checkout before install).
+ */
+function checkInstalledVersions(root, manifestPaths) {
+  const problems = [];
+
+  for (const path of manifestPaths) {
+    const manifest = JSON.parse(readFileSync(path, 'utf8'));
+    const workspaceDir = path.slice(0, -'package.json'.length);
+    const workspace = manifest.name ?? path;
+
+    for (const field of DEPENDENCY_FIELDS) {
+      for (const [dependency, range] of Object.entries(manifest[field] ?? {})) {
+        if (dependency.startsWith('@dwg/')) continue;
+        const declaredMajor = majorOf(range);
+        if (declaredMajor === null) continue;
+
+        // npm hoists to the root, but a conflicting version can also be
+        // nested inside the workspace. Check the nested copy first.
+        const candidates = [
+          join(workspaceDir, 'node_modules', dependency, 'package.json'),
+          join(root, 'node_modules', dependency, 'package.json'),
+        ];
+        const found = candidates.find((candidate) => existsSync(candidate));
+        if (found === undefined) continue; // not installed; npm ci/install will report it
+
+        const installedVersion = JSON.parse(readFileSync(found, 'utf8')).version;
+        const installedMajor = majorOf(installedVersion);
+        if (installedMajor !== null && installedMajor !== declaredMajor) {
+          problems.push(
+            `  ${dependency}: ${workspace} declares ${range} (major ${declaredMajor}) but ${installedVersion} is installed`,
+          );
+        }
+      }
+    }
+  }
+
+  if (problems.length > 0) {
+    console.error('Installed versions do not match declared ranges:\n');
+    for (const problem of problems) console.error(problem);
+    console.error(
+      '\nThe manifests and node_modules disagree, so tests are exercising a different\n' +
+        'version than the code claims to use. This usually means `npm install` failed\n' +
+        '(check for an ERESOLVE peer conflict) or was never re-run after a change.\n' +
+        'Run `npm install`, confirm it succeeds, then re-run the checks.',
+    );
+    return false;
+  }
+  return true;
+}
+
 function main() {
   const root = process.cwd();
   const declarations = new Map(); // package name -> Map<major, string[] workspaces>
 
-  for (const path of findPackageJsonPaths(root)) {
+  const manifestPaths = findPackageJsonPaths(root);
+
+  for (const path of manifestPaths) {
     let manifest;
     try {
       manifest = JSON.parse(readFileSync(path, 'utf8'));
@@ -91,8 +157,12 @@ function main() {
   }
 
   if (conflicts.length === 0) {
+    if (!checkInstalledVersions(root, manifestPaths)) {
+      process.exit(1);
+    }
     console.log(
-      `Checked ${declarations.size} distinct dependencies across workspaces: no major-version skew.`,
+      `Checked ${declarations.size} distinct dependencies across workspaces: ` +
+        'declarations agree, and installed versions match them.',
     );
     return;
   }

@@ -10,11 +10,17 @@ updates:
       - '/packages/*'
     schedule:
       interval: 'weekly'
+    # Majors are deliberately NOT grouped: each arrives as its own pull
+    # request so a breaking change is never bundled with routine patches and
+    # merged on a green check. See the note at the foot of this file.
     groups:
       minor-and-patch:
         update-types:
           - 'minor'
           - 'patch'
+    open-pull-requests-limit: 5
+    labels:
+      - 'dependencies'
     commit-message:
       prefix: 'chore'
       include: scope
@@ -23,11 +29,36 @@ updates:
     directory: '/'
     schedule:
       interval: 'weekly'
+    # Majors are deliberately NOT grouped: each arrives as its own pull
+    # request so a breaking change is never bundled with routine patches and
+    # merged on a green check. See the note at the foot of this file.
     groups:
       minor-and-patch:
         update-types:
           - 'minor'
           - 'patch'
+    open-pull-requests-limit: 5
+    labels:
+      - 'dependencies'
     commit-message:
       prefix: 'chore'
       include: scope
+# ---------------------------------------------------------------------------
+# A caution about merging these, recorded because it is easy to get wrong.
+#
+# A green CI check on a dependency bump means very little while the project is
+# still being built. CI currently runs lint, typecheck, test and build — and
+# with only foundation code in place, a major version bump can pass all four
+# simply because almost nothing imports the package yet. The check is
+# genuinely green and genuinely uninformative.
+#
+# Several breaking majors have already landed this way (zod 3 to 4,
+# @tanstack/react-table 8 to 9, tailwind-merge 2 to 3, @fastify/rate-limit
+# 10 to 11, @vitejs/plugin-react 4 to 6). That was harmless because no code
+# depended on them at the time — but the same pattern becomes a silent
+# breakage once the feature milestones land.
+#
+# Guidance: treat a major bump as a code change, not a chore. Check the
+# upstream changelog, and merge it only once the code that uses the package
+# exists and its tests actually exercise the changed API.
+# ---------------------------------------------------------------------------

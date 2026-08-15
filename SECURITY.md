@@ -136,7 +136,7 @@ Every threat named in the project brief, with our actual exposure and control. *
 
 ### 3.8 SQL injection
 
-**Mitigations:** every query uses parameterised statements via `better-sqlite3`. String-concatenated SQL is banned by lint rule. Untrusted input never reaches an identifier position.
+**Mitigations:** every query uses parameterised statements via `node:sqlite` (`ARCHITECTURE.md` §3.1 — the driver was changed from `better-sqlite3` after it proved uninstallable without a C++ toolchain). String-concatenated SQL is banned by lint rule, and the rule targets `.prepare()`, which is the API of both drivers, so the control survived the swap unchanged. Untrusted input never reaches an identifier position.
 
 ### 3.9 Privilege escalation between administrators
 

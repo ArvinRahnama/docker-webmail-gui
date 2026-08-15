@@ -182,20 +182,22 @@ Drivers are **interfaces with two implementations** — real and fake. This is w
 
 ### 7.3 Data model (SQLite)
 
-| Table               | Purpose                                                                 |
-| ------------------- | ----------------------------------------------------------------------- |
-| `admins`            | Accounts, Argon2id hashes, disabled flag, force-password-change         |
-| `sessions`          | Server-side sessions: token **hash**, expiry, last-seen, IP, user agent |
-| `login_attempts`    | Brute-force detection and lockout                                       |
-| `audit_log`         | Append-only security record (§7.6)                                      |
-| `jobs`, `job_logs`  | Long-running operations                                                 |
-| `backups`           | Backup metadata, checksum, verification result                          |
-| `metric_samples`    | Our own time series — the only source of spam trends                    |
-| `notifications`     | Deduplicated alerts                                                     |
-| `settings`          | Runtime configuration                                                   |
-| `schema_migrations` | Applied migration versions                                              |
+| Table               | Purpose                                                                                                 |
+| ------------------- | ------------------------------------------------------------------------------------------------------- |
+| `admins`            | Accounts, Argon2id hashes, disabled flag, force-password-change                                         |
+| `sessions`          | Server-side sessions: token **hash**, expiry, last-seen, IP, user agent                                 |
+| `login_attempts`    | Brute-force detection and lockout                                                                       |
+| `audit_log`         | Append-only security record (§7.6)                                                                      |
+| `jobs`, `job_logs`  | Long-running operations                                                                                 |
+| `backups`           | Backup metadata, checksum, verification result                                                          |
+| `metric_samples`    | Our own time series — the only source of spam trends                                                    |
+| `notifications`     | Deduplicated alerts                                                                                     |
+| `settings`          | Runtime configuration                                                                                   |
+| `schema_migrations` | Applied migration versions — bootstrapped by the runner itself, not by a numbered migration (see below) |
 
 Migrations are numbered, forward-only, and run at startup inside a transaction. The brief requires surviving upgrades without data loss, so the runner refuses to start on an unknown future schema version rather than guessing.
+
+`schema_migrations` is the one exception to "every table comes from a numbered migration", and necessarily so: the runner must query which migrations are already applied _before_ it can decide whether migration 001 should run, so that table cannot itself be created by 001. The runner creates it idempotently at startup, ahead of the numbered list. Noted here because the implementation legitimately departs from a literal reading of the table above.
 
 ### 7.4 Sessions, not JWTs
 

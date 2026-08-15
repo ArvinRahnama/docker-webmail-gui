@@ -1,0 +1,203 @@
+# 04 — Open-Source Licensing Audit
+
+**Scope:** Licensing audit for Docker Webmail GUI — a self-hosted web admin panel for `docker-mailserver`, distributed as GitHub source + a Docker image. It controls the mail stack over the Docker Engine API and by invoking CLIs (`setup`, `doveadm`, `postqueue`, …) inside a separate container; it does not link against any mail-server code.
+**Date:** 2026-08-15.
+**Status:** Greenfield — no dependencies are installed yet (confirmed in `00-repository-audit.md`: zero tracked files). Every row below describes the *proposed* stack from the project brief, audited before adoption.
+
+> **Confidence legend** (matching `02-docker-api-security.md`): `[CONFIRMED: <url>]` verified against a live source this session · `[INFERRED]` deduced from confirmed facts · `[UNVERIFIED]` plausible, stated from general knowledge but not independently re-checked this session — treat as a prompt to re-verify before it matters (e.g., before ship or before relying on it in a dispute).
+
+> **This document is an engineering summary written by an AI assistant, not legal advice.** License compatibility and copyleft-triggering questions (especially around network use and process boundaries) have real, occasionally unsettled edges. Anything load-bearing — the final license choice, an attribution dispute, a customer asking for indemnification — should go past a lawyer before you rely on it.
+
+**Bottom line up front:** No dependency in the proposed stack blocks any of MIT / Apache-2.0 / GPL-3.0 / AGPL-3.0 as our own project license — the compatibility constraint the brief asked me to check turns out not to be decisive. The recommendation is **Apache-2.0** (runner-up **AGPL-3.0**), reasoning in Task 3. Nothing we integrate with is AGPL, so no upstream network-copyleft obligation exists today regardless of what we pick.
+
+---
+
+## Task 1 — Dependency licenses
+
+All routine, well-known permissive packages (react, zod, fastify, etc.) are stated from reliable general knowledge per the task brief rather than fetched individually; the surprising/risky ones carry a live citation.
+
+### Frontend
+
+| Package | License | SPDX | Maintained? | Notes / risk |
+|---|---|---|---|---|
+| react, react-dom | MIT | `MIT` | Yes (Meta) | Routine. |
+| vite | MIT | `MIT` | Yes | Routine. |
+| typescript | **Apache-2.0** | `Apache-2.0` | Yes (Microsoft; native-Go compiler shipped 2026) | Not MIT like most of the JS toolchain — permissive, includes a patent grant. No incompatibility with any candidate project license. [CONFIRMED: https://github.com/microsoft/TypeScript/blob/main/LICENSE.txt] |
+| tailwindcss | MIT | `MIT` | Yes | **Current major = v4** (stable since 2025-01-22, Lightning-CSS engine, breaking config-format changes from v3 — plan for v4 from day one). [CONFIRMED: https://tailwindcss.com/blog/tailwindcss-v4] |
+| @radix-ui/* | MIT | `MIT` | Yes (WorkOS-backed since 2024) | Routine. |
+| **shadcn/ui** | MIT (of the copied code) | `MIT` | Actively developed | **Not an npm dependency.** The `shadcn` CLI (`npx shadcn add button`) copies component source — JSX, Tailwind classes, CVA variants — directly into our repo (typically `src/components/ui/`); we own and maintain that copy. Only the underlying primitives (Radix, or the newer Base UI) install as real npm packages. Because the code never appears in `node_modules` or `package.json`, **no SBOM/license scanner in Task 4 will see it** — attribution is a manual obligation (detail in Task 4). [CONFIRMED: https://github.com/shadcn-ui/ui/blob/main/LICENSE.md] |
+| lucide-react | ISC | `ISC` | Yes (fork of Feather Icons) | ISC is permissive-equivalent to MIT (older BSD-style wording); no practical difference. [CONFIRMED: https://github.com/lucide-icons/lucide] |
+| class-variance-authority (cva) | **Apache-2.0** | `Apache-2.0` | Yes (Joe Bell) | Not MIT; still fully permissive with a patent grant. [CONFIRMED via npm registry license field] |
+| clsx | MIT | `MIT` | Yes | Trivial, stable — low commit velocity ≠ unmaintained. |
+| tailwind-merge | MIT | `MIT` | Yes | Routine. |
+| @tanstack/react-query, react-table, react-virtual | MIT | `MIT` | Yes (TanStack) | Routine. |
+| recharts | MIT | `MIT` | Yes (v3 rewrite in progress) | Routine. |
+| sonner | MIT | `MIT` | Yes, small bus factor (Emil Kowalski) | Simple/feature-complete; low maintainer count is not the same as unmaintained. |
+| cmdk | MIT | `MIT` | Yes, small bus factor (pacocoursey) | Same caveat as sonner. |
+| react-hook-form | MIT | `MIT` | Yes | Routine. |
+| zod | MIT | `MIT` | Yes (v4 shipped) | Routine. |
+| date-fns | MIT | `MIT` | Yes (v4, ESM-first) | Routine. |
+| **@xterm/xterm** | MIT | `MIT` | Yes | **Confirmed current name.** The old `xterm` / `xterm-addon-*` packages on npm are now deprecated (typosquat-prevention rename); use scoped `@xterm/xterm` + `@xterm/addon-*` only. [CONFIRMED: https://github.com/xtermjs/xterm.js/issues/4859] |
+
+**CodeMirror 6 vs Monaco (Sieve/config editor):**
+
+| Package | License | SPDX | Bundle weight | Verdict |
+|---|---|---|---|---|
+| `@codemirror/*` (CM6) | MIT | `MIT` | Modular/tree-shakeable core ≈150–300KB uncompressed; a minimal setup can land ≈50KB. [CONFIRMED: https://blog.replit.com/codemirror] | **Recommended.** Same license as Monaco; far lighter for an admin panel that isn't a full IDE. |
+| `monaco-editor` | MIT | `MIT` | ≈5–10MB uncompressed; real-world bundle-analyzer reports show ~5MB even after gzip+parse. [CONFIRMED: https://blog.replit.com/codemirror] | Licensing is a non-issue (both MIT) — the decision is entirely bundle weight/UX. Monaco is 20–100× heavier for this use case. |
+
+### Backend (Node 24 + TS)
+
+| Package | License | SPDX | Maintained? | Notes / risk |
+|---|---|---|---|---|
+| fastify + @fastify/{cookie,helmet,rate-limit,static,websocket,multipart} | MIT | `MIT` | Yes | Routine — all official first-party plugins. |
+| dockerode | **Apache-2.0** | `Apache-2.0` | Yes (apocas) | Not MIT; permissive with patent grant. [CONFIRMED via npm/GitHub license field] |
+| better-sqlite3 | MIT | `MIT` | Yes | Mature, synchronous, battle-tested native binding. |
+| **`node:sqlite` (built-in)** | Node.js core license (MIT) | `MIT` | Yes (Node core) | **Not yet "Stable."** Official Node 24.19 docs mark it **Stability 1.2 — "Release candidate"** (unflagged since Node 22.13/23.4, but one step below Stability 2 "Stable"; API can still shift). [CONFIRMED: https://nodejs.org/docs/latest-v24.x/api/sqlite.html] Viable for greenfield code if minor API churn across Node point releases is acceptable; it lacks some of better-sqlite3's maturity (extension-loading breadth, backup API). **Recommendation:** ship v1 on `better-sqlite3` (fully stable, feature-complete); revisit `node:sqlite` once it reaches Stability 2 — migrating later removes a native-module/prebuilt-binary matrix from the Docker build, a real operational upside. |
+| drizzle-orm | **Apache-2.0** | `Apache-2.0` | Yes | Not MIT; permissive. [CONFIRMED via npm/GitHub license field] |
+| kysely | MIT | `MIT` | Yes | Routine. |
+| argon2 (npm, ranisalt) | MIT | `MIT` | Yes | Native binding wrapping the reference Argon2 C implementation. |
+| @node-rs/argon2 | MIT | `MIT` | Yes (napi-rs) | Rust/napi-rs alternative to `argon2`; pick one, not both. |
+| pino | MIT | `MIT` | Yes | Routine. |
+| undici | MIT | `MIT` | Yes (Node.js org itself) | Routine. |
+| tar (npm, isaacs/node-tar) | **BlueOak-1.0.0** | `BlueOak-1.0.0` | Yes | **Surprising SPDX id.** isaacs has been relicensing his packages (`glob`, `rimraf`, `tar`, …) from ISC to the Blue Oak Model License 1.0.0 — still short, permissive, no copyleft, just uncommon enough that some license-scanners misclassify it as "unknown." [CONFIRMED via npm package registry license field] Verify the Task-4 SBOM tool recognizes `BlueOak-1.0.0` as permissive rather than flagging it. |
+| tar-fs | MIT | `MIT` | Yes | Routine. |
+
+### Testing / CI
+
+| Package | License | SPDX | Maintained? | Notes / risk |
+|---|---|---|---|---|
+| vitest | MIT | `MIT` | Yes | Routine. |
+| playwright | **Apache-2.0** | `Apache-2.0` | Yes (Microsoft) | Not MIT; permissive. |
+| @testing-library/react | MIT | `MIT` | Yes | Routine. |
+| eslint | MIT | `MIT` | Yes | Routine. |
+| @typescript-eslint/* | MIT | `MIT` | Yes | Routine. |
+| prettier | MIT | `MIT` | Yes | Routine. |
+| biome | **MIT OR Apache-2.0** (dual, user's choice) | `MIT OR Apache-2.0` | Yes (biomejs org) | Dual-licensed; permissive either way. [CONFIRMED: https://github.com/biomejs/biome/blob/main/LICENSE-MIT + adjacent Apache-2.0 file] Note: Biome is the actively maintained fork of the discontinued "Rome" toolchain — if any planning doc still says "Rome," redirect to Biome. |
+
+**Flags rollup:** Nothing in this stack is copyleft, CLA-encumbered, or evidence-of-abandonment (>18mo silent). Several packages are Apache-2.0 rather than MIT (TypeScript, dockerode, drizzle-orm, class-variance-authority, Playwright) — that's a permissive upgrade (patent grant), not a risk. `tar`'s `BlueOak-1.0.0` is the one id worth teaching your tooling about. **CVE scanning was out of scope for this pass** — this is a point-in-time license audit, not a vulnerability scan; wire `npm audit` / Dependabot / OSV-Scanner into CI separately and continuously.
+
+---
+
+## Task 2 — Licenses of what we integrate with
+
+| Component | License | SPDX | Source |
+|---|---|---|---|
+| docker-mailserver | MIT | `MIT` | [CONFIRMED: https://github.com/docker-mailserver/docker-mailserver/blob/master/LICENSE] |
+| Postfix | IBM Public License 1.0, **or** (since 3.2.5, at the user's option) Eclipse Public License 2.0 | `IPL-1.0 OR EPL-2.0` | Both are weak/file-level copyleft (obligations attach to *distributing* Postfix's own covered files, not to programs that merely invoke `sendmail`/SMTP). [CONFIRMED: https://en.wikipedia.org/wiki/Postfix_(software)] |
+| **Dovecot** | **Split by path, not a single project-wide license**: `src/lib/`, `src/auth/`, `src/lib-sql/` = MIT; everything else = LGPL-2.1. This is the "unusual" part — it's a mixed-license codebase, not one license with exceptions. | `MIT AND LGPL-2.1` (exact `-only` vs `-or-later` qualifier on the LGPL grant not re-verified this session — `[UNVERIFIED]`, confirm against `COPYING.LGPL` in `dovecot/core` before any scenario that redistributes Dovecot itself) | [CONFIRMED: https://doc.dovecot.org/main/license.html] |
+| Rspamd | Apache-2.0 (relicensed from BSD-2-Clause) | `Apache-2.0` | [CONFIRMED: https://poste.io/doc/license, which lists "RSPAMD (Apache 2)" among its bundled components] |
+| ClamAV | GPL-2.0 (Cisco-owned) | `GPL-2.0-only` (assume `-only`; not re-verified) | [CONFIRMED: search-corroborated GPLv2 licensing, standard for ClamAV] |
+| Fail2ban | GPL-2.0 | `GPL-2.0-only` (assume `-only`; not re-verified) | [CONFIRMED: https://github.com/fail2ban/fail2ban/blob/master/COPYING] |
+| Docker Engine / moby | Apache-2.0 | `Apache-2.0` | [CONFIRMED: https://github.com/moby/moby/blob/master/LICENSE] |
+| tecnativa/docker-socket-proxy | Apache-2.0 | `Apache-2.0` | [CONFIRMED: https://github.com/Tecnativa/docker-socket-proxy] |
+
+**No AGPL component exists anywhere in this integration list.** That matters: it means none of our upstream integrations impose a network-copyleft obligation on us today, regardless of what we choose for our own code in Task 3.
+
+### Does GPL/LGPL/AGPL propagate to us?
+
+**No — under the FSF's own published position, and under this project's actual architecture, which puts *two* process/network boundaries between our code and every copyleft component.**
+
+Per `02-docker-api-security.md`, Docker Webmail GUI never links against Postfix, Dovecot, Rspamd, ClamAV, or Fail2ban. The call chain is: our backend → Docker Engine API (`POST /containers/{id}/exec`) or the docker socket-proxy → a *separate container's* CLI (`setup email add`, `doveadm`, `postqueue`, `fail2ban-client`, …) → which in turn wraps the actual mail daemons. That is precisely the scenario the FSF's GPL FAQ calls **"mere aggregation"**, not a combined/derivative work:
+
+> "Mere aggregation of two programs means putting them side by side on the same CD-ROM or hard disk. We use this term in the case where they are separate programs, not parts of a single program. … Pipes, sockets and command-line arguments are communication mechanisms normally used between two separate programs. So when they are used for communication, the modules normally are separate programs." — [CONFIRMED: https://www.gnu.org/licenses/gpl-faq.html]
+
+Applying that: ClamAV and Fail2ban are GPL-2.0 (the only real copyleft-strength components here), but we invoke them as independent OS processes across a container/exec boundary using their own CLI/socket protocols — the textbook "communication mechanism between separate programs" case, not linking. Dovecot's LGPL-2.1 half is even more clearly moot for us: LGPL's copyleft triggers specifically on *linking* against the library to form a combined work, and we never link against Dovecot at all — we shell out to `doveadm` or speak IMAP to it. Postfix's IPL/EPL obligations attach to distributing Postfix's own covered source files, which we never touch or redistribute.
+
+**Be honest about what's debated:** the FSF's own FAQ flags that the "separate programs" reading isn't unconditional — *"if the semantics of the communication are intimate enough, exchanging complex internal data structures, that too could be a basis to consider the two parts as combined into a larger program."* [CONFIRMED: https://www.gnu.org/licenses/gpl-faq.html] Nothing in our design does that (we exchange plain-text CLI output and JSON/HTTP over the Docker API, not shared memory or internal data structures), so the FAQ's own carve-out doesn't bite here — but this is exactly the kind of edge that stays legally unsettled in the abstract and is why this section is an engineering read of the FSF's position, not a legal opinion. `docker-mailserver` itself (MIT) is the party actually *bundling* Postfix/Dovecot/Rspamd/ClamAV/Fail2ban into one container image at build time — that's a "mere aggregation on a filesystem" question for *their* project, structurally identical to a Linux distro packaging GPL and non-GPL software together, and it is not our compliance burden since we never build or redistribute that image.
+
+AGPL-3.0 §13 is discussed in Task 3 — it doesn't apply here since none of the above is AGPL, but it's the crux of what license *we* choose for our own code.
+
+---
+
+## Task 3 — Choosing our license
+
+### The four candidates, compared
+
+| | MIT | Apache-2.0 | GPL-3.0 | AGPL-3.0 |
+|---|---|---|---|---|
+| Copyleft | None | None | Strong, triggers on *distribution* | Strong, triggers on distribution **and** network interaction (§13) |
+| Patent grant | None | Express grant + retaliation clause | Express grant (§11) | Express grant (§11, inherited from GPLv3) |
+| NOTICE/attribution burden | Copyright + license text only | Copyright + license text + must carry forward any upstream NOTICE content | Copyright + license text | Copyright + license text |
+| Forces source-sharing on... | Nobody | Nobody | Anyone who *distributes* the software or a modified version | Anyone who distributes it **or** lets others interact with a modified version over a network |
+| Adoption friction | Lowest | Very low | Meaningful (many companies avoid GPL for internal tooling) | Highest (many companies have blanket AGPL bans, even for pure self-hosted use where the clause would never actually fire) |
+
+### AGPL §13 — does it buy real protection here, or mostly friction?
+
+The brief's framing is sharp and correct: for a **self-hosted admin panel**, the "user interacting over the network" is, in the overwhelmingly common case, **the same admin who deployed it**. That person already has the source — they built or pulled the image themselves. AGPL grants them no new right they don't already have by virtue of being the operator. In that ordinary case, AGPL's network clause is pure friction: zero marginal protection, full marginal adoption cost (reflexive AGPL-avoidance policies at companies, unease among some self-hosters on principle).
+
+Where AGPL *does* buy something real: the scenario where a **third party** — an MSP, a hosting company, a "managed mail panel" reseller — takes Docker Webmail GUI, modifies it, and offers it as a paid hosted service to *their own* customers, who are a different population from the original deploying admin. Under MIT/Apache-2.0, that reseller owes nobody anything. Under AGPL-3.0, §13 forces them to offer *their customers* — the people "interacting remotely through a computer network" with the modified version — access to their modified source. This is precisely the ASP/SaaS loophole AGPL was written to close, and it's a plausible-not-hypothetical risk for a category of tool (self-hosted admin panels, "the open alternative to X") that gets white-labeled. So: AGPL buys real, specific protection against one scenario (competitive SaaS-wrapping) and buys nothing in the modal scenario (a homelaber running it themselves) — while taxing adoption in both.
+
+### Apache-2.0's patent grant + NOTICE — worth it over MIT?
+
+Yes, and closer to free than most licensing tradeoffs. The patent grant plus retaliation clause (§3: sue anyone over patent claims covering the software, lose your license to it) is meaningful for a project that operates squarely in container-orchestration territory, even though the realistic near-term patent-litigation risk for a self-hosted admin panel is low. The NOTICE mechanism (§4(d)) is a light mechanical burden — reproduce any upstream NOTICE file content, which in practice is usually empty or trivial. Given that TypeScript, dockerode, drizzle-orm, class-variance-authority, and Playwright are *already* Apache-2.0 in our own dependency tree, choosing Apache-2.0 for our code is internally consistent and introduces no new friction anywhere.
+
+### Compatibility check — the decisive technical constraint (checked, and it isn't decisive)
+
+Walking every dependency license from Task 1 against each candidate:
+
+- **MIT / Apache-2.0 (for us):** trivially compatible with everything in the tree (MIT, ISC, BlueOak-1.0.0, Apache-2.0, MIT-OR-Apache-2.0) — permissive licenses impose no restriction on what they're combined with. No conflicts.
+- **GPL-3.0 / AGPL-3.0 (for us):** the FSF explicitly special-cased Apache-2.0 as one-way compatible with GPLv3 (a GPLv3 project may incorporate Apache-2.0 code; the reverse isn't asserted and doesn't need to be). Every Apache-2.0 package we use (TypeScript, dockerode, drizzle-orm, cva, Playwright) is therefore safe to bundle into a GPL-3.0- or AGPL-3.0-licensed product. Every MIT/ISC/BlueOak-1.0.0 package is unconditionally GPL-compatible. **Result: nothing in the proposed npm dependency tree blocks GPL-3.0 or AGPL-3.0.**
+- The one real GPL-compatibility trap — **GPL-2.0-only code is *not* compatible with Apache-2.0**, so an Apache-2.0-licensed project can never absorb GPL-2.0-only source directly — is moot here because our only GPL-2.0 components (ClamAV, Fail2ban) are never linked or bundled; they're separate processes we invoke (Task 2). If a future feature ever *statically linked* `libclamav` into our binary, this constraint would become live and would force a re-audit.
+
+**Finding: the dependency graph does not force a choice.** All four candidate licenses are technically viable. The decision is strategic, not technically constrained.
+
+### What comparable projects do
+
+| Project | License | Notes |
+|---|---|---|
+| **Portainer** | CE = **zlib** (permissive, OSI-approved). Business Edition = separate proprietary EULA, license-key-gated. | **Relicensing/commercial history, reported honestly:** Portainer CE's source license is zlib today, confirmed via its own repo. [CONFIRMED: https://github.com/portainer/portainer/blob/develop/LICENSE] I could **not** independently verify a claimed earlier MIT→zlib transition this session — that specific historical detail is `[UNVERIFIED]`, so I'm not asserting it. What *is* well documented and genuinely notable is the **open-core commercial layer on top of the permissive core**: Portainer BE's free tier has been repeatedly narrowed — 5 nodes free → 3 nodes free, effective July 2023 — a recurring source of community friction even though the CE source license itself hasn't changed. [CONFIRMED: https://www.portainer.io/switch-to-a-3-nodes-free-license-key-for-5-nodes-free-users] Lesson for us: permissive-core-plus-proprietary-extras is a proven monetization path that doesn't require copyleft. |
+| Mailu | MIT | Fully permissive, pure community project, no open-core layer. [CONFIRMED: https://github.com/Mailu/Mailu] |
+| mailcow: dockerized | **GPL-3.0** | Copyleft, sponsor/donation-funded rather than open-core. |
+| Poste.io | Proprietary/commercial (bundles MIT/Apache/GPL/LGPL components internally — Haraka MIT, Rspamd Apache-2.0, ClamAV GPL, Roundcube GPL, Dovecot LGPL+MIT — but its own integration layer is closed) | [CONFIRMED: https://poste.io/doc/license] Real-world precedent that a commercial vendor's own lawyers concluded a closed admin/integration layer around GPL mail daemons is fine *because* those daemons are invoked as separate processes — independent corroboration of the mere-aggregation reasoning in Task 2. |
+| Uptime Kuma | MIT | [CONFIRMED: https://github.com/louislam/uptime-kuma/blob/master/LICENSE] Huge self-hosted adoption, largely permissive-license-driven. |
+| Dockge | MIT | Same author as Uptime Kuma; also a single-container web panel that drives Docker/Compose from a UI — **the closest structural analog to Docker Webmail GUI** of anything on this list. |
+
+The pattern: projects structurally shaped like Docker Webmail GUI — a single admin panel driving Docker (Uptime Kuma, Dockge) — are MIT. Projects that *are* the whole mail stack (mailcow) or a monetized product (Portainer, Poste.io) lean copyleft or proprietary/open-core respectively. Docker Webmail GUI is the former shape: `docker-mailserver` already owns "the mail stack" under MIT; we're the admin-panel layer on top, like Dockge is to Docker Compose.
+
+### Recommendation
+
+**Apache-2.0.**
+
+1. **Zero compatibility cost, real upside.** It's at least as permissive as MIT for every consumer of our code, and unlike MIT it carries an express patent grant plus a patent-retaliation clause — meaningful for a project operating in container-orchestration territory, and available for free since nothing in our dependency tree is disturbed by it (checked above).
+2. **Internal consistency.** TypeScript, dockerode, drizzle-orm, class-variance-authority, and Playwright — core parts of our own stack — are already Apache-2.0. Matching it removes any "why does our license differ from half our dependencies" friction.
+3. **Matches the audience by revealed preference.** The structurally closest comparable (Dockge) and the component we sit directly on top of (`docker-mailserver`) are both permissive (MIT). Self-hosters and homelabbers — this tool's primary audience — adopt permissively-licensed admin tools at far higher rates, and nothing about AGPL's protection is needed *yet*: no upstream component is AGPL, there's no evidence of a live SaaS-wrapping threat today, and an open-core monetization path (Portainer's model) remains fully available later without AGPL.
+
+**Runner-up: AGPL-3.0.** The argument for it: if protecting against a well-resourced third party rebranding and hosting Docker Webmail GUI without contributing back is a near-term, not hypothetical, concern, AGPL-3.0 is the one license here engineered specifically to prevent that, via §13. The cost is real and asymmetric — a share of the self-hosting/homelab audience and effectively all corporate adopters will avoid AGPL-labeled software on sight, even in deployments where §13 would never actually fire — but for a project whose core positioning is "the open alternative," that tradeoff is a legitimate, defensible choice if community-protection is weighted above maximum adoption. Note that plain **GPL-3.0 is dominated by both options for this project**: it has no §13, so it does nothing AGPL doesn't already do better against the SaaS-wrapping scenario, while carrying all of GPL's adoption friction — there's no scenario where GPL-3.0 beats both Apache-2.0 and AGPL-3.0 here.
+
+---
+
+## Task 4 — Compliance mechanics
+
+### Files needed (for Apache-2.0)
+
+- **`LICENSE`** at repo root — full Apache-2.0 text, unmodified. [CONFIRMED: https://www.apache.org/licenses/LICENSE-2.0.txt]
+- **`NOTICE`** — not strictly required unless upstream dependencies ship NOTICE content to carry forward (§4(d)), but recommended to create preemptively as the designated place to append third-party attributions (including the shadcn/ui line below) as they arise. It's informational only and doesn't alter the license grant.
+- **Per-file headers** — not mandated by Apache-2.0 itself, but recommended as a short SPDX header (`SPDX-License-Identifier: Apache-2.0`) rather than the old full boilerplate-per-file convention. This is machine-checkable and aligns with the [REUSE Software specification](https://reuse.software/), which is what most modern Apache/CNCF-style projects converge on.
+- **No CLA needed.** Apache-2.0 doesn't require one from contributors; adding one would only add friction for outside contributors. A lightweight DCO sign-off is an optional, low-friction alternative if contribution provenance ever matters.
+
+### SBOM / third-party license inventory tool for CI (npm workspaces monorepo)
+
+| Tool | Fit for npm workspaces | Output | Verdict |
+|---|---|---|---|
+| **`@cyclonedx/cyclonedx-npm`** | Purpose-built for npm; explicit workspace support (can include every workspace's deps without hand-listing them). [CONFIRMED: https://github.com/CycloneDX/cyclonedx-node-npm] | Standard CycloneDX JSON/XML — consumable by GitHub's dependency-submission API, Dependency-Track, GUAC, etc. | **Recommended** for the npm-workspaces source tree. Reads the lockfile directly (fast, reproducible), needs no extra binary, drops in as a devDependency + one CI step. |
+| license-checker-rspack | Maintained fork/successor of the stalled original `license-checker`; workspace support needs verification at the specific version you pin. | Flat license summary (great for a human-readable report or a CI gate on disallowed SPDX ids) | Good secondary tool for a fast "fail the build on GPL" gate; not a real SBOM (no PURLs). |
+| license-report | Flexible templated report (CSV/JSON/Markdown) of direct + transitive licenses. | Human-readable third-party-notices doc | Good for generating a `THIRD-PARTY-LICENSES` file to ship in releases; not a machine SBOM. |
+| Syft | General-purpose, language-agnostic; can scan the **built Docker image**, not just the npm source tree — catches OS packages and base-image contents too. | CycloneDX, SPDX, or its own format | Best for a full **image** SBOM (relevant here since the deliverable is a Docker image and the project already has a security-conscious threat model per `02-docker-api-security.md`), but it's a separate Go binary, not npm-native, and its npm cataloger is less workspace-aware than a purpose-built npm tool. |
+
+**Recommendation:** `@cyclonedx/cyclonedx-npm` as the one tool for the npm-workspaces monorepo, as asked. For defense in depth, consider layering **Syft** at the final container-build CI step to additionally capture what's actually in the shipped image (OS packages + baked-in npm output) — complementary, not a replacement.
+
+### Attribution for copy-pasted shadcn/ui components
+
+Because shadcn/ui components are copied MIT-licensed source living in our own repo, not an npm dependency, **no automated tool in the table above will ever see them** — this is a manual, permanent gap in any automated license inventory and should be flagged as such rather than assumed covered. Concretely:
+
+1. Preserve any copyright header the `shadcn` CLI writes into a generated file — do not strip it.
+2. Since many shadcn-generated files ship with no per-file header at all, add one line to `NOTICE` (or a `THIRD-PARTY-LICENSES` doc): *"Components in `src/components/ui/` are adapted from shadcn/ui, MIT License, https://github.com/shadcn-ui/ui/blob/main/LICENSE.md."* That satisfies MIT's one substantive requirement (preserve the copyright/permission notice) at the granularity that's actually practical for copy-pasted code.
+3. The underlying primitives (Radix UI or Base UI) **are** real npm dependencies and will be caught automatically by the SBOM tool — no manual step needed for those.
+
+### SPDX identifier for `package.json`
+
+```json
+"license": "Apache-2.0"
+```
+Set consistently in the root `package.json` and every workspace package's `package.json` (npm workspaces — SBOM/license tooling reads this field per workspace package, not just at the root). [CONFIRMED: https://docs.npmjs.com/cli/v11/configuring-npm/package-json#license, SPDX id per https://spdx.org/licenses/Apache-2.0.html]

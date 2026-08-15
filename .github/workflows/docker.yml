@@ -30,7 +30,7 @@ jobs:
       dockerfiles: ${{ steps.find.outputs.dockerfiles }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Find Dockerfiles under docker/
         id: find
@@ -57,7 +57,7 @@ jobs:
         dockerfile: ${{ fromJSON(needs.discover.outputs.dockerfiles) }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4

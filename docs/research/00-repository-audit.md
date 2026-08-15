@@ -8,25 +8,25 @@
 
 ## 1. Local working copy
 
-| Property | Finding |
-| --- | --- |
-| Path | `D:\Work\Docker Webmail GUI\src` |
-| Is a git repository | Yes |
-| Tracked files | **0** |
-| Untracked files | **0** — working tree contains only `.git/` |
-| Commits | **0** — `git log` reports *"your current branch 'origin' does not have any commits yet"* |
-| Local branches | **None materialised** (`git branch -a` is empty; `HEAD` is an unborn ref) |
-| `HEAD` | `ref: refs/heads/origin` |
-| Objects in store | 1 — `4b825dc642cb6eb9a060e54bf8d69288fbee4904` (the empty-tree object; not a commit) |
-| `.git/FETCH_HEAD` | Empty — a fetch was attempted but returned nothing |
+| Property            | Finding                                                                                  |
+| ------------------- | ---------------------------------------------------------------------------------------- |
+| Path                | `D:\Work\Docker Webmail GUI\src`                                                         |
+| Is a git repository | Yes                                                                                      |
+| Tracked files       | **0**                                                                                    |
+| Untracked files     | **0** — working tree contains only `.git/`                                               |
+| Commits             | **0** — `git log` reports _"your current branch 'origin' does not have any commits yet"_ |
+| Local branches      | **None materialised** (`git branch -a` is empty; `HEAD` is an unborn ref)                |
+| `HEAD`              | `ref: refs/heads/origin`                                                                 |
+| Objects in store    | 1 — `4b825dc642cb6eb9a060e54bf8d69288fbee4904` (the empty-tree object; not a commit)     |
+| `.git/FETCH_HEAD`   | Empty — a fetch was attempted but returned nothing                                       |
 
 ## 2. Remote
 
-| Property | Finding |
-| --- | --- |
-| Remote name | `origin` |
-| Fetch/push URL | `https://github.com/ArvinRahnama/docker-webmail-gui.git` |
-| `git ls-remote --heads --tags origin` | **Returned zero refs, exit 0** |
+| Property                              | Finding                                                  |
+| ------------------------------------- | -------------------------------------------------------- |
+| Remote name                           | `origin`                                                 |
+| Fetch/push URL                        | `https://github.com/ArvinRahnama/docker-webmail-gui.git` |
+| `git ls-remote --heads --tags origin` | **Returned zero refs, exit 0**                           |
 
 Exit code 0 with no output means the remote repository **exists and is reachable, but is completely empty** — no branches, no tags, no default branch, no initial commit. Therefore:
 
@@ -54,24 +54,24 @@ This is a metadata-only change on an unborn branch. It cannot lose data because 
 
 The machine this work is being performed on is a **Windows development workstation**, not the Linux server the product targets. This materially constrains what can be verified locally.
 
-| Tool | Status | Consequence |
-| --- | --- | --- |
-| Node.js | **v24.19.0** ✅ | Backend + frontend build and unit tests run locally |
-| npm | **11.17.0** ✅ | npm workspaces available (no pnpm needed) |
-| Python | 3.14.7 ✅ | Available for tooling scripts if ever needed (not planned) |
-| pnpm | ❌ not installed | Use npm workspaces |
-| Go | ❌ not installed | Reinforces choosing a non-Go backend |
-| **Docker** | ❌ **not installed** | **Cannot run Docker integration tests locally** |
-| Docker Compose | ❌ not installed | Cannot bring up the stack locally |
-| WSL | ❌ not installed | No Linux userland available locally |
-| GitHub CLI (`gh`) | ❌ not installed | Repo/PR automation must use `git` over HTTPS |
-| Host OS | Windows 11 Pro 10.0.26200 | Target OS is Linux; path/permission/UID semantics differ |
+| Tool              | Status                    | Consequence                                                |
+| ----------------- | ------------------------- | ---------------------------------------------------------- |
+| Node.js           | **v24.19.0** ✅           | Backend + frontend build and unit tests run locally        |
+| npm               | **11.17.0** ✅            | npm workspaces available (no pnpm needed)                  |
+| Python            | 3.14.7 ✅                 | Available for tooling scripts if ever needed (not planned) |
+| pnpm              | ❌ not installed          | Use npm workspaces                                         |
+| Go                | ❌ not installed          | Reinforces choosing a non-Go backend                       |
+| **Docker**        | ❌ **not installed**      | **Cannot run Docker integration tests locally**            |
+| Docker Compose    | ❌ not installed          | Cannot bring up the stack locally                          |
+| WSL               | ❌ not installed          | No Linux userland available locally                        |
+| GitHub CLI (`gh`) | ❌ not installed          | Repo/PR automation must use `git` over HTTPS               |
+| Host OS           | Windows 11 Pro 10.0.26200 | Target OS is Linux; path/permission/UID semantics differ   |
 
 ### 4.1 Consequences for the verification strategy
 
 This is the single most important operational finding of Phase 0, because the project brief requires **evidence that every feature works** and forbids fake functionality.
 
-1. **A first-class mock/development mode is mandatory, not optional.** The brief already requires it (§57), but the absence of Docker here promotes it to a critical path dependency: without it, no Docker-touching code can be exercised at all during development. It must be the *default* in development so the host daemon is never touched by accident — which also happens to be the correct security posture.
+1. **A first-class mock/development mode is mandatory, not optional.** The brief already requires it (§57), but the absence of Docker here promotes it to a critical path dependency: without it, no Docker-touching code can be exercised at all during development. It must be the _default_ in development so the host daemon is never touched by accident — which also happens to be the correct security posture.
 
 2. **The Docker controller must be built against an interface, with two implementations** — a real Engine API client and a deterministic in-memory fake seeded with realistic fixtures. Same for the mail-server integration (real `docker exec` vs. a fake driven by captured fixture output). This is required for testability regardless of the host, so it costs nothing extra.
 

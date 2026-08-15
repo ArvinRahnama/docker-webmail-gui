@@ -10,7 +10,7 @@ This document is both the project's **vulnerability disclosure policy** and its 
 
 **Please do not open a public issue for a security vulnerability.**
 
-Report privately via GitHub Security Advisories on the repository (*Security → Report a vulnerability*), which creates a private channel with the maintainers.
+Report privately via GitHub Security Advisories on the repository (_Security → Report a vulnerability_), which creates a private channel with the maintainers.
 
 Include: affected version/commit, environment, reproduction steps, impact, and any proof of concept. We aim to acknowledge within 5 days, provide an initial assessment within 10 days, and coordinate disclosure once a fix is available. Reporters are credited unless they prefer otherwise.
 
@@ -43,24 +43,24 @@ These are properties of the design, stated openly rather than hidden:
 
 ### 2.2 Trust boundaries
 
-| Boundary | Between | Control |
-| --- | --- | --- |
-| **B1** | Internet → web tier | Authentication, session management, rate limiting, CSRF, security headers |
-| **B2** | Web tier → broker | Internal-only network, shared secret, fixed operation vocabulary, Zod-validated per-operation schemas |
-| **B3** | Broker → Docker daemon | Operation allowlist, server-side container allowlist, no client-supplied container specs |
-| **B4** | Broker → DMS container | Argv arrays only, allowlisted subcommands, allowlisted file paths |
+| Boundary | Between                | Control                                                                                               |
+| -------- | ---------------------- | ----------------------------------------------------------------------------------------------------- |
+| **B1**   | Internet → web tier    | Authentication, session management, rate limiting, CSRF, security headers                             |
+| **B2**   | Web tier → broker      | Internal-only network, shared secret, fixed operation vocabulary, Zod-validated per-operation schemas |
+| **B3**   | Broker → Docker daemon | Operation allowlist, server-side container allowlist, no client-supplied container specs              |
+| **B4**   | Broker → DMS container | Argv arrays only, allowlisted subcommands, allowlisted file paths                                     |
 
 **B2 is the load-bearing boundary.** Everything above it is assumed breachable.
 
 ### 2.3 Adversaries
 
-| Adversary | Capability | Primary defence |
-| --- | --- | --- |
-| Unauthenticated internet attacker | Reach the login endpoint | Auth, rate limiting, lockout, no information disclosure |
-| Credentialed attacker (stolen admin session) | Full panel authority | Audit logging, re-auth for destructive actions, immediate session revocation, blast-radius bounding |
-| Attacker with RCE in the web tier | Arbitrary code in the web container | **B2** — no socket, no Docker vocabulary, no way to express a container spec |
-| Malicious or compromised dependency | Code execution at build or run time | Lockfiles, pinned digests, CI audit, SBOM, minimal dependency count |
-| Curious/careless administrator | Legitimate but dangerous actions | Tiered confirmations, impact summaries, deletion blocks on mail volumes |
+| Adversary                                    | Capability                          | Primary defence                                                                                     |
+| -------------------------------------------- | ----------------------------------- | --------------------------------------------------------------------------------------------------- |
+| Unauthenticated internet attacker            | Reach the login endpoint            | Auth, rate limiting, lockout, no information disclosure                                             |
+| Credentialed attacker (stolen admin session) | Full panel authority                | Audit logging, re-auth for destructive actions, immediate session revocation, blast-radius bounding |
+| Attacker with RCE in the web tier            | Arbitrary code in the web container | **B2** — no socket, no Docker vocabulary, no way to express a container spec                        |
+| Malicious or compromised dependency          | Code execution at build or run time | Lockfiles, pinned digests, CI audit, SBOM, minimal dependency count                                 |
+| Curious/careless administrator               | Legitimate but dangerous actions    | Tiered confirmations, impact summaries, deletion blocks on mail volumes                             |
 
 ---
 
@@ -73,6 +73,7 @@ Every threat named in the project brief, with our actual exposure and control. *
 **Exposure:** Highest-severity class. `POST /containers/create` with `Binds: ["/:/host"]`, `Privileged: true`, `PidMode: "host"`, or re-mounting the socket each independently yields host root.
 
 **Mitigations:**
+
 - The web tier has **no Docker socket and no Docker vocabulary**. It cannot express a container specification — there is no protocol field that carries one.
 - The broker exposes a **fixed enum of named operations**, Zod-validated per operation. Unknown operation → reject. No passthrough, no raw path, no `args` escape hatch.
 - Container identity is resolved **broker-side** from configured name/label. The web tier never sends a container ID.
@@ -114,6 +115,7 @@ Every threat named in the project brief, with our actual exposure and control. *
 ### 3.5 Authentication bypass · session hijacking · brute force
 
 **Mitigations:**
+
 - Argon2id via `@node-rs/argon2`. We implement no cryptography.
 - Opaque random session tokens; only the **hash** is stored. `HttpOnly; Secure; SameSite=Strict; Path=/`.
 - Session rotation on login and on privilege change; immediate server-side revocation on logout or account disable.
@@ -158,11 +160,11 @@ Every threat named in the project brief, with our actual exposure and control. *
 
 Three capabilities are refused because their risk exceeds their value. Each is shown in the UI as an explained, disabled state:
 
-| Refused | Reason |
-| --- | --- |
-| General Rspamd configuration editor | Rspamd config embeds **Lua** and maps can reference URLs — arbitrary code execution and SSRF inside the mail stack, handed to whoever holds an admin session |
-| Unrestricted shell / host terminal | Exec into DMS is root in a container holding the mail store, DKIM keys and TLS certs. Exec is also the trigger class for runc escapes (CVE-2019-5736, CVE-2024-21626). We ship a **restricted, allowlisted command console**, disabled by default |
-| Sieve scripts using `vnd.dovecot.execute` / `sieve_pipe` | These invoke external programs — the arbitrary-execution path the brief warns about. Scripts referencing them are rejected server-side |
+| Refused                                                  | Reason                                                                                                                                                                                                                                            |
+| -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| General Rspamd configuration editor                      | Rspamd config embeds **Lua** and maps can reference URLs — arbitrary code execution and SSRF inside the mail stack, handed to whoever holds an admin session                                                                                      |
+| Unrestricted shell / host terminal                       | Exec into DMS is root in a container holding the mail store, DKIM keys and TLS certs. Exec is also the trigger class for runc escapes (CVE-2019-5736, CVE-2024-21626). We ship a **restricted, allowlisted command console**, disabled by default |
+| Sieve scripts using `vnd.dovecot.execute` / `sieve_pipe` | These invoke external programs — the arbitrary-execution path the brief warns about. Scripts referencing them are rejected server-side                                                                                                            |
 
 ### 3.14 Supply-chain attacks
 

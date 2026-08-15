@@ -9,6 +9,12 @@ on:
 permissions:
   contents: read
 
+# Supersede in-flight runs for the same branch or PR — a force-push should
+# not leave stale jobs burning runner time and reporting outdated results.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build-and-test:
     name: Lint, typecheck, test, build

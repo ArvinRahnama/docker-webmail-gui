@@ -41,9 +41,9 @@ Two further research findings closed off the easy escapes:
               Docker daemon → docker-mailserver
 ```
 
-**The invariant:** the web tier cannot *express* a dangerous Docker call. Not "is prevented from" — **cannot express**. It has no socket and speaks a vocabulary of named intents (`mail.account.create`, `container.restart`, `logs.tail`). There is no field in that protocol that can carry a bind mount, a capability, or a container specification. Full RCE in the web tier yields the broker's allowlist and nothing more.
+**The invariant:** the web tier cannot _express_ a dangerous Docker call. Not "is prevented from" — **cannot express**. It has no socket and speaks a vocabulary of named intents (`mail.account.create`, `container.restart`, `logs.tail`). There is no field in that protocol that can carry a bind mount, a capability, or a container specification. Full RCE in the web tier yields the broker's allowlist and nothing more.
 
-This is privilege separation as used by OpenSSH, not microservices. It is also what the brief's own §50 sketch describes: *Frontend / Backend / Secure Docker Controller*.
+This is privilege separation as used by OpenSSH, not microservices. It is also what the brief's own §50 sketch describes: _Frontend / Backend / Secure Docker Controller_.
 
 ### 2.1 What this does and does not buy
 
@@ -59,20 +59,20 @@ Stated plainly, because overclaiming here would be its own security failure:
 
 ## 3. Technology choices
 
-| Layer | Choice | Why this, not the alternative |
-| --- | --- | --- |
-| Language | **TypeScript**, strict, everywhere | One language across three apps; Zod schemas in `shared/` are the *same artifact* for backend validation and frontend types, so a contract drift becomes a compile error |
-| Runtime | **Node.js 24 LTS** | Available; native fetch/undici, stable test runner, good SQLite story |
-| Backend | **Fastify** | MIT, fast, schema-first validation, mature plugin set (`@fastify/cookie`, `helmet`, `rate-limit`, `static`). Express is slower and less schema-native; Hono is excellent but its Node adapter is less battle-tested for long-lived SSE streams |
-| Validation | **Zod** | One schema → runtime validation + static type + OpenAPI-ish docs. Non-negotiable given the shared-contract goal |
-| State | **`node:sqlite`** (Node built-in) | Single file, synchronous API (simpler correctness in a low-concurrency admin tool), no server, and **zero native compilation**. See §3.1 — this reverses an earlier decision |
-| Data access | **Hand-written SQL + typed repositories + a small migration runner** | ~11 tables. An ORM (Drizzle/Kysely) adds a dependency and a codegen step to save little. Keeps the dependency count honest per the brief's anti-bloat rule |
-| Password hashing | **`@node-rs/argon2`** (Argon2id) | Prebuilt binaries — no node-gyp toolchain at install time, which matters for a self-hosted product. We implement no cryptography ourselves |
-| Docker client | **`dockerode`** — in the broker only | Apache-2.0. Exec requires HTTP connection hijacking plus the 8-byte multiplexed-stream demux; that is exactly where hand-rolled bugs hide. Accepted cost: heavier transitive tree, so it is pinned and audited |
-| Frontend | **React + Vite + Tailwind + shadcn/ui** | Per brief. Tailwind/shadcn major versions pinned in Phase 10 against what shadcn/ui currently supports — verified at implementation time, not assumed here |
-| Data/UI libs | TanStack **Query**, **Table**, **Virtual**; `cmdk`; `sonner`; `react-hook-form` | Headless where possible so the design system owns presentation |
-| Tests | **Vitest** (unit/integration), **Playwright** (E2E) | |
-| Logging | **Pino** | Structured JSON, fast, with a mandatory redaction list |
+| Layer            | Choice                                                                          | Why this, not the alternative                                                                                                                                                                                                                  |
+| ---------------- | ------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Language         | **TypeScript**, strict, everywhere                                              | One language across three apps; Zod schemas in `shared/` are the _same artifact_ for backend validation and frontend types, so a contract drift becomes a compile error                                                                        |
+| Runtime          | **Node.js 24 LTS**                                                              | Available; native fetch/undici, stable test runner, good SQLite story                                                                                                                                                                          |
+| Backend          | **Fastify**                                                                     | MIT, fast, schema-first validation, mature plugin set (`@fastify/cookie`, `helmet`, `rate-limit`, `static`). Express is slower and less schema-native; Hono is excellent but its Node adapter is less battle-tested for long-lived SSE streams |
+| Validation       | **Zod**                                                                         | One schema → runtime validation + static type + OpenAPI-ish docs. Non-negotiable given the shared-contract goal                                                                                                                                |
+| State            | **`node:sqlite`** (Node built-in)                                               | Single file, synchronous API (simpler correctness in a low-concurrency admin tool), no server, and **zero native compilation**. See §3.1 — this reverses an earlier decision                                                                   |
+| Data access      | **Hand-written SQL + typed repositories + a small migration runner**            | ~11 tables. An ORM (Drizzle/Kysely) adds a dependency and a codegen step to save little. Keeps the dependency count honest per the brief's anti-bloat rule                                                                                     |
+| Password hashing | **`@node-rs/argon2`** (Argon2id)                                                | Prebuilt binaries — no node-gyp toolchain at install time, which matters for a self-hosted product. We implement no cryptography ourselves                                                                                                     |
+| Docker client    | **`dockerode`** — in the broker only                                            | Apache-2.0. Exec requires HTTP connection hijacking plus the 8-byte multiplexed-stream demux; that is exactly where hand-rolled bugs hide. Accepted cost: heavier transitive tree, so it is pinned and audited                                 |
+| Frontend         | **React + Vite + Tailwind + shadcn/ui**                                         | Per brief. Tailwind/shadcn major versions pinned in Phase 10 against what shadcn/ui currently supports — verified at implementation time, not assumed here                                                                                     |
+| Data/UI libs     | TanStack **Query**, **Table**, **Virtual**; `cmdk`; `sonner`; `react-hook-form` | Headless where possible so the design system owns presentation                                                                                                                                                                                 |
+| Tests            | **Vitest** (unit/integration), **Playwright** (E2E)                             |                                                                                                                                                                                                                                                |
+| Logging          | **Pino**                                                                        | Structured JSON, fast, with a mandatory redaction list                                                                                                                                                                                         |
 
 ### 3.1 SQLite driver: why this reversed
 
@@ -120,12 +120,13 @@ docker-webmail-gui/
 
 DMS ships **no HTTP API and no machine-readable CLI output** — `setup email list` is a hand-formatted bullet list. That single fact dictates a split:
 
-| Path | Mechanism | Why |
-| --- | --- | --- |
-| **Read** | Parse config files (`postfix-accounts.cf`, `postfix-virtual.cf`, `dovecot-quotas.cf`) and query real APIs (Rspamd HTTP, clamd socket, `doveadm`, `postqueue -j`, Docker API) | These have stable documented formats. Parsing decorative CLI text would break silently on any upstream cosmetic change |
-| **Write** | `setup` CLI via `docker exec` with an **argv array** | `setup` owns hashing, file locking and side effects. Reimplementing those would fork the write semantics and eventually corrupt state |
+| Path      | Mechanism                                                                                                                                                                    | Why                                                                                                                                   |
+| --------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| **Read**  | Parse config files (`postfix-accounts.cf`, `postfix-virtual.cf`, `dovecot-quotas.cf`) and query real APIs (Rspamd HTTP, clamd socket, `doveadm`, `postqueue -j`, Docker API) | These have stable documented formats. Parsing decorative CLI text would break silently on any upstream cosmetic change                |
+| **Write** | `setup` CLI via `docker exec` with an **argv array**                                                                                                                         | `setup` owns hashing, file locking and side effects. Reimplementing those would fork the write semantics and eventually corrupt state |
 
 **Command construction rules** (enforced by the broker, not by convention):
+
 - Argv arrays only. Never `sh -c`. Never string interpolation.
 - Subcommand and flags come from a **server-side allowlist**; only leaf values (an address, a quota) come from validated input.
 - **Passwords go to stdin, never argv** — DMS accepts an argv password but warns it lands in shell history, and argv is visible in `ps`.
@@ -161,8 +162,14 @@ Operation families: `container.{list,inspect,start,stop,restart,recreate,stats,l
 Uniform error envelope — never a stack trace:
 
 ```json
-{ "error": { "code": "MAILBOX_NOT_FOUND", "message": "That mailbox does not exist.",
-             "errorId": "e_01J9X…", "details": null } }
+{
+  "error": {
+    "code": "MAILBOX_NOT_FOUND",
+    "message": "That mailbox does not exist.",
+    "errorId": "e_01J9X…",
+    "details": null
+  }
+}
 ```
 
 `errorId` correlates to the server log so an admin can quote it in a bug report without us leaking internals. Technical detail is available to authenticated admins via the log, not via the response body.
@@ -175,18 +182,18 @@ Drivers are **interfaces with two implementations** — real and fake. This is w
 
 ### 7.3 Data model (SQLite)
 
-| Table | Purpose |
-| --- | --- |
-| `admins` | Accounts, Argon2id hashes, disabled flag, force-password-change |
-| `sessions` | Server-side sessions: token **hash**, expiry, last-seen, IP, user agent |
-| `login_attempts` | Brute-force detection and lockout |
-| `audit_log` | Append-only security record (§7.6) |
-| `jobs`, `job_logs` | Long-running operations |
-| `backups` | Backup metadata, checksum, verification result |
-| `metric_samples` | Our own time series — the only source of spam trends |
-| `notifications` | Deduplicated alerts |
-| `settings` | Runtime configuration |
-| `schema_migrations` | Applied migration versions |
+| Table               | Purpose                                                                 |
+| ------------------- | ----------------------------------------------------------------------- |
+| `admins`            | Accounts, Argon2id hashes, disabled flag, force-password-change         |
+| `sessions`          | Server-side sessions: token **hash**, expiry, last-seen, IP, user agent |
+| `login_attempts`    | Brute-force detection and lockout                                       |
+| `audit_log`         | Append-only security record (§7.6)                                      |
+| `jobs`, `job_logs`  | Long-running operations                                                 |
+| `backups`           | Backup metadata, checksum, verification result                          |
+| `metric_samples`    | Our own time series — the only source of spam trends                    |
+| `notifications`     | Deduplicated alerts                                                     |
+| `settings`          | Runtime configuration                                                   |
+| `schema_migrations` | Applied migration versions                                              |
 
 Migrations are numbered, forward-only, and run at startup inside a transaction. The brief requires surviving upgrades without data loss, so the runner refuses to start on an unknown future schema version rather than guessing.
 
@@ -208,7 +215,7 @@ Each check is an independent unit returning `Healthy | Warning | Critical | Unkn
 
 ### 7.8 Metrics sampling
 
-Because Rspamd's `/history` is a 200-entry in-memory ring buffer lost on restart, **trend data does not exist upstream**. A scheduled sampler writes `/stat` counters, queue depth and resource usage into `metric_samples`, downsampling old data on a retention policy. Until enough samples exist the UI says *"Collecting"* — it never draws a line it cannot back.
+Because Rspamd's `/history` is a 200-entry in-memory ring buffer lost on restart, **trend data does not exist upstream**. A scheduled sampler writes `/stat` counters, queue depth and resource usage into `metric_samples`, downsampling old data on a retention policy. Until enough samples exist the UI says _"Collecting"_ — it never draws a line it cannot back.
 
 ---
 

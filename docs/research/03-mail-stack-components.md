@@ -81,6 +81,7 @@ Default controller port: **11334** `[CONFIRMED: docs.rspamd.com/workers/controll
 container: `http://127.0.0.1:11334`.
 
 ### Auth model
+
 `[CONFIRMED: docs.rspamd.com/workers/controller]` `[CONFIRMED: github.com/rspamd/rspamd issues #2112, #4186]`
 
 - Every privileged (state-changing) request needs a `Password` HTTP header (or `?password=` query string) matching
@@ -92,31 +93,33 @@ container: `http://127.0.0.1:11334`.
 - Example: `curl -H "Password: xxx" http://localhost:11334/symbols`.
 
 ### Endpoint surface
+
 `[CONFIRMED: docs.rspamd.com/workers/controller — endpoint names]`, methods/response-field detail mostly `[INFERRED]`
 unless noted — **verify field names with a live `curl` before binding UI to specific keys.**
 
-| Endpoint | Method | Mutating? | Notes |
-|---|---|---|---|
-| `/stat` | GET | No | Scan/learn counters + actions breakdown. Exact field list `[INFERRED]` — see below. |
-| `/statreset` | GET | **Yes** (privileged) | Resets the counters `/stat` reports. Useful "since last reset" semantics, but resets shared global state — don't expose this to non-admins. |
-| `/history` | GET | No | Recent message verdicts (see below). |
-| `/historyreset` | GET | **Yes** (privileged) | Clears the in-memory history ring buffer. |
-| `/errors` | GET | No | Recent internal error log entries (privileged read) `[INFERRED]`. |
-| `/symbols` | GET | No | Lists all loaded rule symbols, weights, descriptions, groups. |
-| `/actions` | GET | No | Current score thresholds per action (greylist/add-header/reject/etc). |
-| `/graph` | GET | No | Time-series data backing the WebUI throughput graph. |
-| `/pie` | GET | No | Action-distribution data backing the WebUI pie chart. |
-| `/checkv2` | POST | No (scans only) | Full scan of a submitted message. Response is documented JSON — see below. |
-| `/scan`, `/check` | POST | No | Older/alternate scan endpoints; `/checkv2` is the current one to use. |
-| `/learnspam` | POST | **Yes** | Trains Bayes as spam. Body = raw message. Optional `Classifier` header. |
-| `/learnham` | POST | **Yes** | Trains Bayes as ham. Same shape as `/learnspam`. |
-| `/fuzzyadd` / `/fuzzydel` / `/fuzzydelhash` | POST | **Yes** | Fuzzy-hash storage management — mutating, privileged. |
-| `/saveactions` / `/savesymbols` / `/savemap` | POST | **Yes** | Persist config changes (thresholds, symbol weights, maps) to disk. |
-| `/maps` / `/getmap` | GET | No | List/read configured maps (e.g. whitelists). |
-| `/counters` | GET | No | Per-symbol hit counters (how often each rule fired). |
-| `/metrics` | GET | No | Prometheus-format metrics exposition (if enabled) — likely your best bet for a stable, versioned schema instead of scraping `/stat`. |
+| Endpoint                                     | Method | Mutating?            | Notes                                                                                                                                       |
+| -------------------------------------------- | ------ | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/stat`                                      | GET    | No                   | Scan/learn counters + actions breakdown. Exact field list `[INFERRED]` — see below.                                                         |
+| `/statreset`                                 | GET    | **Yes** (privileged) | Resets the counters `/stat` reports. Useful "since last reset" semantics, but resets shared global state — don't expose this to non-admins. |
+| `/history`                                   | GET    | No                   | Recent message verdicts (see below).                                                                                                        |
+| `/historyreset`                              | GET    | **Yes** (privileged) | Clears the in-memory history ring buffer.                                                                                                   |
+| `/errors`                                    | GET    | No                   | Recent internal error log entries (privileged read) `[INFERRED]`.                                                                           |
+| `/symbols`                                   | GET    | No                   | Lists all loaded rule symbols, weights, descriptions, groups.                                                                               |
+| `/actions`                                   | GET    | No                   | Current score thresholds per action (greylist/add-header/reject/etc).                                                                       |
+| `/graph`                                     | GET    | No                   | Time-series data backing the WebUI throughput graph.                                                                                        |
+| `/pie`                                       | GET    | No                   | Action-distribution data backing the WebUI pie chart.                                                                                       |
+| `/checkv2`                                   | POST   | No (scans only)      | Full scan of a submitted message. Response is documented JSON — see below.                                                                  |
+| `/scan`, `/check`                            | POST   | No                   | Older/alternate scan endpoints; `/checkv2` is the current one to use.                                                                       |
+| `/learnspam`                                 | POST   | **Yes**              | Trains Bayes as spam. Body = raw message. Optional `Classifier` header.                                                                     |
+| `/learnham`                                  | POST   | **Yes**              | Trains Bayes as ham. Same shape as `/learnspam`.                                                                                            |
+| `/fuzzyadd` / `/fuzzydel` / `/fuzzydelhash`  | POST   | **Yes**              | Fuzzy-hash storage management — mutating, privileged.                                                                                       |
+| `/saveactions` / `/savesymbols` / `/savemap` | POST   | **Yes**              | Persist config changes (thresholds, symbol weights, maps) to disk.                                                                          |
+| `/maps` / `/getmap`                          | GET    | No                   | List/read configured maps (e.g. whitelists).                                                                                                |
+| `/counters`                                  | GET    | No                   | Per-symbol hit counters (how often each rule fired).                                                                                        |
+| `/metrics`                                   | GET    | No                   | Prometheus-format metrics exposition (if enabled) — likely your best bet for a stable, versioned schema instead of scraping `/stat`.        |
 
 ### `/checkv2` response — the one fully confirmed schema
+
 `[CONFIRMED: docs.rspamd.com/developers/protocol]`
 
 ```json
@@ -127,12 +130,17 @@ unless noted — **verify field names with a live `curl` before binding UI to sp
   "symbols": {
     "BAYES_SPAM": { "name": "BAYES_SPAM", "score": 3.0, "options": ["..."] }
   },
-  "subject": "...", "urls": ["..."], "emails": ["..."], "message-id": "..."
+  "subject": "...",
+  "urls": ["..."],
+  "emails": ["..."],
+  "message-id": "..."
 }
 ```
+
 `action` is one of: `no action`, `greylist`, `add header`, `rewrite subject`, `soft reject`, `reject`.
 
 ### `/stat` — what determines your spam-statistics UI
+
 Confirmed to exist and to be GET/read-only `[CONFIRMED: docs.rspamd.com/workers/controller]`. A partial field list
 surfaced from a real deployment example: `scanned`, `learned`, `connections`, `control_connections`
 `[INFERRED — search snippet quoting `{"scanned":0,"learned":0,"connections":0,"control_connections":0}`, not an
@@ -144,6 +152,7 @@ dashboard against confirmed keys only.** `rspamc stat` (CLI) hits the same endpo
 a real sample: `docker exec <container> rspamc stat`.
 
 ### `/history` — persistence and retention
+
 `[INFERRED, converging evidence]`: history is an **in-memory ring buffer**, default size **`history_rows = 200`**
 entries (`options.inc` default) `[INFERRED: fossies.org mirror of rspamd conf/options.inc + GitHub issue #3779]`.
 This does **not survive a controller/rspamd restart** — there is no on-disk persistence by default. A separate,
@@ -163,16 +172,17 @@ docs.rspamd.com/developers/controller_endpoints/ `[CONFIRMED, partial]`, docs.rs
 ## 2. ClamAV
 
 ### Status, version, signature info — all via the clamd control socket protocol
+
 `[CONFIRMED: docs.clamav.net/manual/Usage/ClamdProtocol.html]`
 
-| Command | Purpose | Notes |
-|---|---|---|
-| `PING` | Health check | Healthy daemon replies `PONG`. Enabled by default. |
-| `VERSION` | Program + DB version | Reply format (well-established, `[INFERRED]` exact string): `ClamAV 0.103.x/27xxx/Day Mon DD HH:MM:SS YYYY` — i.e. engine version / signature DB version number / DB build date, all in one line. Disable-able via `EnableVersionCommand`. |
-| `VERSIONCOMMANDS` | Version + supported command list | Good for capability-probing before calling privileged commands. |
-| `STATS` | Queue/thread/memory diagnostics | **Explicitly documented as an unstable format** — "parse it as diagnostic text, not a fixed schema" `[CONFIRMED: docs.clamav.net]`. Typical shape includes `POOLS:`, `STATE:`, `THREADS: live N idle N max N idle-timeout N`, `QUEUE: N items`, plus memory stats. |
-| `RELOAD` | Reload signature DB | Mutating (privileged in some configs). |
-| `SHUTDOWN`, `SELFCHECK` | Admin ops | Mutating/administrative, only if enabled in `clamd.conf`. |
+| Command                 | Purpose                          | Notes                                                                                                                                                                                                                                                              |
+| ----------------------- | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `PING`                  | Health check                     | Healthy daemon replies `PONG`. Enabled by default.                                                                                                                                                                                                                 |
+| `VERSION`               | Program + DB version             | Reply format (well-established, `[INFERRED]` exact string): `ClamAV 0.103.x/27xxx/Day Mon DD HH:MM:SS YYYY` — i.e. engine version / signature DB version number / DB build date, all in one line. Disable-able via `EnableVersionCommand`.                         |
+| `VERSIONCOMMANDS`       | Version + supported command list | Good for capability-probing before calling privileged commands.                                                                                                                                                                                                    |
+| `STATS`                 | Queue/thread/memory diagnostics  | **Explicitly documented as an unstable format** — "parse it as diagnostic text, not a fixed schema" `[CONFIRMED: docs.clamav.net]`. Typical shape includes `POOLS:`, `STATE:`, `THREADS: live N idle N max N idle-timeout N`, `QUEUE: N items`, plus memory stats. |
+| `RELOAD`                | Reload signature DB              | Mutating (privileged in some configs).                                                                                                                                                                                                                             |
+| `SHUTDOWN`, `SELFCHECK` | Admin ops                        | Mutating/administrative, only if enabled in `clamd.conf`.                                                                                                                                                                                                          |
 
 Practical way to hit these from a `docker exec` argv array: use `clamdscan --ping`/`--version` (wraps the socket
 protocol) or talk to the Unix socket directly (e.g. `echo VERSION | socat - UNIX-CONNECT:/var/run/clamav/clamd.ctl`,
@@ -184,6 +194,7 @@ timestamp; `sigtool --info main.cvd` (or `daily.cvd`/`.cld`) gives per-database 
 exact flag names as needing a one-time confirmation run inside the target image.
 
 ### Counting virus detections — honest answer
+
 **No.** There is no clamd command or persistent counter for "number of viruses detected." `STATS` covers
 queue/thread/memory, not detection history. **Log parsing (clamd's own log, or the MTA/milter log line recording a
 rejection because ClamAV flagged the message) is the only route to a virus-detection count**
@@ -203,36 +214,46 @@ exact version-check command text]`.
 `postqueue -j` emits **JSON Lines** — one JSON object per queue file, one line each, no wrapping array. Confirmed
 field names:
 
-| Field | Meaning |
-|---|---|
-| `queue_name` | Which queue the file is in (`incoming`, `active`, `deferred`, `hold`) — **this is your per-queue-count field**, just tally by this key. |
-| `queue_id` | The queue file ID (matches the ID in maillog lines). |
-| `arrival_time` | Seconds since epoch. |
-| `message_size` | Bytes. |
-| `forced_expire` | Bool, Postfix ≥ 3.5. |
-| `sender` | Envelope sender. |
-| `recipients[]` | Array of `{ address, orig_address (≥3.11), delay_reason, bounce_reason (≥3.11) }`. |
+| Field           | Meaning                                                                                                                                 |
+| --------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `queue_name`    | Which queue the file is in (`incoming`, `active`, `deferred`, `hold`) — **this is your per-queue-count field**, just tally by this key. |
+| `queue_id`      | The queue file ID (matches the ID in maillog lines).                                                                                    |
+| `arrival_time`  | Seconds since epoch.                                                                                                                    |
+| `message_size`  | Bytes.                                                                                                                                  |
+| `forced_expire` | Bool, Postfix ≥ 3.5.                                                                                                                    |
+| `sender`        | Envelope sender.                                                                                                                        |
+| `recipients[]`  | Array of `{ address, orig_address (≥3.11), delay_reason, bounce_reason (≥3.11) }`.                                                      |
 
 Sample line shape (field names confirmed, values illustrative) `[INFERRED formatting example around CONFIRMED
 field names]`:
+
 ```json
-{"queue_name":"deferred","queue_id":"4Xk2mP1abc","arrival_time":1755123456,"message_size":2345,"forced_expire":false,"sender":"a@example.com","recipients":[{"address":"b@example.org","delay_reason":"connection timed out"}]}
+{
+  "queue_name": "deferred",
+  "queue_id": "4Xk2mP1abc",
+  "arrival_time": 1755123456,
+  "message_size": 2345,
+  "forced_expire": false,
+  "sender": "a@example.com",
+  "recipients": [{ "address": "b@example.org", "delay_reason": "connection timed out" }]
+}
 ```
 
 Per-queue counts: run `postqueue -j`, group-count by `queue_name`. There's no separate "give me counts only" flag —
 you always get full line items, which is fine since it's cheap to count client-side.
 
 ### Queue operations — mutating vs destructive
+
 `[CONFIRMED: postfix.org/postqueue.1.html general behavior]` `[INFERRED for postsuper specifics — standard, very
 stable Postfix behavior]`
 
-| Command | Effect | Destructive? |
-|---|---|---|
-| `postqueue -f` | Force delivery attempt of all queued mail now | Mutating (triggers real delivery attempts); docs explicitly warn frequent flushing hurts overall delivery performance — throttle this in the UI. |
-| `postsuper -r <queue_id>` | Requeue (re-evaluate) a message | Mutating, not destructive — recoverable. |
-| `postsuper -h <queue_id>` | Put message on hold | Mutating, recoverable (reversed by `-H`). |
-| `postsuper -H <queue_id>` | Release message from hold | Mutating, recoverable. |
-| `postsuper -d <queue_id>` (or `-d ALL`) | **Delete** message from queue | **Destructive, irreversible.** Require explicit confirmation in UI; never expose `-d ALL` behind a single click. |
+| Command                                 | Effect                                        | Destructive?                                                                                                                                     |
+| --------------------------------------- | --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `postqueue -f`                          | Force delivery attempt of all queued mail now | Mutating (triggers real delivery attempts); docs explicitly warn frequent flushing hurts overall delivery performance — throttle this in the UI. |
+| `postsuper -r <queue_id>`               | Requeue (re-evaluate) a message               | Mutating, not destructive — recoverable.                                                                                                         |
+| `postsuper -h <queue_id>`               | Put message on hold                           | Mutating, recoverable (reversed by `-H`).                                                                                                        |
+| `postsuper -H <queue_id>`               | Release message from hold                     | Mutating, recoverable.                                                                                                                           |
+| `postsuper -d <queue_id>` (or `-d ALL`) | **Delete** message from queue                 | **Destructive, irreversible.** Require explicit confirmation in UI; never expose `-d ALL` behind a single click.                                 |
 
 ---
 
@@ -241,14 +262,14 @@ stable Postfix behavior]`
 `[CONFIRMED: doc.dovecot.org/main/core/man/doveadm-pw.1.html]` for flags/schemes; argv-safety is `[UNCERTAIN]`,
 see the starred summary above for the full reasoning — repeating the essentials here:
 
-| Flag | Purpose |
-|---|---|
-| `-s SCHEME` | Hash scheme: `SHA512-CRYPT`, `ARGON2ID`, `BLF-CRYPT`, `SHA256-CRYPT`, `CRYPT` (default, bcrypt `$2y$` form), etc. |
+| Flag          | Purpose                                                                                                                                     |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| `-s SCHEME`   | Hash scheme: `SHA512-CRYPT`, `ARGON2ID`, `BLF-CRYPT`, `SHA256-CRYPT`, `CRYPT` (default, bcrypt `$2y$` form), etc.                           |
 | `-p password` | Plaintext password inline — **appears in argv, visible to `ps`/`docker top` on the host.** Avoid for anything beyond one-off local testing. |
-| `-r rounds` | Cost factor for BLF-CRYPT/SHA{256,512}-CRYPT. |
-| `-V` | Verify the generated hash internally. |
-| `-t hash` | Test a plaintext password against an existing hash (verification mode). |
-| *(no flag)* | Interactive prompt: `Enter new password:` / `Retype new password:`. |
+| `-r rounds`   | Cost factor for BLF-CRYPT/SHA{256,512}-CRYPT.                                                                                               |
+| `-V`          | Verify the generated hash internally.                                                                                                       |
+| `-t hash`     | Test a plaintext password against an existing hash (verification mode).                                                                     |
+| _(no flag)_   | Interactive prompt: `Enter new password:` / `Retype new password:`.                                                                         |
 
 Example: `doveadm pw -s SHA512-CRYPT` → `{SHA512-CRYPT}$6$...`. `doveadm pw -s ARGON2ID` →
 `{ARGON2ID}$argon2id$v=19$m=65536,t=3,p=1$...`.
@@ -277,10 +298,10 @@ Source: doc.dovecot.org/main/core/man/doveadm-pw.1.html `[CONFIRMED]`, doc.dovec
   against a literal date using relational operators (`:value "ge"/"le"/"gt"/"lt"` etc against a `"date"` typed
   value) `[CONFIRMED: rfc-editor.org/rfc/rfc5260.html]`. Pigeonhole supports this extension (documented as
   supported since v0.1.12) `[INFERRED from doc.dovecot.org search result snippet — page itself wasn't fetchable
-  with full text this session]`.
+with full text this session]`.
 
-The base `vacation` command alone has **no start/end date syntax** — `:days` only controls the *response
-suppression interval* (don't re-send to the same sender within N days), not a calendar window. The window comes
+The base `vacation` command alone has **no start/end date syntax** — `:days` only controls the _response
+suppression interval_ (don't re-send to the same sender within N days), not a calendar window. The window comes
 entirely from wrapping `vacation` in an `if allof(currentdate ..., currentdate ...)` condition. This is a
 widely-attested, standard pattern (RFC 5260 itself uses vacation+currentdate as its motivating example):
 
@@ -297,6 +318,7 @@ if allof(
              "I'm away until Aug 15 and will reply when I'm back.";
 }
 ```
+
 `[CONFIRMED pattern via RFC 5260 + corroborating community examples found this session (spinics.net/info-cyrus
 thread, RFC draft text)]`. Notes for implementation:
 
@@ -320,18 +342,19 @@ doc.dovecot.org/main/core/man/doveadm-who.1.html]`: doveadm supports a global `-
 **`flow`** (`key=value` per line), and **`pager`**. This is real and verified against two separate man pages — safe
 to build UI parsing around `-f json` output.
 
-| Command | Syntax | Output |
-|---|---|---|
-| Quota, all users | `doveadm quota get -A` | Rows: quota name / type (`STORAGE`,`MESSAGE`) / value / limit / %. |
-| Quota, one user | `doveadm quota get -u <user>` | Same columns, one user. |
-| Quota, user list from file | `doveadm quota get -F <file>` | Batch form. |
-| Mailbox list | `doveadm mailbox list [-s] [-A \| -u user] [pattern]` | Mailbox names; `-s` = subscribed only; `-7`/`-8` control mUTF-7 vs UTF-8 encoding of names. |
-| Mailbox status | `doveadm mailbox status [-u user] <fields> <mailbox>` | Fields (space-separated arg, pick any): `messages`, `recent`, `unseen`, `uidnext`, `uidvalidity`, `vsize`, `guid`, `highestmodseq`, `deleted`, `firstsaved`, or `all`. `-t` totals across multiple mailboxes. |
-| Connected sessions | `doveadm who [-1] [user_mask] [ip[/bits]]` | Columns: `username`, `#` (connection count), `proto` (imap/pop3/sieve/lmtp), `(pids)`, `(ips)`. `-1` = one row per connection instead of grouped. |
-| Sieve scripts | `doveadm sieve list -u <user>` / `sieve get -u <user> <name>` / `sieve put -u <user> <name>` (reads script from stdin) / `sieve activate -u <user> <name>` / `sieve deactivate -u <user>` | `put -a` activates immediately on upload. |
-| Stats | `doveadm stats dump [-f formatter] [table]` | Dumps internal Dovecot stats counters/tables (connections, commands, etc). |
+| Command                    | Syntax                                                                                                                                                                                    | Output                                                                                                                                                                                                        |
+| -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Quota, all users           | `doveadm quota get -A`                                                                                                                                                                    | Rows: quota name / type (`STORAGE`,`MESSAGE`) / value / limit / %.                                                                                                                                            |
+| Quota, one user            | `doveadm quota get -u <user>`                                                                                                                                                             | Same columns, one user.                                                                                                                                                                                       |
+| Quota, user list from file | `doveadm quota get -F <file>`                                                                                                                                                             | Batch form.                                                                                                                                                                                                   |
+| Mailbox list               | `doveadm mailbox list [-s] [-A \| -u user] [pattern]`                                                                                                                                     | Mailbox names; `-s` = subscribed only; `-7`/`-8` control mUTF-7 vs UTF-8 encoding of names.                                                                                                                   |
+| Mailbox status             | `doveadm mailbox status [-u user] <fields> <mailbox>`                                                                                                                                     | Fields (space-separated arg, pick any): `messages`, `recent`, `unseen`, `uidnext`, `uidvalidity`, `vsize`, `guid`, `highestmodseq`, `deleted`, `firstsaved`, or `all`. `-t` totals across multiple mailboxes. |
+| Connected sessions         | `doveadm who [-1] [user_mask] [ip[/bits]]`                                                                                                                                                | Columns: `username`, `#` (connection count), `proto` (imap/pop3/sieve/lmtp), `(pids)`, `(ips)`. `-1` = one row per connection instead of grouped.                                                             |
+| Sieve scripts              | `doveadm sieve list -u <user>` / `sieve get -u <user> <name>` / `sieve put -u <user> <name>` (reads script from stdin) / `sieve activate -u <user> <name>` / `sieve deactivate -u <user>` | `put -a` activates immediately on upload.                                                                                                                                                                     |
+| Stats                      | `doveadm stats dump [-f formatter] [table]`                                                                                                                                               | Dumps internal Dovecot stats counters/tables (connections, commands, etc).                                                                                                                                    |
 
 Example (confirmed shape): `doveadm who` →
+
 ```
 username                       # proto (pids)        (ips)
 jane                           2 imap  (30155 30412) (::1)
@@ -339,20 +362,23 @@ john@example.com               1 imap  (30257)       (192.0.2.34)
 ```
 
 ### ManageSieve vs `doveadm sieve`
+
 ManageSieve (RFC 5804) listens on **port 4190** by default `[CONFIRMED: doc.dovecot.org/main/core/config/sieve/managesieve.html
-+ IANA registration]`. For a `docker exec`-based admin panel, **prefer `doveadm sieve put/get/list/activate` over
-ManageSieve** — it's a local CLI call with no extra network/auth surface to manage, works the same over `docker
-exec`'s argv array, and doesn't require opening/authenticating a second protocol. Reach for ManageSieve only if the
-panel needs to let *end users* (not the admin) edit their own filters directly from a browser-based Sieve editor
-talking straight to Dovecot.
+
+- IANA registration]`. For a `docker exec`-based admin panel, **prefer `doveadm sieve put/get/list/activate`over
+ManageSieve** — it's a local CLI call with no extra network/auth surface to manage, works the same over`docker
+  exec`'s argv array, and doesn't require opening/authenticating a second protocol. Reach for ManageSieve only if the
+  panel needs to let _end users_ (not the admin) edit their own filters directly from a browser-based Sieve editor
+  talking straight to Dovecot.
 
 ---
 
 ## 7. Postfix logs
 
 `postconf` output formats `[CONFIRMED: postfix.org/postconf.1.html]`:
+
 - `postconf -n` → only explicitly-set `main.cf` params, `key = value`, one per line.
-- `postconf -d` → same shape but *default* values instead of active ones (diffing `-n` vs `-d` tells you what an
+- `postconf -d` → same shape but _default_ values instead of active ones (diffing `-n` vs `-d` tells you what an
   admin actually changed).
 - `postconf -M` → `master.cf` service entries in structured form; filterable by service name / `name/type`
   (e.g. `postconf -Mf smtp/inet`).
@@ -360,6 +386,7 @@ talking straight to Dovecot.
 All three are clean, stable, line-oriented, and trivial to parse — good candidates for a "current config" panel.
 
 ### Sample log lines
+
 `[INFERRED — standard, extremely stable Postfix log format across versions; general shape/fields corroborated by
 live search results this session (forums.freebsd.org, postfix bounce(8) docs) showing real `status=deferred`/
 `status=sent` lines with the same field set]`:
@@ -398,7 +425,7 @@ multi-line events (accept → cleanup → qmgr → smtp delivery) by **queue id*
 message lifecycle in a single log stream.
 
 **Is log parsing the only route to mail-volume metrics? Effectively yes** `[INFERRED]` — Postfix itself exposes no
-HTTP/JSON stats API; `postqueue -j` only shows what's *currently queued*, not historical throughput. Volume/rate
+HTTP/JSON stats API; `postqueue -j` only shows what's _currently queued_, not historical throughput. Volume/rate
 metrics (messages/hour, bounce rate over time, etc.) can only come from parsing the log stream (or shipping it to
 something like a `postfix-exporter` for Prometheus, which itself is just a log/queue parser under the hood).
 
@@ -407,6 +434,7 @@ something like a `postfix-exporter` for Prometheus, which itself is just a log/q
 ## 8. DNS checks from Node.js
 
 `dns.promises.Resolver` `[CONFIRMED: nodejs.org/api/dns.html]`:
+
 - Custom resolvers: `new Resolver({ timeout: 5000, tries: 4 })` + `resolver.setServers(['1.1.1.1', '8.8.8.8'])` —
   yes, per-instance, doesn't affect global `dns` module state.
 - Per-record methods: `resolveMx`, `resolveTxt` (→ array of string-arrays — TXT records over 255 bytes come back
@@ -423,15 +451,17 @@ something like a `postfix-exporter` for Prometheus, which itself is just a log/q
 - Reverse (PTR): `dnsPromises.reverse(ip)` or explicit `resolver.resolvePtr('<reversed-ip>.in-addr.arpa')`.
 
 ### SSRF/abuse risk — real, must validate
-A user-supplied domain fed into DNS resolution is generally low-risk *for DNS itself* (you're not fetching
+
+A user-supplied domain fed into DNS resolution is generally low-risk _for DNS itself_ (you're not fetching
 arbitrary URLs), but real risks remain `[INFERRED, standard web-security reasoning]`:
-- **Resolver target injection**: if the admin panel ever lets a caller specify *which DNS server* to query (e.g. "check
+
+- **Resolver target injection**: if the admin panel ever lets a caller specify _which DNS server_ to query (e.g. "check
   propagation against 10.0.0.5"), that's a pathway to probe internal network hosts on port 53 — treat custom
   resolver IPs as sensitive input, allowlist to known public resolvers unless the caller is trusted/admin-only.
 - **Amplification/DoS via unbounded lookups**: a malicious domain can return huge TXT/ANY responses or chain many
   CNAME redirects — cap response size handling and set `tries`/`timeout` conservatively.
 - **Rebinding isn't really a concern for DNS-answer-consumption** (you're not connecting to the resolved IP), but if
-  the panel *also* does a TLS-connect-to-mail-ports check (§9) based on resolved MX hosts, that step CAN hit
+  the panel _also_ does a TLS-connect-to-mail-ports check (§9) based on resolved MX hosts, that step CAN hit
   arbitrary internal IPs if a malicious domain's MX/A record points at `127.0.0.1`/RFC1918 space — validate resolved
   IPs are public before connecting out from the panel's TLS-checker.
 - **Validate input domains** with a strict hostname regex/`punycode`-aware check before passing to any resolver
@@ -439,6 +469,7 @@ arbitrary URLs), but real risks remain `[INFERRED, standard web-security reasoni
   general failure mode).
 
 ### Is "DNS propagation checking" technically meaningful?
+
 Yes, with a caveat: DNS "propagation" isn't really a global broadcast — it's TTL-driven cache expiry across
 independent resolvers/caches worldwide. A meaningful implementation queries several **authoritative** nameservers
 directly (bypassing caching resolvers, via `setServers([specific NS IPs])`) and compares answers — that tells you
@@ -447,7 +478,9 @@ resolvers (8.8.8.8, 1.1.1.1, 9.9.9.9) and comparing is the common pragmatic appr
 state, not "propagation" in a rigorous sense `[INFERRED, standard DNS operational knowledge]`.
 
 ### Common SPF/DMARC errors worth flagging
+
 `[INFERRED, standard, well-established email-auth operational knowledge]`
+
 - **Multiple SPF `TXT` records** for one domain: invalid per RFC 7208 — must be exactly one `v=spf1` record (though
   it may itself use `include:`/`redirect=` to compose others).
 - **>10 DNS lookup mechanisms** (`a`, `mx`, `include`, `exists`, `redirect`, but not `ip4`/`ip6`/`all`) in SPF:
@@ -469,21 +502,35 @@ state, not "propagation" in a rigorous sense `[INFERRED, standard DNS operationa
 ## 9. TLS certificate inspection
 
 ### Reading a PEM without shelling to openssl
+
 `crypto.X509Certificate` (Node ≥15.6) `[CONFIRMED: nodejs.org/api/crypto.html#class-x509certificate]` — construct
 directly from a PEM/DER buffer or string, no `openssl` subprocess needed:
+
 ```js
 const { X509Certificate } = require('node:crypto');
 const cert = new X509Certificate(pemBufferOrString);
-cert.subject; cert.issuer; cert.validFrom; cert.validFromDate; cert.validTo; cert.validToDate;
-cert.subjectAltName; cert.fingerprint256; cert.serialNumber; cert.ca; cert.keyUsage;
+cert.subject;
+cert.issuer;
+cert.validFrom;
+cert.validFromDate;
+cert.validTo;
+cert.validToDate;
+cert.subjectAltName;
+cert.fingerprint256;
+cert.serialNumber;
+cert.ca;
+cert.keyUsage;
 cert.checkHost('mail.example.com'); // hostname-match validation
 ```
+
 This directly covers issuer/subject/SANs/notBefore/notAfter/fingerprint — no external process required.
 
 ### Checking the cert actually served on 25/465/587/993
-Practical and commonly done, but the *how* differs by port `[CONFIRMED mechanism: nodejs.org/api/tls.html socket
+
+Practical and commonly done, but the _how_ differs by port `[CONFIRMED mechanism: nodejs.org/api/tls.html socket
 option; STARTTLS sequencing itself is `[INFERRED]`, standard protocol knowledge — this is exactly what nodemailer
 and similar libraries implement]`:
+
 - **Implicit TLS (465 SMTPS, 993 IMAPS, 995 POP3S)**: straightforward — `tls.connect({host, port, servername})`
   directly, then `socket.getPeerCertificate(true)` (the `true` gets the full chain), optionally wrap the result in
   `new X509Certificate(...)` for the richer API above.
@@ -565,7 +612,7 @@ by default, not JSON. Treat this as "parse plain text with a regex," and verify 
 2. **Whether `history_redis` (persistent history) is enabled in docker-mailserver's shipped rspamd config** —
    determines if a "recent spam history" UI survives container restarts.
 3. **`doveadm pw` non-tty stdin behavior** — test `printf 'pw\npw\n' | docker exec -i <container> doveadm pw -s
-   SHA512-CRYPT` to settle the argv-avoidance question definitively before building password-set/reset UI.
+SHA512-CRYPT` to settle the argv-avoidance question definitively before building password-set/reset UI.
 4. **ClamAV exact `VERSION`/freshclam output strings** in the specific docker-mailserver image build — run the
    commands once and capture real output rather than trusting the inferred format string.
 5. **Fail2ban `setup fail2ban status` output shape** — run it once and confirm plain-text vs any structured option

@@ -17,6 +17,14 @@ blob-report
 package-lock.json
 CHANGELOG.md
 
+# Verbatim third-party text — must match its canonical source byte-for-byte.
+# CODE_OF_CONDUCT.md is the Contributor Covenant 2.1 and NOTICE embeds the
+# MIT licence text; reformatting either would silently diverge them from the
+# sources they are required to reproduce.
+LICENSE
+NOTICE
+CODE_OF_CONDUCT.md
+
 # Environment and secrets
 .env
 .env.*

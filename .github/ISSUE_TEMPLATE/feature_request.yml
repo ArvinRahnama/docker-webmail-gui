@@ -1,6 +1,6 @@
 name: Feature request
 description: Propose a new capability or improvement for the panel.
-title: "[Feature]: "
+title: '[Feature]: '
 labels:
   - enhancement
 body:

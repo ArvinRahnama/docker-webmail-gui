@@ -29,19 +29,18 @@ const restrictedSyntaxSecurityRules = [
     // run their argument through `/bin/sh -c`, so building that string with
     // interpolation is exactly the injection pattern the broker forbids.
     selector:
-      "CallExpression[callee.name=/^(exec|execSync)$/] > TemplateLiteral[expressions.length>0]",
+      'CallExpression[callee.name=/^(exec|execSync)$/] > TemplateLiteral[expressions.length>0]',
     message:
       'child_process exec/execSync must not be called with an interpolated template literal (SECURITY.md §3.2). Use execFile/execFileSync/spawn with an argv array instead.',
   },
   {
     selector:
-      "CallExpression[callee.property.name=/^(exec|execSync)$/] > TemplateLiteral[expressions.length>0]",
+      'CallExpression[callee.property.name=/^(exec|execSync)$/] > TemplateLiteral[expressions.length>0]',
     message:
       'child_process exec/execSync must not be called with an interpolated template literal (SECURITY.md §3.2). Use execFile/execFileSync/spawn with an argv array instead.',
   },
   {
-    selector:
-      "CallExpression[callee.name=/^(exec|execSync)$/] > BinaryExpression[operator='+']",
+    selector: "CallExpression[callee.name=/^(exec|execSync)$/] > BinaryExpression[operator='+']",
     message:
       'child_process exec/execSync must not be called with a string built by concatenation (SECURITY.md §3.2). Use execFile/execFileSync/spawn with an argv array instead.',
   },
@@ -63,7 +62,7 @@ const restrictedSyntaxSecurityRules = [
       "Passing '-c' in an argv array invokes a shell (SECURITY.md §3.2), which defeats the point of using argv. Invoke the target binary directly with its arguments as separate array elements.",
   },
   {
-    selector: "ArrayExpression > Literal[value=/^(\\/bin\\/)?(sh|bash|zsh|ash|dash)$/]",
+    selector: 'ArrayExpression > Literal[value=/^(\\/bin\\/)?(sh|bash|zsh|ash|dash)$/]',
     message:
       'Naming a shell in an argv array is banned (SECURITY.md §3.2). Commands run inside the mail container must invoke the target binary directly — see ARCHITECTURE.md §5 command construction rules.',
   },
@@ -78,8 +77,7 @@ const restrictedSyntaxSecurityRules = [
       'SQL passed to .prepare() must not be an interpolated template literal (SECURITY.md §3.8). Use a static query string with parameter placeholders (?).',
   },
   {
-    selector:
-      "CallExpression[callee.property.name='prepare'] > BinaryExpression[operator='+']",
+    selector: "CallExpression[callee.property.name='prepare'] > BinaryExpression[operator='+']",
     message:
       'SQL passed to .prepare() must not be built by string concatenation (SECURITY.md §3.8). Use a static query string with parameter placeholders (?).',
   },
@@ -164,10 +162,11 @@ export default [
     },
   },
 
-  // Config files (this file, vite.config.ts, etc.) run under Node.js at
-  // build/dev time regardless of which workspace they live in.
+  // Config files (this file, vite.config.ts, etc.) and repo-level scripts run
+  // under Node.js at build/dev/CI time, regardless of which workspace they
+  // live in.
   {
-    files: ['**/*.config.{js,ts,mjs,cjs}', 'eslint.config.js'],
+    files: ['**/*.config.{js,ts,mjs,cjs}', 'eslint.config.js', 'scripts/**/*.{js,mjs,cjs,ts}'],
     languageOptions: {
       globals: {
         ...globals.node,

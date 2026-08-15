@@ -3,31 +3,31 @@ version: 2
 updates:
   # Root + every workspace under apps/* and packages/* — one entry, multiple
   # directories, so new workspaces are picked up without editing this file.
-  - package-ecosystem: "npm"
+  - package-ecosystem: 'npm'
     directories:
-      - "/"
-      - "/apps/*"
-      - "/packages/*"
+      - '/'
+      - '/apps/*'
+      - '/packages/*'
     schedule:
-      interval: "weekly"
+      interval: 'weekly'
     groups:
       minor-and-patch:
         update-types:
-          - "minor"
-          - "patch"
+          - 'minor'
+          - 'patch'
     commit-message:
-      prefix: "chore"
+      prefix: 'chore'
       include: scope
 
-  - package-ecosystem: "github-actions"
-    directory: "/"
+  - package-ecosystem: 'github-actions'
+    directory: '/'
     schedule:
-      interval: "weekly"
+      interval: 'weekly'
     groups:
       minor-and-patch:
         update-types:
-          - "minor"
-          - "patch"
+          - 'minor'
+          - 'patch'
     commit-message:
-      prefix: "chore"
+      prefix: 'chore'
       include: scope

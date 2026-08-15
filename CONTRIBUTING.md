@@ -35,16 +35,16 @@ concurrently.
 
 Useful scripts, all run from the repo root (see `package.json`):
 
-| Script | What it does |
-| --- | --- |
-| `npm run dev` | Run every workspace in development mode |
-| `npm run build` | Build every workspace |
-| `npm run test` | Run every workspace's test suite |
-| `npm run lint` | ESLint across the repo |
-| `npm run format` | Prettier, writing fixes |
-| `npm run format:check` | Prettier, check only (what CI runs) |
-| `npm run typecheck` | `tsc --build` across all project references |
-| `npm run check` | lint + typecheck + test, in one shot |
+| Script                 | What it does                                |
+| ---------------------- | ------------------------------------------- |
+| `npm run dev`          | Run every workspace in development mode     |
+| `npm run build`        | Build every workspace                       |
+| `npm run test`         | Run every workspace's test suite            |
+| `npm run lint`         | ESLint across the repo                      |
+| `npm run format`       | Prettier, writing fixes                     |
+| `npm run format:check` | Prettier, check only (what CI runs)         |
+| `npm run typecheck`    | `tsc --build` across all project references |
+| `npm run check`        | lint + typecheck + test, in one shot        |
 
 Run `npm run check` before opening a PR — it's the fastest way to catch what
 CI will catch.
@@ -161,5 +161,5 @@ Per `IMPLEMENTATION_PLAN.md` §2.4:
 **Do not open a public issue or a public PR for a security vulnerability** —
 including a PR that "fixes" one, since the diff itself would disclose it.
 Follow the private disclosure flow in `SECURITY.md` Part 1 (GitHub Security
-Advisories → *Report a vulnerability*) instead. Functional bugs that aren't
+Advisories → _Report a vulnerability_) instead. Functional bugs that aren't
 security-sensitive are welcome as normal issues.

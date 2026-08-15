@@ -8,7 +8,7 @@ on:
   schedule:
     # Catches newly disclosed advisories against an otherwise-unchanged
     # lockfile, not just at push/PR time.
-    - cron: "0 6 * * 1"
+    - cron: '0 6 * * 1'
 
 permissions:
   contents: read
@@ -48,6 +48,20 @@ jobs:
 
       - name: Dependency review
         uses: actions/dependency-review-action@v4
+        with:
+          fail-on-severity: high
+          # Fast, low-noise feedback on the obvious cases at PR time. The
+          # authoritative check is the strict permissive allowlist in the
+          # sbom job below, which covers the whole tree rather than just the
+          # diff — this step only catches copyleft early, where the reviewer
+          # can see it next to the change that introduced it.
+          deny-licenses: >-
+            AGPL-3.0, AGPL-3.0-only, AGPL-3.0-or-later,
+            GPL-2.0, GPL-2.0-only, GPL-2.0-or-later,
+            GPL-3.0, GPL-3.0-only, GPL-3.0-or-later,
+            LGPL-2.1, LGPL-2.1-only, LGPL-2.1-or-later,
+            LGPL-3.0, LGPL-3.0-only, LGPL-3.0-or-later,
+            SSPL-1.0, BUSL-1.1, CC-BY-NC-4.0
 
   sbom:
     name: Generate SBOM
@@ -69,6 +83,13 @@ jobs:
 
       - name: Generate CycloneDX SBOM
         run: npx @cyclonedx/cyclonedx-npm --output-file sbom.cdx.json
+
+      # The control promised in SECURITY.md §3.14 and LICENSE_AUDIT.md §8.
+      # Generating an SBOM without checking it would leave that control
+      # documented but not real, which is exactly the kind of gap this
+      # project treats as a defect.
+      - name: License gate
+        run: node scripts/check-licenses.mjs sbom.cdx.json
 
       - name: Upload SBOM artifact
         uses: actions/upload-artifact@v4

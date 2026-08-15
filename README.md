@@ -24,16 +24,16 @@ Every capability below was verified against upstream documentation and source be
 
 **Deliberately limited, with the reason shown in the UI:**
 
-| Area | Limit | Why |
-| --- | --- | --- |
-| **Domains** | No create, delete, or disable | `docker-mailserver` has no `setup domain` command and no domain object. A domain exists only as long as a mailbox or alias references it, so the panel derives the list and explains that adding the first mailbox creates the domain |
-| **Mailbox disable** | Only *restrict sending / receiving* | Upstream has no true account-disable; it has `setup email restrict`. The UI is labelled for what it actually does |
-| **Let's Encrypt** | Status and diagnostics only, no issuance | `docker-mailserver` consumes certificates from an external ACME client. Embedding one would duplicate the tool you already run and create a second source of truth for certificates |
-| **Rspamd config** | Thresholds, symbol scores, and learn spam/ham only | Rspamd configuration embeds **Lua**, and maps can reference URLs. A general editor would hand code execution and SSRF to anyone holding an admin session |
-| **Terminal** | Restricted allowlisted command console, **disabled by default** | Exec into the mail container is root inside a container holding your mail, DKIM private keys and TLS certificates. There is no unrestricted shell and never a host shell |
-| **Networks** | Read-only | Network mutation offers a mail panel nothing and `NetworkMode: host` is an escalation path |
-| **Virus statistics** | Derived from log parsing, labelled as such | `clamd` exposes no detection counter — this is a genuine upstream gap, not an oversight |
-| **Spam trends** | Sampled by this panel into its own database | Rspamd's history is a 200-entry in-memory ring buffer that does not survive a restart. Until enough samples exist the UI says *"Collecting"* rather than drawing a line it cannot back |
+| Area                 | Limit                                                           | Why                                                                                                                                                                                                                                   |
+| -------------------- | --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Domains**          | No create, delete, or disable                                   | `docker-mailserver` has no `setup domain` command and no domain object. A domain exists only as long as a mailbox or alias references it, so the panel derives the list and explains that adding the first mailbox creates the domain |
+| **Mailbox disable**  | Only _restrict sending / receiving_                             | Upstream has no true account-disable; it has `setup email restrict`. The UI is labelled for what it actually does                                                                                                                     |
+| **Let's Encrypt**    | Status and diagnostics only, no issuance                        | `docker-mailserver` consumes certificates from an external ACME client. Embedding one would duplicate the tool you already run and create a second source of truth for certificates                                                   |
+| **Rspamd config**    | Thresholds, symbol scores, and learn spam/ham only              | Rspamd configuration embeds **Lua**, and maps can reference URLs. A general editor would hand code execution and SSRF to anyone holding an admin session                                                                              |
+| **Terminal**         | Restricted allowlisted command console, **disabled by default** | Exec into the mail container is root inside a container holding your mail, DKIM private keys and TLS certificates. There is no unrestricted shell and never a host shell                                                              |
+| **Networks**         | Read-only                                                       | Network mutation offers a mail panel nothing and `NetworkMode: host` is an escalation path                                                                                                                                            |
+| **Virus statistics** | Derived from log parsing, labelled as such                      | `clamd` exposes no detection counter — this is a genuine upstream gap, not an oversight                                                                                                                                               |
+| **Spam trends**      | Sampled by this panel into its own database                     | Rspamd's history is a 200-entry in-memory ring buffer that does not survive a restart. Until enough samples exist the UI says _"Collecting"_ rather than drawing a line it cannot back                                                |
 
 Full detail, per capability, in [`FEATURE_MATRIX.md`](FEATURE_MATRIX.md).
 
@@ -71,7 +71,7 @@ The web tier speaks a fixed vocabulary of intents — `mail.account.create`, `co
 
 This is privilege separation, as used by OpenSSH — not a microservice split.
 
-**A note on `docker-socket-proxy`:** the common recommendation does not solve this. It filters on URL path and HTTP method only, never the request body, and a single `CONTAINERS` gate governs both container listing *and* container creation. The configuration a panel needs leaves creation open. Verified against its shipped `haproxy.cfg`; details in [`docs/research/02-docker-api-security.md`](docs/research/02-docker-api-security.md).
+**A note on `docker-socket-proxy`:** the common recommendation does not solve this. It filters on URL path and HTTP method only, never the request body, and a single `CONTAINERS` gate governs both container listing _and_ container creation. The configuration a panel needs leaves creation open. Verified against its shipped `haproxy.cfg`; details in [`docs/research/02-docker-api-security.md`](docs/research/02-docker-api-security.md).
 
 Full design in [`ARCHITECTURE.md`](ARCHITECTURE.md).
 
@@ -81,7 +81,7 @@ Treat this as tier-0 infrastructure: it authenticates to your mail server and ca
 
 Highlights — the complete threat model, controls, and how each is verified are in [`SECURITY.md`](SECURITY.md):
 
-- Argon2id password hashing; server-side sessions with immediate revocation (not JWTs, because revocation must take effect *now*).
+- Argon2id password hashing; server-side sessions with immediate revocation (not JWTs, because revocation must take effect _now_).
 - Rate limiting, lockout, and login responses that reveal nothing about whether an account exists.
 - Argv arrays only — **never `sh -c`**, never shell interpolation.
 - No client-supplied path or container specification ever reaches a filesystem or the Docker API.
@@ -97,7 +97,7 @@ Found a vulnerability? See [`SECURITY.md`](SECURITY.md) Part 1 — please use th
 
 - Linux host with Docker Engine and Compose
 - A running `docker-mailserver` container
-- Node.js 24+ *(only to build from source; the released image will not require it)*
+- Node.js 24+ _(only to build from source; the released image will not require it)_
 
 ## Installation
 

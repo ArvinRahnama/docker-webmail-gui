@@ -2,18 +2,18 @@
 
 **Date:** 2026-08-15 · **Status:** Authoritative. Implementation may not add a UI control that contradicts this document.
 
-This matrix is the project's defence against fake features. Every one of the 34 required capabilities is assessed against what `docker-mailserver` (DMS), the Docker Engine API, and the underlying mail stack can *actually* do — verified in Phase 1 research, not assumed.
+This matrix is the project's defence against fake features. Every one of the 34 required capabilities is assessed against what `docker-mailserver` (DMS), the Docker Engine API, and the underlying mail stack can _actually_ do — verified in Phase 1 research, not assumed.
 
 **Evidence base:** [`docs/research/01-docker-mailserver.md`](docs/research/01-docker-mailserver.md) · [`02-docker-api-security.md`](docs/research/02-docker-api-security.md) · [`03-mail-stack-components.md`](docs/research/03-mail-stack-components.md)
 
 ## Status legend
 
-| Status | Meaning |
-| --- | --- |
-| **Full** | Backed end-to-end by a real data source or operation. Ships complete. |
-| **Partial** | Core capability is real; a named sub-capability is absent upstream and is shown as an explicit `Unsupported` control, never hidden or faked. |
+| Status          | Meaning                                                                                                                                            |
+| --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Full**        | Backed end-to-end by a real data source or operation. Ships complete.                                                                              |
+| **Partial**     | Core capability is real; a named sub-capability is absent upstream and is shown as an explicit `Unsupported` control, never hidden or faked.       |
 | **Constrained** | Real and complete, but deliberately narrowed for safety (allowlisted, opt-in, or read-only). The limit is a design decision, documented in the UI. |
-| **Unsupported** | The stack genuinely cannot do this. No control ships except an explanatory disabled state. |
+| **Unsupported** | The stack genuinely cannot do this. No control ships except an explanatory disabled state.                                                         |
 
 ---
 
@@ -34,23 +34,23 @@ The web tier holds no Docker socket. Mutations are named operations sent to the 
 
 Composite view; each tile is only as real as its source. Tiles whose source is unreachable render `Unknown`, never zero.
 
-| Tile | Source | Real? |
-| --- | --- | --- |
-| Server / container status | Docker `GET /containers/{id}/json` → `State.Status`, `State.Health` | Full |
-| CPU / RAM | Docker `GET /containers/{id}/stats` with documented delta formulas | Full |
-| Disk | `GET /system/df` + host filesystem stats for the data path | Full |
-| Network | Docker stats `networks.*.rx_bytes/tx_bytes` | Full |
-| Mail queue | `postqueue -j` (JSON Lines) grouped by `queue_name` | Full |
-| Mailbox / alias count | Parse `postfix-accounts.cf` / `postfix-virtual.cf` | Full |
-| Domain count | **Derived** from address parts (see §2) | Full |
-| Spam statistics | Rspamd `GET /stat` | Full (point-in-time) |
-| **Spam trend over time** | **Our own periodic `/stat` samples in SQLite** | Constrained — Rspamd `/history` is a 200-entry in-memory ring buffer lost on restart, so trends require our own sampling. Shows *"Collecting — trend available after 24h"* until samples exist. |
-| Virus statistics | **Log parsing only** — clamd exposes no detection counter | Partial, labelled as log-derived |
-| TLS status | Parse the certificate PEM | Full |
-| DNS status | Live resolver queries | Full |
-| Backup status | Our own SQLite backup records | Full |
-| Update status | Compare running image digest vs registry | Full |
-| Health / recent events | Our health engine + Docker `/events` + audit log | Full |
+| Tile                      | Source                                                              | Real?                                                                                                                                                                                           |
+| ------------------------- | ------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Server / container status | Docker `GET /containers/{id}/json` → `State.Status`, `State.Health` | Full                                                                                                                                                                                            |
+| CPU / RAM                 | Docker `GET /containers/{id}/stats` with documented delta formulas  | Full                                                                                                                                                                                            |
+| Disk                      | `GET /system/df` + host filesystem stats for the data path          | Full                                                                                                                                                                                            |
+| Network                   | Docker stats `networks.*.rx_bytes/tx_bytes`                         | Full                                                                                                                                                                                            |
+| Mail queue                | `postqueue -j` (JSON Lines) grouped by `queue_name`                 | Full                                                                                                                                                                                            |
+| Mailbox / alias count     | Parse `postfix-accounts.cf` / `postfix-virtual.cf`                  | Full                                                                                                                                                                                            |
+| Domain count              | **Derived** from address parts (see §2)                             | Full                                                                                                                                                                                            |
+| Spam statistics           | Rspamd `GET /stat`                                                  | Full (point-in-time)                                                                                                                                                                            |
+| **Spam trend over time**  | **Our own periodic `/stat` samples in SQLite**                      | Constrained — Rspamd `/history` is a 200-entry in-memory ring buffer lost on restart, so trends require our own sampling. Shows _"Collecting — trend available after 24h"_ until samples exist. |
+| Virus statistics          | **Log parsing only** — clamd exposes no detection counter           | Partial, labelled as log-derived                                                                                                                                                                |
+| TLS status                | Parse the certificate PEM                                           | Full                                                                                                                                                                                            |
+| DNS status                | Live resolver queries                                               | Full                                                                                                                                                                                            |
+| Backup status             | Our own SQLite backup records                                       | Full                                                                                                                                                                                            |
+| Update status             | Compare running image digest vs registry                            | Full                                                                                                                                                                                            |
+| Health / recent events    | Our health engine + Docker `/events` + audit log                    | Full                                                                                                                                                                                            |
 
 **UI** `/` · **API** `GET /api/v1/dashboard` · **Security** aggregate endpoint returns no secrets; per-tile failures isolated so one dead subsystem cannot blank the page · **Tests** unit tests per collector incl. the cgroup-v1/v2 memory branch; integration test asserting a failed collector degrades to `Unknown` rather than throwing.
 
@@ -60,17 +60,17 @@ Composite view; each tile is only as real as its source. Tiles whose source is u
 
 **Finding:** domains are **not first-class in DMS**. No `setup domain` command exists. The domain list is derived from the address parts in `postfix-accounts.cf` and `postfix-virtual.cf`. A domain exists exactly as long as something references it.
 
-| Capability | Status | Notes |
-| --- | --- | --- |
-| List domains, mailbox/alias counts | Full | Derived from parsed config |
-| Domain detail, membership | Full | |
-| DNS diagnostics per domain | Full | §10 |
-| DKIM per domain | Full | §11 |
-| TLS status | Full | |
-| **Create domain** | **Unsupported** | No upstream operation. UI explains that adding the first mailbox creates the domain, and links to that action. |
-| **Delete domain** | **Unsupported** | Domains vanish when the last reference is removed. UI lists remaining references. |
-| **Enable/disable domain** | **Unsupported** | No upstream concept. |
-| Quota information | Full | Aggregated from mailbox quotas |
+| Capability                         | Status          | Notes                                                                                                          |
+| ---------------------------------- | --------------- | -------------------------------------------------------------------------------------------------------------- |
+| List domains, mailbox/alias counts | Full            | Derived from parsed config                                                                                     |
+| Domain detail, membership          | Full            |                                                                                                                |
+| DNS diagnostics per domain         | Full            | §10                                                                                                            |
+| DKIM per domain                    | Full            | §11                                                                                                            |
+| TLS status                         | Full            |                                                                                                                |
+| **Create domain**                  | **Unsupported** | No upstream operation. UI explains that adding the first mailbox creates the domain, and links to that action. |
+| **Delete domain**                  | **Unsupported** | Domains vanish when the last reference is removed. UI lists remaining references.                              |
+| **Enable/disable domain**          | **Unsupported** | No upstream concept.                                                                                           |
+| Quota information                  | Full            | Aggregated from mailbox quotas                                                                                 |
 
 **UI** `/mail/domains` · **API** `GET /api/v1/domains`, `GET /api/v1/domains/:domain` · **Docker ops** exec (read files) · **Security** domain names validated against a strict hostname pattern before ever reaching a DNS resolver (SSRF surface) · **Tests** unit tests for domain derivation incl. aliases-only domains and IDN; assertion that no create/delete endpoint exists.
 
@@ -78,18 +78,18 @@ Composite view; each tile is only as real as its source. Tiles whose source is u
 
 ## 3. Mailboxes / Users — **Partial**
 
-| Capability | Status | Mechanism |
-| --- | --- | --- |
-| List, search, sort, filter, paginate | Full | Parse `postfix-accounts.cf`; server-side paging |
-| Create | Full | `setup email add <addr>` — password via **stdin**, not argv |
-| Delete | Full | `setup email del` — see the flag rule below |
-| Change password | Full | `setup email update` via stdin |
-| Quota set/clear | Full | `setup quota set|del` |
-| Usage | Full | `doveadm quota get` |
-| **Enable/disable** | **Partial** | DMS has no true disable. `setup email restrict add send|receive` blocks sending and/or receiving — real, but not a full account disable. UI labels it exactly that: *Restrict sending / receiving*, not "Disable". |
-| Bulk operations | Constrained | Bulk restrict and bulk quota only. **No bulk delete** — the blast radius is unacceptable for mail data. |
+| Capability                           | Status      | Mechanism                                                                                               |
+| ------------------------------------ | ----------- | ------------------------------------------------------------------------------------------------------- |
+| List, search, sort, filter, paginate | Full        | Parse `postfix-accounts.cf`; server-side paging                                                         |
+| Create                               | Full        | `setup email add <addr>` — password via **stdin**, not argv                                             |
+| Delete                               | Full        | `setup email del` — see the flag rule below                                                             |
+| Change password                      | Full        | `setup email update` via stdin                                                                          |
+| Quota set/clear                      | Full        | `setup quota set                                                                                        | del`                                                                                                                                                       |
+| Usage                                | Full        | `doveadm quota get`                                                                                     |
+| **Enable/disable**                   | **Partial** | DMS has no true disable. `setup email restrict add send                                                 | receive` blocks sending and/or receiving — real, but not a full account disable. UI labels it exactly that: _Restrict sending / receiving_, not "Disable". |
+| Bulk operations                      | Constrained | Bulk restrict and bulk quota only. **No bulk delete** — the blast radius is unacceptable for mail data. |
 
-**The `email del` data-loss rule.** `setup email del` always removes account metadata; deleting the Maildir is gated by `-y` (force delete) / `-n` (force keep), and with **no flag it prompts interactively, defaulting to No**. We must **always pass an explicit flag** — never rely on the prompt, which would hang a non-interactive exec. The UI makes the choice explicit: *Delete account and its mail* (`-y`) vs *Delete account, keep mail on disk* (`-n`). Deletion is irreversible; there is no trash.
+**The `email del` data-loss rule.** `setup email del` always removes account metadata; deleting the Maildir is gated by `-y` (force delete) / `-n` (force keep), and with **no flag it prompts interactively, defaulting to No**. We must **always pass an explicit flag** — never rely on the prompt, which would hang a non-interactive exec. The UI makes the choice explicit: _Delete account and its mail_ (`-y`) vs _Delete account, keep mail on disk_ (`-n`). Deletion is irreversible; there is no trash.
 
 **UI** `/mail/mailboxes` · **API** `GET/POST /api/v1/mailboxes`, `PATCH|DELETE /api/v1/mailboxes/:address` · **Security** passwords piped to stdin so they never appear in `argv`/`ps`; never logged, never returned; delete is destructive **Tier 3** (type-to-confirm + impact summary showing message count and data size) · **Tests** unit tests for `.cf` parsing incl. malformed lines; a test asserting the delete flag is always explicit; audit-log assertion on every mutation.
 
@@ -109,7 +109,7 @@ Editing = delete + re-add (no upstream in-place edit); performed atomically serv
 
 ## 5. Forwarding — **Full** (same mechanism as aliases)
 
-DMS has **no separate forwarding subsystem**. Forwarding is an alias whose destination is external. Presenting two pages for one mechanism would confuse users about which to use, so this ships as **one Aliases page with a type column** distinguishing *internal alias* from *external forward*. Multiple destinations, validation, editing and safe deletion all real. Enable/disable is achieved by removing/re-adding, and is labelled accordingly rather than implying a persistent disabled state.
+DMS has **no separate forwarding subsystem**. Forwarding is an alias whose destination is external. Presenting two pages for one mechanism would confuse users about which to use, so this ships as **one Aliases page with a type column** distinguishing _internal alias_ from _external forward_. Multiple destinations, validation, editing and safe deletion all real. Enable/disable is achieved by removing/re-adding, and is labelled accordingly rather than implying a persistent disabled state.
 
 ---
 
@@ -147,7 +147,7 @@ Live resolution via Node's `dns.promises.Resolver` for MX, SPF (TXT `v=spf1`), D
 
 Each record reports exactly one of **Detected · Valid · Invalid · Missing · Unknown**. `Unknown` (resolver failure) is grey, never yellow — conflating "we could not check" with "there is a problem" trains admins to ignore warnings.
 
-*Propagation checking* is offered honestly: we query several public resolvers and report per-resolver answers. We do **not** claim global propagation, which is not observable.
+_Propagation checking_ is offered honestly: we query several public resolvers and report per-resolver answers. We do **not** claim global propagation, which is not observable.
 
 **Security** this is the project's main **SSRF surface**. Domains are validated against a strict hostname pattern; only DNS is performed (never HTTP fetches to user-supplied hosts); queries are rate-limited and timeout-bounded. **Tests** parser unit tests against fixture records; malformed-record handling; an assertion that resolver failure yields `Unknown` and not `Invalid`.
 
@@ -165,13 +165,13 @@ Each record reports exactly one of **Detected · Valid · Invalid · Missing · 
 
 ## 12. SSL / Let's Encrypt — **Partial**
 
-| Capability | Status |
-| --- | --- |
+| Capability                                                          | Status                     |
+| ------------------------------------------------------------------- | -------------------------- |
 | Certificate status, issuer, subject, SANs, validity, days remaining | Full — parsed from the PEM |
-| Expiry warnings (≤30d warn, ≤7d critical) | Full |
-| `SSL_TYPE` mode display and manual cert configuration | Full |
-| Certificate diagnostics | Full |
-| **Issuing / renewing Let's Encrypt certificates** | **Unsupported** | DMS does not issue certificates; it consumes them from an external ACME client (certbot, Traefik, acme-companion). We will not embed an ACME client — it would duplicate the tool the admin already runs and create a second source of truth for certificates. The UI shows status plus documentation on wiring an ACME client. |
+| Expiry warnings (≤30d warn, ≤7d critical)                           | Full                       |
+| `SSL_TYPE` mode display and manual cert configuration               | Full                       |
+| Certificate diagnostics                                             | Full                       |
+| **Issuing / renewing Let's Encrypt certificates**                   | **Unsupported**            | DMS does not issue certificates; it consumes them from an external ACME client (certbot, Traefik, acme-companion). We will not embed an ACME client — it would duplicate the tool the admin already runs and create a second source of truth for certificates. The UI shows status plus documentation on wiring an ACME client. |
 
 Private key material is never read into the API layer — only certificate (public) data is parsed.
 
@@ -193,13 +193,13 @@ Private key material is never read into the API layer — only certificate (publ
 
 ## 16. ClamAV — **Partial**
 
-| Capability | Status |
-| --- | --- |
-| Running status, engine version, signature DB version/date | Full — `PING`, `VERSION` via the clamd socket |
-| Health, resource usage | Full |
-| **Detection counts / scan statistics** | **Partial — log parsing only.** clamd exposes no detection counter. Clearly labelled as log-derived, with its retention window stated. |
-| `STATS` command output | Constrained — documented upstream as unstable free text, so parsed defensively and shown raw if parsing fails |
-| Trigger signature update | Constrained — `freshclam` is a real operation, offered with confirmation and rate limiting |
+| Capability                                                | Status                                                                                                                                 |
+| --------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| Running status, engine version, signature DB version/date | Full — `PING`, `VERSION` via the clamd socket                                                                                          |
+| Health, resource usage                                    | Full                                                                                                                                   |
+| **Detection counts / scan statistics**                    | **Partial — log parsing only.** clamd exposes no detection counter. Clearly labelled as log-derived, with its retention window stated. |
+| `STATS` command output                                    | Constrained — documented upstream as unstable free text, so parsed defensively and shown raw if parsing fails                          |
+| Trigger signature update                                  | Constrained — `freshclam` is a real operation, offered with confirmation and rate limiting                                             |
 
 Requires `ENABLE_CLAMAV=1`; otherwise a real `Unsupported` state.
 
@@ -313,7 +313,7 @@ Ships **off** behind an explicit configuration flag. When enabled:
 - Every invocation is audited with actor, exact argv, exit code and duration; sessions time out.
 - The UI names the target container and warns before opening.
 
-**Rationale for refusing a real shell:** exec into DMS grants root *inside* a container that mounts the mail store, DKIM private keys and TLS certificates — full compromise of mail confidentiality even without host escape. Additionally, `exec` is the trigger class for runc escapes such as CVE-2019-5736 and CVE-2024-21626. A general shell in a web panel is not a defensible risk for the convenience it buys. An unrestricted host shell is **never** provided.
+**Rationale for refusing a real shell:** exec into DMS grants root _inside_ a container that mounts the mail store, DKIM private keys and TLS certificates — full compromise of mail confidentiality even without host escape. Additionally, `exec` is the trigger class for runc escapes such as CVE-2019-5736 and CVE-2024-21626. A general shell in a web panel is not a defensible risk for the convenience it buys. An unrestricted host shell is **never** provided.
 
 ---
 
@@ -327,22 +327,22 @@ Mail volume, spam volume and error counts come from log parsing and our own samp
 
 ## Summary
 
-| Status | Count | Items |
-| --- | --- | --- |
-| **Full** | 19 | Aliases, Forwarding, Passwords, Quotas, DNS, DKIM, Sieve, Autoresponder, Logs ×3, Images, Networks, Backups/Restore, Health, Monitoring, System resources, Rspamd (read), Spam statistics |
-| **Partial** | 8 | Dashboard, Domains, Mailboxes, TLS, ClamAV, Updates, SMTP/IMAP settings |
-| **Constrained** | 7 | Spam rules, Containers/lifecycle, Volumes, Config editor, Environment, Terminal/Exec, Rspamd (write) |
+| Status          | Count                                    | Items                                                                                                                                                                                           |
+| --------------- | ---------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Full**        | 19                                       | Aliases, Forwarding, Passwords, Quotas, DNS, DKIM, Sieve, Autoresponder, Logs ×3, Images, Networks, Backups/Restore, Health, Monitoring, System resources, Rspamd (read), Spam statistics       |
+| **Partial**     | 8                                        | Dashboard, Domains, Mailboxes, TLS, ClamAV, Updates, SMTP/IMAP settings                                                                                                                         |
+| **Constrained** | 7                                        | Spam rules, Containers/lifecycle, Volumes, Config editor, Environment, Terminal/Exec, Rspamd (write)                                                                                            |
 | **Unsupported** | 0 whole features; **5 sub-capabilities** | Create/delete/disable domain · true mailbox disable (only send/receive restrict) · Let's Encrypt issuance · bulk mailbox delete (refused by us) · general Rspamd config editing (refused by us) |
 
 Every unsupported sub-capability ships as a visible, disabled control with an explanation — never hidden, never faked.
 
 ## Deferred to runtime verification (Phase 12)
 
-| Item | Why it matters | Fallback if it fails |
-| --- | --- | --- |
-| `doveadm pw` stdin behaviour | Password exposure in `argv` | Primary path (`setup` via stdin) already avoids it |
+| Item                                  | Why it matters                    | Fallback if it fails                                       |
+| ------------------------------------- | --------------------------------- | ---------------------------------------------------------- |
+| `doveadm pw` stdin behaviour          | Password exposure in `argv`       | Primary path (`setup` via stdin) already avoids it         |
 | DKIM key path under `ENABLE_RSPAMD=1` | DKIM display/rotation correctness | Detect path at runtime; report `Unknown` rather than guess |
-| Rspamd `/stat` exact field names | Dashboard spam tile bindings | Bind defensively; render only confirmed fields |
-| Exact `/var/mail-state` contents | Backup completeness | Back up the whole volume regardless |
-| `setup fail2ban status` output shape | Fail2ban page parsing | Show raw output if parsing fails |
-| ClamAV `VERSION` string format | Version/signature-age display | Show raw string |
+| Rspamd `/stat` exact field names      | Dashboard spam tile bindings      | Bind defensively; render only confirmed fields             |
+| Exact `/var/mail-state` contents      | Backup completeness               | Back up the whole volume regardless                        |
+| `setup fail2ban status` output shape  | Fail2ban page parsing             | Show raw output if parsing fails                           |
+| ClamAV `VERSION` string format        | Version/signature-age display     | Show raw string                                            |

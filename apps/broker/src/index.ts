@@ -1,4 +1,4 @@
-import { VERSION } from '@dwg/shared';
+import { APP_VERSION } from '@dwg/shared';
 
 // Trivial startup stub for milestone M1. The real broker — operation
 // enum, Zod-validated per-operation schemas, container allowlist, the
@@ -6,4 +6,4 @@ import { VERSION } from '@dwg/shared';
 // deliberately minimal even as a placeholder: this process is a privilege
 // boundary, and every line added to it is a security-relevant change
 // (ARCHITECTURE.md §11, SECURITY.md §4.1).
-console.log(`@dwg/broker starting (shared v${VERSION})`);
+console.log(`@dwg/broker starting (v${APP_VERSION})`);

@@ -1,4 +1,4 @@
-import { VERSION } from '@dwg/shared';
+import { APP_VERSION } from '@dwg/shared';
 
 /**
  * Bare placeholder root component — no design system, routing, or data
@@ -10,7 +10,7 @@ export default function App() {
   return (
     <main>
       <h1>Docker Webmail GUI</h1>
-      <p>Under active development (shared v{VERSION}).</p>
+      <p>Under active development (v{APP_VERSION}).</p>
     </main>
   );
 }

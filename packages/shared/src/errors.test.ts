@@ -12,6 +12,8 @@ describe('ERROR_CODES', () => {
       'RATE_LIMITED',
       'UPSTREAM_UNAVAILABLE',
       'INTERNAL',
+      'INVALID_CREDENTIALS',
+      'PASSWORD_CHANGE_REQUIRED',
     ];
     expect([...ERROR_CODES].sort()).toEqual([...expected].sort());
     expect(new Set(ERROR_CODES).size).toBe(ERROR_CODES.length);

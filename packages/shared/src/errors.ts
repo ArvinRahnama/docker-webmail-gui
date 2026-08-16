@@ -20,6 +20,24 @@ export const ERROR_CODES = [
   'UNAUTHENTICATED',
   /** Authenticated, but not permitted to perform this action. */
   'FORBIDDEN',
+  /**
+   * A supplied credential (login password, or current password on a
+   * change-password request) did not verify. Deliberately distinct from
+   * `UNAUTHENTICATED` ("no session at all") — this is the uniform
+   * failure for login (unknown email, wrong password, locked-out
+   * account and disabled account are all indistinguishable, by design:
+   * SECURITY.md §3.5) and for a wrong current-password on a
+   * change-password request, where the caller *does* have a valid
+   * session but has not proven possession of the current password.
+   */
+  'INVALID_CREDENTIALS',
+  /**
+   * The authenticated admin must change their password (bootstrap or
+   * admin-created account) before any other route is usable.
+   * ARCHITECTURE.md / M3: "force the change before any other route is
+   * usable."
+   */
+  'PASSWORD_CHANGE_REQUIRED',
   /** The requested resource does not exist (or is not visible to this caller). */
   'NOT_FOUND',
   /** The request conflicts with the current state of the resource. */

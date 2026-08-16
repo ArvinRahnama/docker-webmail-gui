@@ -25,6 +25,8 @@ const DEFAULT_HTTP_STATUS: Record<ErrorCode, number> = {
   RATE_LIMITED: 429,
   UPSTREAM_UNAVAILABLE: 502,
   INTERNAL: 500,
+  INVALID_CREDENTIALS: 401,
+  PASSWORD_CHANGE_REQUIRED: 403,
 };
 
 export interface AppErrorOptions {

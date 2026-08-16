@@ -35,6 +35,11 @@ describe('loadConfig — defaults', () => {
     expect(config.rspamd.password).toBeNull();
     expect(config.enableExecConsole).toBe(false);
     expect(config.enableHsts).toBe(true);
+    expect(config.cookieSecure).toBe(true);
+    expect(config.session.absoluteTtlHours).toBe(12);
+    expect(config.session.idleTtlHours).toBe(2);
+    expect(config.bootstrapAdmin.email).toBeNull();
+    expect(config.bootstrapAdmin.password).toBeNull();
   });
 
   it('returns a frozen object', () => {
@@ -148,6 +153,46 @@ describe('loadConfig — production enforcement', () => {
   it('does not enforce the production secret requirements outside production', () => {
     // APP_MODE defaults to development, so no COOKIE_SECRET/BROKER_SHARED_SECRET at all must not throw.
     expect(() => loadConfig({})).not.toThrow();
+  });
+});
+
+describe('loadConfig — M3: cookie security, session TTLs, bootstrap admin', () => {
+  it('honours COOKIE_SECURE=false for plain-HTTP LAN installs', () => {
+    expect(loadConfig({ COOKIE_SECURE: 'false' }).cookieSecure).toBe(false);
+  });
+
+  it('parses fractional session TTL hours', () => {
+    const config = loadConfig({
+      SESSION_ABSOLUTE_TTL_HOURS: '24',
+      SESSION_IDLE_TTL_HOURS: '0.5',
+    });
+    expect(config.session.absoluteTtlHours).toBe(24);
+    expect(config.session.idleTtlHours).toBe(0.5);
+  });
+
+  it('rejects a zero or negative session TTL', () => {
+    expect(() => loadConfig({ SESSION_IDLE_TTL_HOURS: '0' })).toThrow(ConfigError);
+    expect(() => loadConfig({ SESSION_ABSOLUTE_TTL_HOURS: '-1' })).toThrow(ConfigError);
+  });
+
+  it('accepts a matched bootstrap admin email + password pair', () => {
+    const config = loadConfig({
+      BOOTSTRAP_ADMIN_EMAIL: 'admin@example.com',
+      BOOTSTRAP_ADMIN_PASSWORD: 'a-bootstrap-password',
+    });
+    expect(config.bootstrapAdmin.email).toBe('admin@example.com');
+    expect(config.bootstrapAdmin.password).toBe('a-bootstrap-password');
+  });
+
+  it('rejects a bootstrap email without a matching password, and vice versa', () => {
+    expect(() => loadConfig({ BOOTSTRAP_ADMIN_EMAIL: 'admin@example.com' })).toThrow(ConfigError);
+    expect(() => loadConfig({ BOOTSTRAP_ADMIN_PASSWORD: 'only-a-password' })).toThrow(ConfigError);
+  });
+
+  it('rejects a malformed bootstrap admin email', () => {
+    expect(() =>
+      loadConfig({ BOOTSTRAP_ADMIN_EMAIL: 'not-an-email', BOOTSTRAP_ADMIN_PASSWORD: 'x' }),
+    ).toThrow(ConfigError);
   });
 });
 

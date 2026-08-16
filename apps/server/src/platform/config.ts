@@ -57,6 +57,14 @@ function portVar(defaultValue: number) {
   );
 }
 
+/** A positive (>0) numeric var, e.g. a TTL expressed in hours. Fractional values are allowed (e.g. `0.5` for 30 minutes). */
+function positiveNumberVar(defaultValue: number) {
+  return z.preprocess(
+    (raw) => (raw === undefined || raw === '' ? defaultValue : Number(raw)),
+    z.number({ error: 'must be a number' }).positive('must be greater than 0'),
+  );
+}
+
 function stringVar(defaultValue: string) {
   return z
     .string()
@@ -70,6 +78,17 @@ function optionalStringVar() {
     .string()
     .optional()
     .transform((raw) => (raw === undefined || raw === '' ? null : raw));
+}
+
+/** Like {@link optionalStringVar}, but the present value must look like an email address. */
+function optionalEmailVar() {
+  return z
+    .string()
+    .optional()
+    .transform((raw) => (raw === undefined || raw === '' ? null : raw))
+    .refine((value) => value === null || z.string().email().safeParse(value).success, {
+      message: 'must be a valid email address',
+    });
 }
 
 function urlVar(defaultValue: string) {
@@ -112,8 +131,28 @@ const rawEnvSchema = z
       .transform((raw) => (raw === undefined ? 'info' : (raw as ConfigLogLevel))),
 
     COOKIE_SECRET: optionalStringVar(),
+    // Defaults on (SECURITY.md §4.2 makes the same allowance for HSTS):
+    // can be turned off for a plain-HTTP LAN install, where *forcing*
+    // Secure would silently stop the browser from ever sending the
+    // session cookie back — locking an admin out rather than protecting
+    // them.
+    COOKIE_SECURE: booleanVar(true),
+    // Absolute and idle session expiry (ARCHITECTURE.md §7.4), both
+    // configurable, expressed in hours. Defaults per the M3 brief: 12h
+    // absolute, 2h idle.
+    SESSION_ABSOLUTE_TTL_HOURS: positiveNumberVar(12),
+    SESSION_IDLE_TTL_HOURS: positiveNumberVar(2),
     DATA_DIR: stringVar('./data'),
     BACKUP_DIR: stringVar('./backups'),
+
+    // First-administrator bootstrap (M3): no default password ever
+    // ships, so the *only* way an initial account comes into existence
+    // is via this config-provided credential, applied once at startup
+    // when no administrator row exists yet (see `modules/auth/bootstrap.ts`).
+    // Both or neither — a lone value is almost certainly a typo'd
+    // deployment, so it is rejected below rather than silently ignored.
+    BOOTSTRAP_ADMIN_EMAIL: optionalEmailVar(),
+    BOOTSTRAP_ADMIN_PASSWORD: optionalStringVar(),
 
     BROKER_URL: urlVar('http://broker:4000'),
     BROKER_SHARED_SECRET: optionalStringVar(),
@@ -131,6 +170,20 @@ const rawEnvSchema = z
     ENABLE_HSTS: booleanVar(true),
   })
   .superRefine((data, ctx) => {
+    // BOOTSTRAP_ADMIN_EMAIL/PASSWORD must be set together, in every mode
+    // — a lone value can never bootstrap an account, so it is far more
+    // likely a typo (a misspelled variable name, a copy-paste that
+    // missed one line) than an intentional partial configuration.
+    if ((data.BOOTSTRAP_ADMIN_EMAIL === null) !== (data.BOOTSTRAP_ADMIN_PASSWORD === null)) {
+      const missing =
+        data.BOOTSTRAP_ADMIN_EMAIL === null ? 'BOOTSTRAP_ADMIN_EMAIL' : 'BOOTSTRAP_ADMIN_PASSWORD';
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: [missing],
+        message: `${missing} must be set together with its counterpart, or not at all.`,
+      });
+    }
+
     if (data.APP_MODE !== 'production') {
       return;
     }
@@ -178,9 +231,36 @@ export interface AppConfig {
   readonly cookieSecret: string;
   /** True when no COOKIE_SECRET was configured and one was generated for this process only. */
   readonly cookieSecretIsEphemeral: boolean;
+  /**
+   * Whether the session cookie carries `Secure`. Derived from config,
+   * not hardcoded — `SECURITY.md` §4.2 makes the same allowance for
+   * HSTS: a plain-HTTP LAN install needs to be able to turn this off, or
+   * the browser silently drops the cookie and locks the admin out
+   * rather than protecting them.
+   */
+  readonly cookieSecure: boolean;
+
+  readonly session: {
+    /** Absolute session lifetime in hours, regardless of activity. */
+    readonly absoluteTtlHours: number;
+    /** Idle session lifetime in hours — expires this long after `last_seen_at` with no activity, even inside the absolute window. */
+    readonly idleTtlHours: number;
+  };
 
   readonly dataDir: string;
   readonly backupDir: string;
+
+  /**
+   * First-administrator bootstrap credential (M3). Both fields are
+   * `null` together or set together — see the config schema's
+   * superRefine. `null` means: create no account at startup, and if
+   * none already exists, refuse to serve authenticated routes (logged
+   * loudly — see `modules/auth/bootstrap.ts`).
+   */
+  readonly bootstrapAdmin: {
+    readonly email: string | null;
+    readonly password: string | null;
+  };
 
   readonly broker: {
     readonly url: string;
@@ -293,8 +373,17 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     logLevel: data.LOG_LEVEL,
     cookieSecret,
     cookieSecretIsEphemeral,
+    cookieSecure: data.COOKIE_SECURE,
+    session: Object.freeze({
+      absoluteTtlHours: data.SESSION_ABSOLUTE_TTL_HOURS,
+      idleTtlHours: data.SESSION_IDLE_TTL_HOURS,
+    }),
     dataDir: data.DATA_DIR,
     backupDir: data.BACKUP_DIR,
+    bootstrapAdmin: Object.freeze({
+      email: data.BOOTSTRAP_ADMIN_EMAIL,
+      password: data.BOOTSTRAP_ADMIN_PASSWORD,
+    }),
     broker: Object.freeze({
       url: data.BROKER_URL,
       sharedSecret: brokerSharedSecret,

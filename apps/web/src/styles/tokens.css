@@ -1,0 +1,181 @@
+/*
+ * Design tokens — UX_ARCHITECTURE.md §3 (colour system).
+ *
+ * This file is "the token file" src/styles/tokens.contrast.test.ts parses:
+ * every custom property below that holds an `oklch(...)` value is a
+ * candidate the contrast suite checks, so keep the format machine-parsable
+ * (one `--name: oklch(...);` declaration per line) rather than folding
+ * values into shorthand or multi-value declarations.
+ *
+ * Light values live on bare `:root`. Dark values are redefined twice — once
+ * under `@media (prefers-color-scheme: dark)`, guarded with
+ * `:root:not([data-theme="light"])` so an explicit light choice still wins
+ * over the OS preference, and again under `:root[data-theme="dark"]` so an
+ * explicit dark choice applies regardless of OS preference. Both dark
+ * blocks must stay identical — contrast.test.ts asserts that as a
+ * regression guard, so an edit to one without the other fails the suite
+ * rather than silently drifting.
+ *
+ * Typography, spacing, radius and motion tokens live in ../index.css's
+ * `@theme` block instead of here: those need Tailwind's own namespaced
+ * custom-property names (`--text-*`, `--radius-*`, `--ease-*`, ...) to
+ * generate utilities, and (elevation aside) they don't vary by theme, so
+ * there's no light/dark split to justify keeping them out of `@theme`.
+ *
+ * --- Deviations from UX_ARCHITECTURE.md §3's literal table ---
+ * §3.4 makes contrast a build-time, hard-fail gate, and six of the exact
+ * values §3.1/§3.3 publish do not clear the thresholds §3.4 itself sets —
+ * both are "hard acceptance criteria" per the milestone brief, so shipping
+ * the literal numbers unmodified would mean the contrast suite correctly
+ * fails the build. Hue and chroma are preserved exactly in every case;
+ * only lightness (L) moves, by the smallest amount that clears the bar
+ * with a small safety margin. Each is called out at its declaration:
+ *
+ *   - --text-muted (light): 0.578 -> 0.555. As specified: 4.14:1 against
+ *     --bg-app / 4.32:1 against --bg-surface, against the 4.5:1 floor
+ *     §3.4 sets for "secondary/muted" text (the two are named together,
+ *     one bucket).
+ *   - --status-unknown-fg (light): 0.545 -> 0.534. As specified: 4.35:1
+ *     against its paired --status-unknown-bg, against the 4.5:1 status
+ *     floor.
+ *   - --border-default: light 0.878 -> 0.630, dark 0.318 -> 0.540.
+ *   - --border-strong: light 0.795 -> 0.560, dark 0.398 -> 0.610.
+ *     As specified, both were nowhere close to the 3:1 non-text-contrast
+ *     floor (1.4:1-1.9:1 against adjacent surfaces in every case checked).
+ *     §3.1 describes these two as real component boundaries ("Card and
+ *     input borders" / "Hover, active borders"), so they're held to 3:1
+ *     against all four background surfaces (--bg-app/--bg-surface/
+ *     --bg-raised/--bg-inset). --border-subtle is left exactly as
+ *     specified and out of the enforced matrix: its own "Use" is "Table
+ *     row dividers" — a decorative separator, not a component boundary,
+ *     the same distinction WCAG 1.4.11 Non-text Contrast itself draws.
+ *
+ * See contrast.test.ts for the full enforced matrix and the OKLCH ->
+ * sRGB -> WCAG relative luminance math.
+ */
+
+:root {
+  color-scheme: light;
+
+  /* Neutrals (§3.1) */
+  --bg-app: oklch(0.985 0.002 265);
+  --bg-surface: oklch(1 0 0);
+  --bg-raised: oklch(0.975 0.003 265);
+  --bg-overlay: oklch(0.145 0.01 265 / 0.55);
+  --bg-inset: oklch(0.965 0.003 265);
+  --border-subtle: oklch(0.925 0.004 265);
+  --border-default: oklch(0.63 0.005 265); /* corrected from 0.878 — see file header */
+  --border-strong: oklch(0.56 0.007 265); /* corrected from 0.795 — see file header */
+  --text-primary: oklch(0.235 0.011 265);
+  --text-secondary: oklch(0.455 0.011 265);
+  --text-muted: oklch(0.555 0.011 265); /* corrected from 0.578 — see file header */
+  --text-disabled: oklch(0.7 0.008 265);
+
+  /* Accent (§3.2) */
+  --accent: oklch(0.545 0.175 258);
+  --accent-hover: oklch(0.495 0.18 258);
+  --accent-fg: oklch(0.99 0 0);
+  --accent-subtle-bg: oklch(0.955 0.03 258);
+  --focus-ring: oklch(0.545 0.175 258);
+
+  /* Status palette (§3.3) — six states, fg on its paired bg */
+  --status-healthy-fg: oklch(0.475 0.135 150);
+  --status-healthy-bg: oklch(0.955 0.035 150);
+  --status-warning-fg: oklch(0.505 0.13 75);
+  --status-warning-bg: oklch(0.96 0.045 85);
+  --status-critical-fg: oklch(0.505 0.19 25);
+  --status-critical-bg: oklch(0.958 0.03 25);
+  --status-unknown-fg: oklch(0.534 0.01 265); /* corrected from 0.545 — see file header */
+  --status-unknown-bg: oklch(0.955 0.003 265);
+  --status-info-fg: oklch(0.52 0.14 258);
+  --status-info-bg: oklch(0.955 0.03 258);
+  --status-pending-fg: oklch(0.52 0.105 300);
+  --status-pending-bg: oklch(0.958 0.025 300);
+
+  /* Elevation (§4) — light theme uses real shadows. */
+  --elevation-sm: 0 1px 2px oklch(0.235 0.011 265 / 0.08);
+  --elevation-md: 0 4px 12px oklch(0.235 0.011 265 / 0.1);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    color-scheme: dark;
+
+    --bg-app: oklch(0.178 0.008 265);
+    --bg-surface: oklch(0.213 0.009 265);
+    --bg-raised: oklch(0.248 0.01 265);
+    --bg-overlay: oklch(0.09 0.01 265 / 0.7);
+    --bg-inset: oklch(0.158 0.008 265);
+    --border-subtle: oklch(0.272 0.01 265);
+    --border-default: oklch(0.54 0.011 265); /* corrected from 0.318 — see file header */
+    --border-strong: oklch(0.61 0.012 265); /* corrected from 0.398 — see file header */
+    --text-primary: oklch(0.962 0.003 265);
+    --text-secondary: oklch(0.775 0.008 265);
+    --text-muted: oklch(0.648 0.01 265);
+    --text-disabled: oklch(0.505 0.009 265);
+
+    --accent: oklch(0.685 0.155 258);
+    --accent-hover: oklch(0.735 0.15 258);
+    --accent-fg: oklch(0.15 0.01 265);
+    --accent-subtle-bg: oklch(0.285 0.055 258);
+    --focus-ring: oklch(0.735 0.15 258);
+
+    --status-healthy-fg: oklch(0.76 0.14 150);
+    --status-healthy-bg: oklch(0.275 0.055 150);
+    --status-warning-fg: oklch(0.805 0.14 85);
+    --status-warning-bg: oklch(0.3 0.055 75);
+    --status-critical-fg: oklch(0.735 0.17 25);
+    --status-critical-bg: oklch(0.295 0.075 25);
+    --status-unknown-fg: oklch(0.7 0.01 265);
+    --status-unknown-bg: oklch(0.285 0.008 265);
+    --status-info-fg: oklch(0.74 0.13 258);
+    --status-info-bg: oklch(0.285 0.05 258);
+    --status-pending-fg: oklch(0.755 0.11 300);
+    --status-pending-bg: oklch(0.29 0.045 300);
+
+    /* Dark theme uses border + background lift instead of shadow (§4) —
+       shadows are nearly invisible on a dark surface, so elevation reads
+       from --bg-raised/--bg-inset's luminance step instead. */
+    --elevation-sm: none;
+    --elevation-md: none;
+  }
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+
+  --bg-app: oklch(0.178 0.008 265);
+  --bg-surface: oklch(0.213 0.009 265);
+  --bg-raised: oklch(0.248 0.01 265);
+  --bg-overlay: oklch(0.09 0.01 265 / 0.7);
+  --bg-inset: oklch(0.158 0.008 265);
+  --border-subtle: oklch(0.272 0.01 265);
+  --border-default: oklch(0.54 0.011 265); /* corrected from 0.318 — see file header */
+  --border-strong: oklch(0.61 0.012 265); /* corrected from 0.398 — see file header */
+  --text-primary: oklch(0.962 0.003 265);
+  --text-secondary: oklch(0.775 0.008 265);
+  --text-muted: oklch(0.648 0.01 265);
+  --text-disabled: oklch(0.505 0.009 265);
+
+  --accent: oklch(0.685 0.155 258);
+  --accent-hover: oklch(0.735 0.15 258);
+  --accent-fg: oklch(0.15 0.01 265);
+  --accent-subtle-bg: oklch(0.285 0.055 258);
+  --focus-ring: oklch(0.735 0.15 258);
+
+  --status-healthy-fg: oklch(0.76 0.14 150);
+  --status-healthy-bg: oklch(0.275 0.055 150);
+  --status-warning-fg: oklch(0.805 0.14 85);
+  --status-warning-bg: oklch(0.3 0.055 75);
+  --status-critical-fg: oklch(0.735 0.17 25);
+  --status-critical-bg: oklch(0.295 0.075 25);
+  --status-unknown-fg: oklch(0.7 0.01 265);
+  --status-unknown-bg: oklch(0.285 0.008 265);
+  --status-info-fg: oklch(0.74 0.13 258);
+  --status-info-bg: oklch(0.285 0.05 258);
+  --status-pending-fg: oklch(0.755 0.11 300);
+  --status-pending-bg: oklch(0.29 0.045 300);
+
+  --elevation-sm: none;
+  --elevation-md: none;
+}

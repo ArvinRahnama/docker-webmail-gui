@@ -11,7 +11,14 @@
     "jsx": "react-jsx",
     // Bundler-owned build, not run directly by Node — see
     // tsconfig.base.json's comment on this split.
-    "moduleResolution": "bundler"
+    "moduleResolution": "bundler",
+    // Mirrors the `@` alias in vite.config.ts/vitest.config.ts, so
+    // `@/components/...` resolves identically for tsc, Vite and Vitest
+    // rather than only working at bundle time.
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["src/*"]
+    }
   },
   "include": ["src"],
   "references": [{ "path": "../../packages/shared" }]

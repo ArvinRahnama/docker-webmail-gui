@@ -1,0 +1,244 @@
+@import 'tailwindcss';
+@import './tokens.css';
+@import './fonts.css';
+
+/*
+ * Tailwind v4 CSS-first theme (UX_ARCHITECTURE.md §4). Colour entries below
+ * are a namespace bridge only — `--color-bg-app: var(--bg-app)` makes
+ * Tailwind generate `bg-bg-app`/`text-bg-app`/etc. utilities that resolve
+ * through the theme-aware custom property in tokens.css, so a component
+ * never hardcodes a light or dark value. Non-colour tokens (type scale,
+ * spacing, radius, motion) are declared directly here since they don't
+ * vary by theme (elevation aside, which still goes through tokens.css's
+ * --elevation-* so it can become `none` in dark — §4 "dark theme uses
+ * border + background lift instead of shadow").
+ */
+@theme {
+  --font-sans:
+    'Inter Variable', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue',
+    Arial, sans-serif;
+  --font-mono:
+    'JetBrains Mono Variable', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono',
+    monospace;
+
+  --color-bg-app: var(--bg-app);
+  --color-bg-surface: var(--bg-surface);
+  --color-bg-raised: var(--bg-raised);
+  --color-bg-overlay: var(--bg-overlay);
+  --color-bg-inset: var(--bg-inset);
+  --color-border-subtle: var(--border-subtle);
+  --color-border-default: var(--border-default);
+  --color-border-strong: var(--border-strong);
+  --color-text-primary: var(--text-primary);
+  --color-text-secondary: var(--text-secondary);
+  --color-text-muted: var(--text-muted);
+  --color-text-disabled: var(--text-disabled);
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-fg: var(--accent-fg);
+  --color-accent-subtle-bg: var(--accent-subtle-bg);
+  --color-focus-ring: var(--focus-ring);
+  --color-status-healthy-fg: var(--status-healthy-fg);
+  --color-status-healthy-bg: var(--status-healthy-bg);
+  --color-status-warning-fg: var(--status-warning-fg);
+  --color-status-warning-bg: var(--status-warning-bg);
+  --color-status-critical-fg: var(--status-critical-fg);
+  --color-status-critical-bg: var(--status-critical-bg);
+  --color-status-unknown-fg: var(--status-unknown-fg);
+  --color-status-unknown-bg: var(--status-unknown-bg);
+  --color-status-info-fg: var(--status-info-fg);
+  --color-status-info-bg: var(--status-info-bg);
+  --color-status-pending-fg: var(--status-pending-fg);
+  --color-status-pending-bg: var(--status-pending-bg);
+
+  /* Typography (§4). Weight is applied separately via Tailwind's own
+     font-weight-* utilities (e.g. `text-h1 font-semibold`) rather than a
+     `--text-*--font-weight` companion — Tailwind's own bundled default
+     theme (theme.css) only demonstrates the `--line-height` companion, so
+     that's the one relied on here. */
+  --text-display: 1.875rem; /* 30px */
+  --text-display--line-height: 2.25rem; /* 36px */
+  --text-h1: 1.375rem; /* 22px */
+  --text-h1--line-height: 1.75rem; /* 28px */
+  --text-h2: 1.0625rem; /* 17px */
+  --text-h2--line-height: 1.5rem; /* 24px */
+  --text-h3: 0.9375rem; /* 15px */
+  --text-h3--line-height: 1.25rem; /* 20px */
+  --text-body: 0.875rem; /* 14px */
+  --text-body--line-height: 1.25rem; /* 20px */
+  --text-body-sm: 0.8125rem; /* 13px */
+  --text-body-sm--line-height: 1.125rem; /* 18px */
+  --text-caption: 0.75rem; /* 12px */
+  --text-caption--line-height: 1rem; /* 16px */
+  --text-mono: 0.8125rem; /* 13px */
+  --text-mono--line-height: 1.25rem; /* 20px */
+  --text-mono-sm: 0.75rem; /* 12px */
+  --text-mono-sm--line-height: 1.125rem; /* 18px */
+
+  /* Spacing (§4) — 4px base. Tailwind v4's own default `--spacing` is
+     already 0.25rem; declared explicitly so the match is a documented
+     decision, not an accident that breaks silently on a Tailwind update. */
+  --spacing: 0.25rem;
+
+  /* Radius (§4). sm/md already equal Tailwind's own defaults — declared
+     explicitly for the same reason as --spacing above. */
+  --radius-sm: 0.25rem; /* 4px */
+  --radius-md: 0.375rem; /* 6px */
+  --radius-lg: 0.625rem; /* 10px */
+
+  /* Elevation (§4) */
+  --shadow-sm: var(--elevation-sm);
+  --shadow-md: var(--elevation-md);
+
+  /* Motion (§4) */
+  --ease-standard: cubic-bezier(0.32, 0.72, 0, 1);
+  --duration-fast: 120ms;
+  --duration-base: 180ms;
+  --duration-slow: 240ms;
+}
+
+@layer base {
+  body {
+    background-color: var(--bg-app);
+    color: var(--text-primary);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  /* §4: "font-variant-numeric: tabular-nums globally on tables/metrics."
+     Applied structurally to every table; MetricTile also opts in directly
+     via the `tabular-nums` utility since its value isn't inside a table. */
+  table {
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* §10 "Visible focus ring on every interactive element ... never
+     removed." One rule covers every focusable element structurally,
+     rather than relying on each component to remember a utility class. */
+  :focus-visible {
+    outline: 2px solid var(--focus-ring);
+    outline-offset: 2px;
+    border-radius: var(--radius-sm);
+  }
+
+  /* §4 motion + Radix's Presence: exit animations only get their full
+     duration before unmount if Presence sees an `animationend` event, so
+     these are real @keyframes + `animation`, not `transition` — a plain
+     CSS transition is never awaited and the node would just vanish
+     instantly on close (checked against @radix-ui/react-presence's
+     source: it listens for `animationend` only). Applied via a plain
+     class + Radix's own `data-state` attribute, deliberately not
+     Tailwind's `animate-in`/`fade-in-0` utility names, which come from
+     the `tailwindcss-animate` plugin — not in this project's dependency
+     budget (IMPLEMENTATION_PLAN.md §1). */
+  @keyframes dwg-fade-in {
+    from {
+      opacity: 0;
+    }
+  }
+  @keyframes dwg-fade-out {
+    to {
+      opacity: 0;
+    }
+  }
+  @keyframes dwg-scale-in {
+    from {
+      opacity: 0;
+      transform: translate(-50%, -50%) scale(0.96);
+    }
+  }
+  @keyframes dwg-scale-out {
+    to {
+      opacity: 0;
+      transform: translate(-50%, -50%) scale(0.96);
+    }
+  }
+  @keyframes dwg-pop-in {
+    from {
+      opacity: 0;
+      transform: scale(0.96);
+    }
+  }
+  @keyframes dwg-pop-out {
+    to {
+      opacity: 0;
+      transform: scale(0.96);
+    }
+  }
+  @keyframes dwg-slide-in-from-left {
+    from {
+      transform: translateX(-100%);
+    }
+  }
+  @keyframes dwg-slide-out-to-left {
+    to {
+      transform: translateX(-100%);
+    }
+  }
+  @keyframes dwg-slide-in-from-right {
+    from {
+      transform: translateX(100%);
+    }
+  }
+  @keyframes dwg-slide-out-to-right {
+    to {
+      transform: translateX(100%);
+    }
+  }
+
+  .dwg-sheet-content[data-state='open'] {
+    animation: dwg-slide-in-from-left var(--duration-slow) var(--ease-standard);
+  }
+  .dwg-sheet-content[data-state='closed'] {
+    animation: dwg-slide-out-to-left var(--duration-slow) var(--ease-standard);
+  }
+  .dwg-sheet-content[data-side='right'][data-state='open'] {
+    animation: dwg-slide-in-from-right var(--duration-slow) var(--ease-standard);
+  }
+  .dwg-sheet-content[data-side='right'][data-state='closed'] {
+    animation: dwg-slide-out-to-right var(--duration-slow) var(--ease-standard);
+  }
+
+  .dwg-overlay[data-state='open'] {
+    animation: dwg-fade-in var(--duration-slow) var(--ease-standard);
+  }
+  .dwg-overlay[data-state='closed'] {
+    animation: dwg-fade-out var(--duration-slow) var(--ease-standard);
+  }
+
+  /* Modal content (Dialog/AlertDialog): translate is baked into the
+     keyframes above because these are centered with
+     `translate(-50%, -50%)` and a transform-based animation must include
+     that base transform in every frame, or the element would jump to the
+     top-left corner mid-animation. */
+  .dwg-modal-content[data-state='open'] {
+    animation: dwg-scale-in var(--duration-slow) var(--ease-standard);
+  }
+  .dwg-modal-content[data-state='closed'] {
+    animation: dwg-scale-out var(--duration-slow) var(--ease-standard);
+  }
+
+  /* Popover-style content (dropdown menu, tooltip): no centering
+     transform to preserve, so a plain scale is enough. */
+  .dwg-pop-content[data-state='open'],
+  .dwg-pop-content[data-state='delayed-open'] {
+    animation: dwg-pop-in var(--duration-base) var(--ease-standard);
+  }
+  .dwg-pop-content[data-state='closed'] {
+    animation: dwg-pop-out var(--duration-base) var(--ease-standard);
+  }
+
+  /* §4: reduced motion collapses every duration to near-zero and the
+     `pending` spinner falls back to a static state (handled in
+     HealthIndicator/StatusBadge via this same media query). */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 1ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 1ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}

@@ -2,7 +2,12 @@
 import type { Migration } from './runner.js';
 import { migration001Initial } from './001_initial.js';
 import { migration002Auth } from './002_auth.js';
+import { migration003AdminDelete } from './003_admin_delete.js';
 
-export const migrations: readonly Migration[] = [migration001Initial, migration002Auth];
+export const migrations: readonly Migration[] = [
+  migration001Initial,
+  migration002Auth,
+  migration003AdminDelete,
+];
 
 export { runMigrations, MigrationError, type Migration } from './runner.js';

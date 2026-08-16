@@ -36,7 +36,7 @@ describe('runMigrations', () => {
     ]) {
       expect(tables).toContain(expected);
     }
-    expect(appliedVersions(db)).toEqual([1, 2]);
+    expect(appliedVersions(db)).toEqual([1, 2, 3]);
     db.close();
   });
 

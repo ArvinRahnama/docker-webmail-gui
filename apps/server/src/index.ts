@@ -44,7 +44,7 @@ async function main(): Promise<void> {
     return;
   }
 
-  const app = await buildApp({ config, logger });
+  const app = await buildApp({ config, logger, db });
 
   try {
     const address = await app.listen({ port: config.port, host: config.host });

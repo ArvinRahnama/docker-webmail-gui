@@ -1,20 +1,44 @@
 /**
  * Fastify application wiring: security headers, the uniform error
- * handler, request-id propagation, and the M2 health endpoint
- * (ARCHITECTURE.md §7.1, §7.7). `index.ts` owns the process lifecycle
- * (starting, stopping, the database); this module only builds the app.
+ * handler, request-id propagation, the M2 health endpoint, and the M3
+ * auth/session/admin routes (ARCHITECTURE.md §7.1, §7.2, §7.7).
+ * `index.ts` owns the process lifecycle (starting, stopping, the
+ * database) for the real, file-backed database it opens and migrates;
+ * this module only builds the app. Callers that have no reason to care
+ * about persistence (chiefly tests) may omit `db` entirely — see
+ * {@link BuildAppOptions}.
  */
 import type { IncomingMessage, Server, ServerResponse } from 'node:http';
 import Fastify, { type FastifyBaseLogger, type FastifyInstance } from 'fastify';
 import fastifyHelmet from '@fastify/helmet';
+import fastifyCookie from '@fastify/cookie';
 import type { Logger } from 'pino';
 import { APP_VERSION, HealthResponseSchema } from '@dwg/shared';
 import type { AppConfig } from './platform/config.js';
 import { AppError, createErrorHandler, generateId } from './platform/errors.js';
+import { createDatabase, type Database } from './platform/db.js';
+import { runMigrations, migrations } from './platform/migrations/index.js';
+import { AdminsRepository } from './modules/auth/admins.repository.js';
+import { SessionsRepository } from './modules/auth/sessions.repository.js';
+import { LoginAttemptsRepository } from './modules/auth/login-attempts.repository.js';
+import { AuthService } from './modules/auth/auth.service.js';
+import { bootstrapFirstAdmin } from './modules/auth/bootstrap.js';
+import { createAuthMiddleware } from './modules/auth/auth.middleware.js';
+import { registerAuthRoutes } from './modules/auth/auth.routes.js';
+import { registerAdminsRoutes } from './modules/auth/admins.routes.js';
 
 export interface BuildAppOptions {
   readonly config: AppConfig;
   readonly logger: Logger;
+  /**
+   * The application's database. Production startup (`index.ts`) always
+   * passes the real, already-migrated database it owns and is
+   * responsible for closing. When omitted, `buildApp` creates and
+   * migrates a throwaway in-memory database itself and closes it when
+   * the app does — convenient for tests (like this file's own) that
+   * exercise no auth/data path and have no reason to care.
+   */
+  readonly db?: Database;
 }
 
 const REQUEST_ID_HEADER = 'request-id';
@@ -85,6 +109,24 @@ function registerHealthRoute(app: FastifyInstance): void {
 export async function buildApp(options: BuildAppOptions): Promise<FastifyInstance> {
   const { config, logger } = options;
 
+  const ownsDb = options.db === undefined;
+  const db = options.db ?? createDatabase(':memory:');
+  if (ownsDb) {
+    runMigrations(db, migrations);
+  }
+
+  const admins = new AdminsRepository(db);
+  const sessions = new SessionsRepository(db);
+  const attempts = new LoginAttemptsRepository(db);
+  const authService = new AuthService({ db, admins, sessions, attempts, config });
+
+  // Idempotent (bootstrap.ts): a no-op once any admin row exists, so
+  // calling this unconditionally on every build is safe and is what
+  // makes it actually run on the one build that matters (a fresh
+  // database), rather than needing a separate "is this the first ever
+  // start" signal.
+  await bootstrapFirstAdmin({ db, admins, config, logger });
+
   // Pin the Logger generic to Fastify's own FastifyBaseLogger interface
   // instead of letting it infer the concrete pino.Logger type from
   // `loggerInstance`. A real pino logger satisfies that interface fine
@@ -101,6 +143,15 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     genReqId: () => generateId('req'),
   });
 
+  // Whoever created the database is who closes it: index.ts owns and
+  // closes the real one, so this only ever fires for the throwaway
+  // in-memory database this function created for itself above.
+  if (ownsDb) {
+    app.addHook('onClose', () => {
+      db.close();
+    });
+  }
+
   const errorHandler = createErrorHandler(logger);
   app.setErrorHandler(errorHandler);
   // Route requests than don't match any registered route through the
@@ -114,7 +165,13 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
 
   await registerSecurityHeaders(app, config);
   registerRequestIdPropagation(app);
+  await app.register(fastifyCookie);
+
+  const middleware = createAuthMiddleware(app, { authService, config });
+
   registerHealthRoute(app);
+  await registerAuthRoutes(app, { authService, config, middleware });
+  await registerAdminsRoutes(app, { db, admins, middleware });
 
   return app;
 }

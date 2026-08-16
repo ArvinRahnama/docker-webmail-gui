@@ -14,3 +14,4 @@ export {
 export { parsePostfixAccounts, type PostfixAccountEntry } from './postfix-accounts.js';
 export { parsePostfixVirtual, type PostfixVirtualEntry } from './postfix-virtual.js';
 export { parseDovecotQuotas, type DovecotQuotaEntry } from './dovecot-quotas.js';
+export { parsePostfixAccess, isRestrictAction, type PostfixAccessEntry } from './postfix-access.js';

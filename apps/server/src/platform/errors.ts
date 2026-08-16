@@ -11,6 +11,7 @@ import { randomBytes } from 'node:crypto';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import type { Logger } from 'pino';
 import { type ErrorCode, isErrorCode } from '@dwg/shared';
+import { DmsCommandExecutionError, DmsCommandValidationError } from '../drivers/dms/errors.js';
 
 // ---------------------------------------------------------------------------
 // AppError
@@ -24,6 +25,7 @@ const DEFAULT_HTTP_STATUS: Record<ErrorCode, number> = {
   CONFLICT: 409,
   RATE_LIMITED: 429,
   UPSTREAM_UNAVAILABLE: 502,
+  CAPABILITY_UNSUPPORTED: 409,
   INTERNAL: 500,
   INVALID_CREDENTIALS: 401,
   PASSWORD_CHANGE_REQUIRED: 403,
@@ -165,9 +167,48 @@ const GENERIC_INTERNAL_MESSAGE =
  * real cause — the client response itself never carries a stack trace
  * or an internal message (SECURITY.md).
  */
+/**
+ * `DmsDriver` write methods (`drivers/dms/types.ts`) throw one of two
+ * typed errors instead of an `AppError` — see `drivers/dms/errors.ts`'s
+ * doc comments. Recognising both here, once, means every module built on
+ * `DmsDriver` (M7's mail modules today, more later) gets the mapping for
+ * free rather than every route handler needing its own try/catch:
+ *
+ *  - {@link DmsCommandValidationError}: a `commands.ts` builder rejected
+ *    the input before anything was invoked. Its message is already the
+ *    builder's own human-readable reason (e.g. "address must not be
+ *    empty") — safe to show verbatim, so this maps to `VALIDATION_FAILED`
+ *    with that exact message, matching every other validation failure's
+ *    shape.
+ *  - {@link DmsCommandExecutionError}: a validated command was actually
+ *    run and docker-mailserver itself rejected it. Its message embeds the
+ *    argv (never a password — commands.ts keeps that out of argv
+ *    entirely) and DMS's own stderr text, which is real, safe-to-show
+ *    diagnostic output about the admin's *own* mail server, not an
+ *    internal leak — so it is shown too, mapped to `UPSTREAM_UNAVAILABLE`
+ *    (the dependency this request needed errored) rather than the
+ *    fully-generic `INTERNAL`.
+ */
+function mapDmsDriverError(err: unknown): AppError | null {
+  if (err instanceof DmsCommandValidationError) {
+    return new AppError('VALIDATION_FAILED', err.message);
+  }
+  if (err instanceof DmsCommandExecutionError) {
+    return new AppError('UPSTREAM_UNAVAILABLE', err.message, {
+      details: { exitCode: err.exitCode },
+    });
+  }
+  return null;
+}
+
 export function createErrorHandler(logger: Logger) {
-  return function errorHandler(err: unknown, request: FastifyRequest, reply: FastifyReply): void {
+  return function errorHandler(
+    errParam: unknown,
+    request: FastifyRequest,
+    reply: FastifyReply,
+  ): void {
     const errorId = generateErrorId();
+    const err = mapDmsDriverError(errParam) ?? errParam;
 
     if (err instanceof AppError) {
       const logMethod = err.httpStatus >= 500 ? 'error' : 'warn';

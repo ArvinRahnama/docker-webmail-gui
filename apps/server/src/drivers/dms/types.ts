@@ -24,8 +24,10 @@ import type { ParseResult } from './parsers/parse-result.js';
 import type { PostfixAccountEntry } from './parsers/postfix-accounts.js';
 import type { PostfixVirtualEntry } from './parsers/postfix-virtual.js';
 import type { DovecotQuotaEntry } from './parsers/dovecot-quotas.js';
+import type { PostfixAccessEntry } from './parsers/postfix-access.js';
 import type { DerivedDomain } from './domains.js';
 import type { DmsCapabilities } from './capabilities.js';
+import type { QuotaUsageResult } from './quota-usage.js';
 import type {
   AddAliasParams,
   AddMailboxParams,
@@ -35,6 +37,7 @@ import type {
   DeleteQuotaParams,
   Fail2banIpParams,
   RestrictMailboxParams,
+  RestrictScope,
   SetQuotaParams,
   UpdateMailboxPasswordParams,
 } from './commands.js';
@@ -47,6 +50,10 @@ export interface DmsDriver {
   /** Derived, read-only — there is no `setup domain` command (★1; FEATURE_MATRIX.md §2). */
   listDomains(): Promise<readonly DerivedDomain[]>;
   getCapabilities(): Promise<DmsCapabilities>;
+  /** Reads `postfix-{send,receive}-access.cf` — the read half of "Restrict sending / receiving" (FEATURE_MATRIX.md §3; `parsers/postfix-access.ts`). */
+  getRestrictedAddresses(scope: RestrictScope): Promise<ParseResult<PostfixAccessEntry>>;
+  /** Live usage via `doveadm -f json quota get -u` (FEATURE_MATRIX.md §7; `quota-usage.ts`) — distinct from `listQuotas`, which only reads the configured *limit*. */
+  getMailboxUsage(email: string): Promise<QuotaUsageResult>;
 
   // Writes — invoke `setup` via commands.ts builders (Rule 1's other half).
   addMailbox(params: AddMailboxParams): Promise<void>;

@@ -11,6 +11,7 @@ import {
   buildAliasAddCommand,
   buildAliasDeleteCommand,
   buildConfigDkimCommand,
+  buildDoveadmQuotaGetCommand,
   buildEmailAddCommand,
   buildEmailDeleteCommand,
   buildEmailRestrictCommand,
@@ -28,6 +29,7 @@ import {
   type DeleteQuotaParams,
   type Fail2banIpParams,
   type RestrictMailboxParams,
+  type RestrictScope,
   type SetQuotaParams,
   type UpdateMailboxPasswordParams,
 } from './commands.js';
@@ -39,7 +41,14 @@ import type { ParseResult } from './parsers/parse-result.js';
 import { parseDovecotQuotas, type DovecotQuotaEntry } from './parsers/dovecot-quotas.js';
 import { parsePostfixAccounts, type PostfixAccountEntry } from './parsers/postfix-accounts.js';
 import { parsePostfixVirtual, type PostfixVirtualEntry } from './parsers/postfix-virtual.js';
+import { parsePostfixAccess, type PostfixAccessEntry } from './parsers/postfix-access.js';
+import { parseDoveadmQuotaGet, type QuotaUsageResult } from './quota-usage.js';
 import type { DmsDriver } from './types.js';
+
+const RESTRICT_SCOPE_FILE_NAME = {
+  send: 'postfix-send-access.cf',
+  receive: 'postfix-receive-access.cf',
+} as const satisfies Record<RestrictScope, 'postfix-send-access.cf' | 'postfix-receive-access.cf'>;
 
 export class RealDmsDriver implements DmsDriver {
   constructor(private readonly execPort: DmsExecPort) {}
@@ -67,6 +76,25 @@ export class RealDmsDriver implements DmsDriver {
   async getCapabilities(): Promise<DmsCapabilities> {
     const env = await this.execPort.getEnv();
     return detectCapabilities(env);
+  }
+
+  async getRestrictedAddresses(scope: RestrictScope): Promise<ParseResult<PostfixAccessEntry>> {
+    const content = await this.execPort.readFile(RESTRICT_SCOPE_FILE_NAME[scope]);
+    return parsePostfixAccess(content ?? '');
+  }
+
+  async getMailboxUsage(email: string): Promise<QuotaUsageResult> {
+    const result = buildDoveadmQuotaGetCommand({ email });
+    if (!result.ok) throw new DmsCommandValidationError(result.error);
+    const execResult = await this.execPort.exec(result.command.argv);
+    if (execResult.exitCode !== 0) {
+      throw new DmsCommandExecutionError(
+        result.command.argv,
+        execResult.exitCode,
+        execResult.stderr,
+      );
+    }
+    return parseDoveadmQuotaGet(execResult.stdout);
   }
 
   /**

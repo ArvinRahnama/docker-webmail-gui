@@ -6,4 +6,5 @@
 export * from './postfix-accounts.js';
 export * from './postfix-virtual.js';
 export * from './dovecot-quotas.js';
+export * from './postfix-access.js';
 export * from './env.js';

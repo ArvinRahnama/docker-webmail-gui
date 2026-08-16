@@ -39,6 +39,11 @@ export const DMS_CONFIG_FILE_NAMES = [
   'postfix-accounts.cf',
   'postfix-virtual.cf',
   'dovecot-quotas.cf',
+  // Written by `setup email restrict add|del send|receive <EMAIL>`
+  // (docs/research/01-docker-mailserver.md §8) — read by
+  // `getRestrictedAddresses` (`types.ts`) via `parsers/postfix-access.ts`.
+  'postfix-send-access.cf',
+  'postfix-receive-access.cf',
 ] as const;
 
 export type DmsConfigFileName = (typeof DMS_CONFIG_FILE_NAMES)[number];

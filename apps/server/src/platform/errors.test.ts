@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import Fastify from 'fastify';
 import { AppError, createErrorHandler, generateErrorId, generateId } from './errors.js';
 import { createLogger, type CreateLoggerOptions } from './logger.js';
+import { DmsCommandExecutionError, DmsCommandValidationError } from '../drivers/dms/errors.js';
 
 function captureLogger(): { logger: ReturnType<typeof createLogger>; lines: string[] } {
   const lines: string[] = [];
@@ -147,6 +148,58 @@ describe('createErrorHandler — unknown errors', () => {
     const errorId: string = response.json().error.errorId;
 
     expect(lines.some((line) => line.includes(errorId))).toBe(true);
+  });
+});
+
+describe('createErrorHandler — DmsDriver write-path errors (M7)', () => {
+  it("maps a DmsCommandValidationError to VALIDATION_FAILED with the builder's own message", async () => {
+    const { logger } = captureLogger();
+    const app = buildTestApp(logger);
+    app.get('/thing', () => {
+      throw new DmsCommandValidationError('address must not be empty');
+    });
+
+    const response = await app.inject({ method: 'GET', url: '/thing' });
+
+    expect(response.statusCode).toBe(400);
+    const body = response.json();
+    expect(body.error.code).toBe('VALIDATION_FAILED');
+    expect(body.error.message).toBe('address must not be empty');
+  });
+
+  it('maps a DmsCommandExecutionError to UPSTREAM_UNAVAILABLE, never a bare 500, and carries the exit code', async () => {
+    const { logger } = captureLogger();
+    const app = buildTestApp(logger);
+    app.get('/thing', () => {
+      throw new DmsCommandExecutionError(
+        ['setup', 'email', 'add', 'x@example.com'],
+        1,
+        'error: account exists',
+      );
+    });
+
+    const response = await app.inject({ method: 'GET', url: '/thing' });
+
+    expect(response.statusCode).toBe(502);
+    const body = response.json();
+    expect(body.error.code).toBe('UPSTREAM_UNAVAILABLE');
+    expect(body.error.message).toContain('account exists');
+    expect(body.error.details).toEqual({ exitCode: 1 });
+  });
+
+  it('never lets a DmsCommandExecutionError fall through to the generic, obscure INTERNAL response', async () => {
+    const { logger } = captureLogger();
+    const app = buildTestApp(logger);
+    app.get('/thing', () => {
+      throw new DmsCommandExecutionError(
+        ['setup', 'quota', 'set', 'x@example.com', '5M'],
+        1,
+        'boom',
+      );
+    });
+
+    const response = await app.inject({ method: 'GET', url: '/thing' });
+    expect(response.json().error.code).not.toBe('INTERNAL');
   });
 });
 

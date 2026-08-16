@@ -46,6 +46,17 @@ export const ERROR_CODES = [
   'RATE_LIMITED',
   /** A dependency this request needed (broker, Docker, Rspamd, …) was unreachable or errored. */
   'UPSTREAM_UNAVAILABLE',
+  /**
+   * The request was well-formed and targets a real route, but this
+   * deployment's capability document (`drivers/dms/capabilities.ts`) says
+   * the underlying operation cannot work here — e.g. a quota mutation
+   * while `ENABLE_QUOTAS` is off, or local mailbox/alias writes under
+   * `ACCOUNT_PROVISIONER=LDAP` (FEATURE_MATRIX.md §7; M7). Distinct from
+   * `VALIDATION_FAILED` (the request itself is fine) and from
+   * `UPSTREAM_UNAVAILABLE` (nothing is unreachable — the deployment simply
+   * does not have this feature turned on).
+   */
+  'CAPABILITY_UNSUPPORTED',
   /** An unexpected server-side failure. Never carries internal detail — see errorId. */
   'INTERNAL',
 ] as const;

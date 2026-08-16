@@ -38,6 +38,19 @@ export const AUDIT_ACTIONS = [
   'admin.create',
   'admin.update',
   'admin.delete',
+  // M7 — mail management (FEATURE_MATRIX.md §3–§7). "Every mutation
+  // audited," so one action per DmsDriver write the mail modules expose.
+  'mailbox.create',
+  'mailbox.password_change',
+  'mailbox.restrict',
+  'mailbox.quota_set',
+  'mailbox.quota_clear',
+  'mailbox.delete',
+  'mailbox.bulk_restrict',
+  'mailbox.bulk_quota',
+  'alias.create',
+  'alias.update',
+  'alias.delete',
 ] as const;
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];
 

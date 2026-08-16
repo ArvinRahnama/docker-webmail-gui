@@ -6,13 +6,17 @@
  * Every builder here:
  *
  *  - returns a {@link CommandResult} — never throws, and never returns a
- *    string to be joined/interpolated. `argv[0]` is always the literal
- *    `'setup'`; every other element is either a fixed subcommand/flag
- *    (from this module's own source, never from caller input) or a single
- *    validated leaf value (`validators.ts`). This is exactly
- *    ARCHITECTURE.md §5's rule: "Subcommand and flags come from a
+ *    string to be joined/interpolated. `argv[0]` is almost always the
+ *    literal `'setup'`; every other element is either a fixed
+ *    subcommand/flag (from this module's own source, never from caller
+ *    input) or a single validated leaf value (`validators.ts`). This is
+ *    exactly ARCHITECTURE.md §5's rule: "Subcommand and flags come from a
  *    server-side allowlist; only leaf values ... come from validated
- *    input."
+ *    input." The one exception is {@link buildDoveadmQuotaGetCommand},
+ *    whose `argv[0]` is the literal `'doveadm'` — a different, equally
+ *    fixed DMS-bundled binary invoked the same argv-array way, used for a
+ *    *read* (FEATURE_MATRIX.md §0 Rule 1's explicit allowance: "query real
+ *    APIs (..., `doveadm`, ...)"), never for a mutating `setup` call.
  *  - never emits `sh`, `bash`, or `-c` — there is no code path in this
  *    file that could, since no argv element is ever assembled by string
  *    concatenation or interpolation, only array literals and validated
@@ -256,6 +260,22 @@ export function buildQuotaDeleteCommand(params: DeleteQuotaParams): CommandResul
   if (emailError) return err(emailError);
 
   return ok(['setup', 'quota', 'del', params.email]);
+}
+
+// ---------------------------------------------------------------------------
+// doveadm (a read, not a `setup` mutation — see the module comment)
+// ---------------------------------------------------------------------------
+
+export interface DoveadmQuotaGetParams {
+  readonly email: string;
+}
+
+/** `doveadm -f json quota get -u <EMAIL>` — live usage, FEATURE_MATRIX.md §7; `quota-usage.ts` parses the result. */
+export function buildDoveadmQuotaGetCommand(params: DoveadmQuotaGetParams): CommandResult {
+  const emailError = validateAddressForArgv(params.email);
+  if (emailError) return err(emailError);
+
+  return ok(['doveadm', '-f', 'json', 'quota', 'get', '-u', params.email]);
 }
 
 // ---------------------------------------------------------------------------

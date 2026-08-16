@@ -26,6 +26,16 @@ import { bootstrapFirstAdmin } from './modules/auth/bootstrap.js';
 import { createAuthMiddleware } from './modules/auth/auth.middleware.js';
 import { registerAuthRoutes } from './modules/auth/auth.routes.js';
 import { registerAdminsRoutes } from './modules/auth/admins.routes.js';
+import { createDmsDriver, type DmsDriver } from './drivers/dms/index.js';
+import { registerMailCapabilitiesRoutes } from './modules/mail/capabilities.routes.js';
+import { DomainsService } from './modules/mail/domains.service.js';
+import { registerDomainsRoutes } from './modules/mail/domains.routes.js';
+import { MailboxesService } from './modules/mail/mailboxes.service.js';
+import { registerMailboxesRoutes } from './modules/mail/mailboxes.routes.js';
+import { AliasesService } from './modules/mail/aliases.service.js';
+import { registerAliasesRoutes } from './modules/mail/aliases.routes.js';
+import { QuotasService } from './modules/mail/quotas.service.js';
+import { registerQuotasRoutes } from './modules/mail/quotas.routes.js';
 
 export interface BuildAppOptions {
   readonly config: AppConfig;
@@ -39,6 +49,16 @@ export interface BuildAppOptions {
    * exercise no auth/data path and have no reason to care.
    */
   readonly db?: Database;
+  /**
+   * The `DmsDriver` every mail module (M7) is built on. When omitted,
+   * `buildApp` calls {@link createDmsDriver} itself — real in production,
+   * `FakeDmsDriver` otherwise (that function's own doc comment). Tests
+   * that need a specific capability document (e.g. `ENABLE_QUOTAS`
+   * disabled) or a hand-controlled driver pass one in directly, the same
+   * way they pass `db` in above rather than only ever getting the
+   * default.
+   */
+  readonly dmsDriver?: DmsDriver;
 }
 
 const REQUEST_ID_HEADER = 'request-id';
@@ -169,9 +189,25 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
 
   const middleware = createAuthMiddleware(app, { authService, config });
 
+  // M7 — mail management (FEATURE_MATRIX.md §2–§7). One DmsDriver instance
+  // shared by every mail service, mirroring how `admins`/`sessions`/
+  // `attempts` are each constructed once above and handed to whichever
+  // service needs them — see `createDmsDriver`'s own doc comment for how
+  // real vs fake is selected.
+  const dmsDriver = options.dmsDriver ?? createDmsDriver(config, logger);
+  const domainsService = new DomainsService(dmsDriver);
+  const mailboxesService = new MailboxesService(dmsDriver);
+  const aliasesService = new AliasesService(dmsDriver);
+  const quotasService = new QuotasService(dmsDriver);
+
   registerHealthRoute(app);
   await registerAuthRoutes(app, { authService, config, middleware });
   await registerAdminsRoutes(app, { db, admins, middleware });
+  await registerMailCapabilitiesRoutes(app, { driver: dmsDriver, middleware });
+  await registerDomainsRoutes(app, { domainsService, middleware });
+  await registerMailboxesRoutes(app, { db, mailboxesService, middleware });
+  await registerAliasesRoutes(app, { db, aliasesService, middleware });
+  await registerQuotasRoutes(app, { quotasService, middleware });
 
   return app;
 }

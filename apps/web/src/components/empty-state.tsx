@@ -14,8 +14,15 @@ export interface FirstRunEmptyStateProps {
   readonly icon?: LucideIcon;
   readonly title: string;
   readonly description: string;
-  /** The primary creating action — first-run is the only variant that ever offers one (§9). */
-  readonly action?: EmptyStateAction;
+  /**
+   * The primary creating action — first-run is the only variant that
+   * ever offers one (§9). Explicit `| undefined` (not a bare optional):
+   * a caller that only conditionally has a creating action to offer
+   * (e.g. gated on a capability) passes `condition ? {...} : undefined`,
+   * which exactOptionalPropertyTypes treats differently from omitting
+   * the prop entirely.
+   */
+  readonly action?: EmptyStateAction | undefined;
   readonly className?: string;
 }
 

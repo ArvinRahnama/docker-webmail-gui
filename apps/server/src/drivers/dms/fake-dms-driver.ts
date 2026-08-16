@@ -37,6 +37,7 @@ import {
   type DeleteQuotaParams,
   type Fail2banIpParams,
   type RestrictMailboxParams,
+  type RestrictScope,
   type SetQuotaParams,
   type UpdateMailboxPasswordParams,
 } from './commands.js';
@@ -47,12 +48,20 @@ import {
   FIXTURE_DMS_ENV,
   FIXTURE_DOVECOT_QUOTAS_CF,
   FIXTURE_POSTFIX_ACCOUNTS_CF,
+  FIXTURE_POSTFIX_RECEIVE_ACCESS_CF,
+  FIXTURE_POSTFIX_SEND_ACCESS_CF,
   FIXTURE_POSTFIX_VIRTUAL_CF,
 } from './fixtures/index.js';
 import type { ParseResult } from './parsers/parse-result.js';
 import { parseDovecotQuotas, type DovecotQuotaEntry } from './parsers/dovecot-quotas.js';
 import { parsePostfixAccounts, type PostfixAccountEntry } from './parsers/postfix-accounts.js';
 import { parsePostfixVirtual, type PostfixVirtualEntry } from './parsers/postfix-virtual.js';
+import {
+  isRestrictAction,
+  parsePostfixAccess,
+  type PostfixAccessEntry,
+} from './parsers/postfix-access.js';
+import { parseQuotaToBytes, type QuotaUsageResult } from './quota-usage.js';
 import type { DmsDriver } from './types.js';
 
 /** Marker hash the fake writes for a freshly-added/updated mailbox. Never a real `doveadm pw` digest — this project never computes real password hashes (FEATURE_MATRIX.md §6). */
@@ -75,10 +84,23 @@ function splitAliasForFixture(address: string): { localPart: string; domain: str
   return splitForFixture(address);
 }
 
+const DEFAULT_FIXTURE_QUOTA_BYTES = 1024 ** 3; // 1 GiB nominal total for an unlimited mailbox's pseudo-usage bar.
+
+/** A stable pseudo-random fraction in `[0.05, 0.95)` derived from `input` — same input always yields the same output (`getMailboxUsage`'s doc comment). Not a cryptographic hash; this only ever feeds fixture display data. */
+function stableFraction(input: string): number {
+  let hash = 0;
+  for (let i = 0; i < input.length; i += 1) {
+    hash = (hash * 31 + input.charCodeAt(i)) >>> 0;
+  }
+  return 0.05 + (hash % 900) / 1000;
+}
+
 export class FakeDmsDriver implements DmsDriver {
   private accounts: PostfixAccountEntry[];
   private aliases: PostfixVirtualEntry[];
   private quotas: DovecotQuotaEntry[];
+  private sendAccess: PostfixAccessEntry[];
+  private receiveAccess: PostfixAccessEntry[];
 
   constructor() {
     // Seeded once, at construction, by parsing the same fixture file
@@ -89,6 +111,13 @@ export class FakeDmsDriver implements DmsDriver {
     this.accounts = [...parsePostfixAccounts(FIXTURE_POSTFIX_ACCOUNTS_CF).entries];
     this.aliases = [...parsePostfixVirtual(FIXTURE_POSTFIX_VIRTUAL_CF).entries];
     this.quotas = [...parseDovecotQuotas(FIXTURE_DOVECOT_QUOTAS_CF).entries];
+    this.sendAccess = [...parsePostfixAccess(FIXTURE_POSTFIX_SEND_ACCESS_CF).entries];
+    this.receiveAccess = [...parsePostfixAccess(FIXTURE_POSTFIX_RECEIVE_ACCESS_CF).entries];
+  }
+
+  /** Selects the in-memory array `getRestrictedAddresses`/`restrictMailbox` operate on for a given scope — mirrors `RealDmsDriver`'s `RESTRICT_SCOPE_FILE_NAME`. */
+  private accessListFor(scope: RestrictScope): PostfixAccessEntry[] {
+    return scope === 'send' ? this.sendAccess : this.receiveAccess;
   }
 
   async listMailboxes(): Promise<ParseResult<PostfixAccountEntry>> {
@@ -109,6 +138,36 @@ export class FakeDmsDriver implements DmsDriver {
 
   async getCapabilities(): Promise<DmsCapabilities> {
     return detectCapabilities(FIXTURE_DMS_ENV);
+  }
+
+  async getRestrictedAddresses(scope: RestrictScope): Promise<ParseResult<PostfixAccessEntry>> {
+    return { entries: [...this.accessListFor(scope)], issues: [] };
+  }
+
+  /**
+   * Deterministic, fixture-only pseudo-usage — never real telemetry. The
+   * fake has no Maildir to measure, so it derives a stable percentage from
+   * the email string itself (same input always yields the same output,
+   * which is what makes it usable in a snapshot-style dev screenshot or a
+   * test asserting the *shape* of a usage response) and scales it against
+   * the mailbox's configured quota when one exists, or a fixed nominal
+   * total otherwise.
+   */
+  async getMailboxUsage(email: string): Promise<QuotaUsageResult> {
+    const quotaEntry = this.quotas.find((quota) => quota.email === email);
+    const limitBytes = quotaEntry ? parseQuotaToBytes(quotaEntry.quota) : null;
+    const totalForPseudoUsage = limitBytes ?? DEFAULT_FIXTURE_QUOTA_BYTES;
+    const usedFraction = stableFraction(email);
+
+    return {
+      ok: true,
+      usage: {
+        storageBytesUsed: Math.round(totalForPseudoUsage * usedFraction),
+        storageBytesLimit: limitBytes,
+        messageCountUsed: Math.round(50 + usedFraction * 950),
+        messageCountLimit: null,
+      },
+    };
   }
 
   async addMailbox(params: AddMailboxParams): Promise<void> {
@@ -166,11 +225,27 @@ export class FakeDmsDriver implements DmsDriver {
 
   async restrictMailbox(params: RestrictMailboxParams): Promise<void> {
     assertValid(buildEmailRestrictCommand(params));
-    // Send/receive restriction is enforced by Postfix access maps this
-    // project does not otherwise track (FEATURE_MATRIX.md §3's "Restrict
-    // sending / receiving" is real but separate from the three files this
-    // driver reads) — validated and accepted, with nothing further for an
-    // in-memory fake to model.
+    // 'list' is a read, satisfied by getRestrictedAddresses instead — see
+    // that method and mailboxes.service.ts, which never calls this method
+    // with action: 'list'. Kept as a no-op branch here (rather than
+    // rejecting it) because commands.ts's own builder already accepts it;
+    // this method's contract is "validate and apply", not "re-narrow".
+    if (params.action === 'list' || params.email === undefined) return;
+
+    const email = params.email;
+    const list = this.accessListFor(params.scope);
+    const alreadyPresent = list.some(
+      (entry) => entry.email === email && isRestrictAction(entry.action),
+    );
+
+    if (params.action === 'add' && !alreadyPresent) {
+      const split = splitForFixture(email);
+      list.push({ email, localPart: split.localPart, domain: split.domain, action: 'REJECT' });
+    } else if (params.action === 'del') {
+      const filtered = list.filter((entry) => entry.email !== email);
+      list.length = 0;
+      list.push(...filtered);
+    }
   }
 
   async setQuota(params: SetQuotaParams): Promise<void> {

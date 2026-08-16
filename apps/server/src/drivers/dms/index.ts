@@ -19,5 +19,11 @@ export {
   detectCapabilities,
 } from './capabilities.js';
 export { deriveDomains, type DerivedDomain } from './domains.js';
+export {
+  parseDoveadmQuotaGet,
+  parseQuotaToBytes,
+  type QuotaUsage,
+  type QuotaUsageResult,
+} from './quota-usage.js';
 export * from './commands.js';
 export * from './parsers/index.js';

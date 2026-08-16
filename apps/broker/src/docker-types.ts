@@ -1,0 +1,180 @@
+/**
+ * The broker's own, minimal view of Docker — deliberately not
+ * `dockerode`'s types. This interface names only the handful of fields
+ * this project actually surfaces (never `HostConfig`, never a full
+ * inspect payload), and it is the seam that makes every other module in
+ * this app testable with a hand-built stub instead of a real Docker
+ * socket (there is none on this development machine — see
+ * `docker-client.ts` for the one file that adapts a real `dockerode`
+ * instance to this shape).
+ */
+
+export interface RawContainerListItem {
+  readonly id: string;
+  /** Leading `/` already stripped (Docker returns names as `/mailserver`). */
+  readonly names: readonly string[];
+  readonly image: string;
+  readonly state: string;
+  readonly status: string;
+  readonly labels: Readonly<Record<string, string>>;
+  /** Unix seconds. */
+  readonly createdAt: number;
+}
+
+export interface RawContainerInspect {
+  readonly id: string;
+  /** Leading `/` already stripped. */
+  readonly name: string;
+  readonly image: string;
+  /** ISO 8601. */
+  readonly createdAt: string;
+  /** Whether the container was created with a TTY — decides which branch `stream-demux.ts` takes for its logs. */
+  readonly tty: boolean;
+  readonly restartCount: number;
+  readonly labels: Readonly<Record<string, string>>;
+  readonly state: {
+    readonly status: string;
+    readonly running: boolean;
+    readonly paused: boolean;
+    readonly restarting: boolean;
+    readonly startedAt: string;
+    readonly finishedAt: string;
+    readonly exitCode: number;
+    readonly health: string | null;
+  };
+}
+
+export interface RawVersion {
+  readonly version: string;
+  readonly apiVersion: string;
+  readonly minApiVersion: string;
+  readonly os: string;
+  readonly arch: string;
+  readonly kernelVersion: string;
+}
+
+export interface RawSystemInfo {
+  readonly containers: number;
+  readonly containersRunning: number;
+  readonly containersPaused: number;
+  readonly containersStopped: number;
+  readonly images: number;
+  readonly serverVersion: string;
+  readonly driver: string;
+  readonly ncpu: number;
+  readonly memTotal: number;
+}
+
+export interface RawSystemDf {
+  readonly layersSizeBytes: number;
+  readonly imagesCount: number;
+  readonly containersCount: number;
+  readonly volumesCount: number;
+  readonly buildCacheBytes: number;
+}
+
+export interface RawImage {
+  readonly id: string;
+  readonly repoTags: readonly string[];
+  readonly sizeBytes: number;
+  readonly createdAt: number;
+  readonly labels: Readonly<Record<string, string>>;
+}
+
+export interface RawVolume {
+  readonly name: string;
+  readonly driver: string;
+  readonly mountpoint: string;
+  readonly labels: Readonly<Record<string, string>>;
+}
+
+export interface RawNetwork {
+  readonly id: string;
+  readonly name: string;
+  readonly driver: string;
+  readonly scope: string;
+}
+
+// ---------------------------------------------------------------------------
+// Container stats — field names deliberately mirror Docker's own raw JSON
+// (snake_case, `cpu_stats.cpu_usage.total_usage`, …) rather than being
+// translated to camelCase, so the correspondence with the formulas quoted
+// verbatim in docs/research/02-docker-api-security.md §A.3 stays
+// visually checkable against this file, field for field. A real
+// `dockerode` `ContainerStats` value (see `docker-client.ts`) already
+// satisfies this shape structurally — no manual mapping needed for stats
+// specifically, which is why `DockerApi.statsContainer` below returns it
+// almost unadapted.
+// ---------------------------------------------------------------------------
+
+export interface RawCpuUsage {
+  readonly total_usage: number;
+  /**
+   * Unset on cgroup v2 hosts (docs/research/02-docker-api-security.md
+   * §A.3) — optional here to model that reality, even though `dockerode`'s
+   * own (optimistic) types claim it is always present.
+   */
+  readonly percpu_usage?: readonly number[];
+}
+
+export interface RawCpuStats {
+  readonly cpu_usage: RawCpuUsage;
+  readonly system_cpu_usage?: number;
+  readonly online_cpus?: number;
+}
+
+export interface RawMemoryStatsDetail {
+  /** Present on cgroup v1 hosts. */
+  readonly cache?: number;
+  /** Present on cgroup v2 hosts. */
+  readonly inactive_file?: number;
+}
+
+export interface RawMemoryStats {
+  readonly usage: number;
+  readonly limit: number;
+  readonly stats: RawMemoryStatsDetail;
+}
+
+export interface RawNetworkStats {
+  readonly rx_bytes: number;
+  readonly tx_bytes: number;
+}
+
+export interface RawContainerStats {
+  readonly cpu_stats: RawCpuStats;
+  readonly precpu_stats: RawCpuStats;
+  readonly memory_stats: RawMemoryStats;
+  readonly pids_stats?: { readonly current?: number };
+  readonly networks?: Readonly<Record<string, RawNetworkStats>>;
+}
+
+export interface RawLogsOptions {
+  readonly tail: number;
+  readonly since?: number;
+  readonly timestamps: boolean;
+}
+
+/**
+ * The broker's entire Docker vocabulary. Every method here is one Docker
+ * Engine API call (docs/research/02-docker-api-security.md §A.1) — there
+ * is no generic `call(method, path, body)` escape hatch, mirroring the
+ * closed vocabulary one layer up in `@dwg/shared`'s `BrokerOperation`.
+ */
+export interface DockerApi {
+  ping(): Promise<void>;
+  version(): Promise<RawVersion>;
+  info(): Promise<RawSystemInfo>;
+  df(): Promise<RawSystemDf>;
+  listContainers(options: { readonly all: boolean }): Promise<readonly RawContainerListItem[]>;
+  inspectContainer(id: string): Promise<RawContainerInspect>;
+  startContainer(id: string): Promise<void>;
+  stopContainer(id: string): Promise<void>;
+  restartContainer(id: string): Promise<void>;
+  statsContainer(id: string): Promise<RawContainerStats>;
+  /** Always bounded (`follow: false` at the Docker API level) — see apps/broker/src/operations.ts for the scope note on live tailing. */
+  logsContainer(id: string, options: RawLogsOptions): Promise<Buffer>;
+  listImages(): Promise<readonly RawImage[]>;
+  listVolumes(): Promise<readonly RawVolume[]>;
+  listNetworks(): Promise<readonly RawNetwork[]>;
+}

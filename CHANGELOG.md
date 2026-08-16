@@ -22,6 +22,22 @@ called out explicitly here.
   capabilities, the Docker Engine API and socket security boundary, mail-stack
   component data sources, and dependency licensing.
 - Apache-2.0 licence, `NOTICE`, and community health files.
+- Docker broker and the privilege boundary (M4): a closed operation
+  vocabulary (`packages/shared/src/broker.ts`) covering container
+  list/inspect/start/stop/restart/stats/logs plus Docker
+  system/image/volume/network reads, deliberately omitting
+  `container.create`, `container.remove` and `exec.*`. `apps/broker`
+  enforces shared-secret authentication (compared in constant time,
+  rejected before any request parsing), resolves the managed mail
+  container's identity itself from configuration (the web tier can never
+  supply a container id), decodes Docker's multiplexed log stream
+  (TTY and non-TTY, including frames split across chunk boundaries), and
+  computes CPU%/memory% with the documented formulas including the
+  cgroup v1 vs v2 branch. `apps/server/src/drivers/broker` adds the web
+  tier's `BrokerClient` interface with `RealBrokerClient` (HTTP via
+  `undici`) and a fixture-seeded `FakeBrokerClient`, which is the
+  development-mode default so the panel remains developable with no
+  Docker daemon.
 
 ### Notes
 

@@ -12,3 +12,4 @@ export * from './version.js';
 export * from './errors.js';
 export * from './api.js';
 export * from './auth.js';
+export * from './broker.js';

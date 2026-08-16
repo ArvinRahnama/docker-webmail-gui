@@ -61,3 +61,6 @@ desktop.ini
 .tmp/
 .eslintcache
 .vite/
+
+# Generated knowledge graph (regenerable via the graphify skill; ~4MB)
+graphify-out/

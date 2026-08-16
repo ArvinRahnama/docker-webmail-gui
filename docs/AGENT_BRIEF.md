@@ -94,6 +94,24 @@ Do **not** test against a real Docker daemon or a live docker-mailserver — nei
 - **Strict `.email()` rejects `user@domain`** (no TLD), which is legitimate inside a mail system and appears in DMS's own files. Read paths accept it; write paths stay strict.
 - **Docker's container-list `name` filter does substring matching** — list broadly and match exactly client-side.
 
-## 8. When you disagree
+## 8. Querying the codebase instead of reading it
+
+A knowledge graph of the code lives at `graphify-out/graph.json` — 1,883 nodes and 4,223 edges extracted from every TypeScript file by AST analysis (no LLM, so it is exact rather than inferred). It is gitignored and regenerable.
+
+**Use it before opening files.** To find what calls what, what a symbol connects to, or how two parts of the system relate:
+
+```
+graphify query "how does the broker client reach the Docker API"
+graphify path "AuthService" "Database"
+graphify explain "DmsDriver"
+```
+
+The most connected nodes are `cn()`, `Database`, `DmsDriver`, `buildApp()`, `FakeDmsDriver`, `AdminsRepository`, `RealDmsDriver`, `runMigrations()`, `request()` and `DockerApi` — those are the real hubs, and a change to one of them has wide reach.
+
+**Caveat:** the graph covers code only. Documentation was deliberately excluded from extraction, because this brief already carries the operative parts and re-extracting the planning documents would duplicate it at real cost. So the graph answers "how is this wired", not "why was it decided" — for the latter, this brief and then the full documents.
+
+**Regenerating it:** the project directory has Windows per-directory case sensitivity enabled, which graphify's cache layer cannot handle (it lowercases paths, and lowercased paths do not resolve here). Build from a copy in a case-insensitive location and copy `graphify-out/` back. Do not "fix" this by disabling case sensitivity on the project directory — that attribute is likely set deliberately for WSL or Docker builds.
+
+## 9. When you disagree
 
 Push back with a reason. Delegated engineers have corrected this project's specification six times — an over-engineered redaction scheme, a forced-password-change deadlock, a schema-level delete bug, and more. A specification is not evidence; the repository is.

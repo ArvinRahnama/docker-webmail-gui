@@ -5,7 +5,9 @@
  * the two implementations, and `create-dms-driver.ts` for how one is
  * selected — mirrors `drivers/broker/index.ts`.
  */
-export type { DmsDriver } from './types.js';
+export type { DmsDriver, DkimRecordReadResult } from './types.js';
+export { parseDkimZoneFile, parseDkimZoneFileValue, type DkimZoneRecord } from './dkim-record.js';
+export { parseFail2banList, type Fail2banListResult } from './fail2ban-parser.js';
 export { RealDmsDriver } from './real-dms-driver.js';
 export { FakeDmsDriver } from './fake-dms-driver.js';
 export { createDmsDriver } from './create-dms-driver.js';

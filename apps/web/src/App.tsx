@@ -14,6 +14,9 @@ import { MailboxesListPage } from '@/mail/mailboxes-list-page';
 import { MailboxDetailPage } from '@/mail/mailbox-detail-page';
 import { AliasesPage } from '@/mail/aliases-page';
 import { StoragePage } from '@/mail/storage-page';
+import { EmailAuthListPage } from '@/security/email-auth-list-page';
+import { EmailAuthDetailPage } from '@/security/email-auth-detail-page';
+import { TlsPage } from '@/security/tls-page';
 
 /**
  * Root component: providers, then routes (milestone brief §5/§6;
@@ -45,6 +48,9 @@ export default function App() {
                 <Route path="/mail/mailboxes/:address" element={<MailboxDetailPage />} />
                 <Route path="/mail/aliases" element={<AliasesPage />} />
                 <Route path="/mail/storage" element={<StoragePage />} />
+                <Route path="/security/email-auth" element={<EmailAuthListPage />} />
+                <Route path="/security/email-auth/:domain" element={<EmailAuthDetailPage />} />
+                <Route path="/security/tls" element={<TlsPage />} />
               </Route>
             </Route>
 

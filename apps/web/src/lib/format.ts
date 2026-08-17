@@ -23,3 +23,14 @@ export function formatPercent(fraction: number | null): string {
 export function formatCount(count: number | null): string {
   return count === null ? 'Unknown' : count.toLocaleString();
 }
+
+/** Formats an ISO-8601 timestamp for display; `null`/unparseable input never throws, it reads "Unknown". */
+export function formatDateTime(iso: string | null): string {
+  if (iso === null) return 'Unknown';
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return 'Unknown';
+  return date.toLocaleString(undefined, {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  });
+}

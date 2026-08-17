@@ -17,6 +17,8 @@ import {
   buildEmailRestrictCommand,
   buildEmailUpdateCommand,
   buildFail2banBanCommand,
+  buildFail2banListCommand,
+  buildFail2banStatusCommand,
   buildFail2banUnbanCommand,
   buildQuotaDeleteCommand,
   buildQuotaSetCommand,
@@ -35,6 +37,8 @@ import {
 } from './commands.js';
 import { detectCapabilities, type DmsCapabilities } from './capabilities.js';
 import { deriveDomains, type DerivedDomain } from './domains.js';
+import { parseDkimZoneFile } from './dkim-record.js';
+import { parseFail2banList, type Fail2banListResult } from './fail2ban-parser.js';
 import { DmsCommandExecutionError, DmsCommandValidationError } from './errors.js';
 import type { DmsExecPort } from './exec-port.js';
 import type { ParseResult } from './parsers/parse-result.js';
@@ -43,7 +47,7 @@ import { parsePostfixAccounts, type PostfixAccountEntry } from './parsers/postfi
 import { parsePostfixVirtual, type PostfixVirtualEntry } from './parsers/postfix-virtual.js';
 import { parsePostfixAccess, type PostfixAccessEntry } from './parsers/postfix-access.js';
 import { parseDoveadmQuotaGet, type QuotaUsageResult } from './quota-usage.js';
-import type { DmsDriver } from './types.js';
+import type { DkimRecordReadResult, DmsDriver } from './types.js';
 
 const RESTRICT_SCOPE_FILE_NAME = {
   send: 'postfix-send-access.cf',
@@ -95,6 +99,20 @@ export class RealDmsDriver implements DmsDriver {
       );
     }
     return parseDoveadmQuotaGet(execResult.stdout);
+  }
+
+  async getDkimRecord(domain: string, selector: string): Promise<DkimRecordReadResult> {
+    const content = await this.execPort.readDkimPublicKeyFile(domain, selector);
+    if (content === null) return { ok: false, reason: 'not-generated' };
+    const record = parseDkimZoneFile(content, domain, selector);
+    if (record === null) return { ok: false, reason: 'unparseable' };
+    return { ok: true, record };
+  }
+
+  async getSslType(): Promise<string | null> {
+    const env = await this.execPort.getEnv();
+    const raw = env['SSL_TYPE'];
+    return raw === undefined || raw.trim().length === 0 ? null : raw.trim();
   }
 
   /**
@@ -155,5 +173,28 @@ export class RealDmsDriver implements DmsDriver {
 
   async fail2banUnban(params: Fail2banIpParams): Promise<void> {
     await this.run(buildFail2banUnbanCommand(params));
+  }
+
+  /** Runs a read-only command (never a validated write) and returns its stdout, throwing the same two typed errors as every write path. */
+  private async runRead(result: CommandResult): Promise<string> {
+    if (!result.ok) throw new DmsCommandValidationError(result.error);
+    const execResult = await this.execPort.exec(result.command.argv);
+    if (execResult.exitCode !== 0) {
+      throw new DmsCommandExecutionError(
+        result.command.argv,
+        execResult.exitCode,
+        execResult.stderr,
+      );
+    }
+    return execResult.stdout;
+  }
+
+  async fail2banList(): Promise<Fail2banListResult> {
+    const stdout = await this.runRead(buildFail2banListCommand());
+    return parseFail2banList(stdout);
+  }
+
+  async fail2banStatus(): Promise<string> {
+    return this.runRead(buildFail2banStatusCommand());
   }
 }

@@ -15,6 +15,7 @@ function stubExecPort(): DmsExecPort {
     readFile: () => Promise.resolve(null),
     exec: () => Promise.resolve({ stdout: '', stderr: '', exitCode: 0 }),
     getEnv: () => Promise.resolve({}),
+    readDkimPublicKeyFile: () => Promise.resolve(null),
   };
 }
 

@@ -23,6 +23,14 @@ const MAIL_NAV_ITEMS = [
   { to: '/mail/storage', label: 'Storage' },
 ] as const;
 
+// M8 — security surface (FEATURE_MATRIX.md §10-§18). Grows alongside
+// this nav bar's own documented "not the real §5.3 shell yet" caveat
+// above, same reasoning as MAIL_NAV_ITEMS.
+const SECURITY_NAV_ITEMS = [
+  { to: '/security/email-auth', label: 'Email Auth' },
+  { to: '/security/tls', label: 'TLS' },
+] as const;
+
 export function AppLayout() {
   const navigate = useNavigate();
   const session = useSessionQuery();
@@ -46,6 +54,27 @@ export function AppLayout() {
 
           <nav aria-label="Mail" className="flex items-center gap-1">
             {MAIL_NAV_ITEMS.map((item) => (
+              <NavLink
+                key={item.to}
+                to={item.to}
+                className={({ isActive }) =>
+                  cn(
+                    'rounded-sm px-3 py-1.5 text-body-sm font-medium transition-colors duration-fast',
+                    isActive
+                      ? 'bg-accent-subtle-bg text-accent'
+                      : 'text-text-secondary hover:bg-bg-inset hover:text-text-primary',
+                  )
+                }
+              >
+                {item.label}
+              </NavLink>
+            ))}
+          </nav>
+
+          <div className="h-5 w-px bg-border-default" aria-hidden="true" />
+
+          <nav aria-label="Security" className="flex items-center gap-1">
+            {SECURITY_NAV_ITEMS.map((item) => (
               <NavLink
                 key={item.to}
                 to={item.to}

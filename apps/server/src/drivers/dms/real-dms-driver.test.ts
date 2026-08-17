@@ -12,6 +12,7 @@ import type { DmsConfigFileName, DmsExecOptions, DmsExecPort, DmsExecResult } fr
 class RecordingExecPort implements DmsExecPort {
   readonly execCalls: Array<{ argv: readonly string[]; options: DmsExecOptions | undefined }> = [];
   files = new Map<DmsConfigFileName, string | null>();
+  dkimFiles = new Map<string, string | null>();
   env: Readonly<Record<string, string | undefined>> = {};
   nextExecResult: DmsExecResult = { stdout: '', stderr: '', exitCode: 0 };
 
@@ -26,6 +27,10 @@ class RecordingExecPort implements DmsExecPort {
 
   async getEnv(): Promise<Readonly<Record<string, string | undefined>>> {
     return this.env;
+  }
+
+  async readDkimPublicKeyFile(domain: string, selector: string): Promise<string | null> {
+    return this.dkimFiles.get(`${domain}::${selector}`) ?? null;
   }
 }
 
@@ -87,6 +92,70 @@ describe('RealDmsDriver — reads parse files via the exec port, never invoke se
     expect(capabilities.quotas.supported).toBe(false);
     expect(capabilities.accountProvisioner).toBe('LDAP');
     expect(capabilities.localAccountManagement.supported).toBe(false);
+  });
+
+  it('getDkimRecord reports not-generated when the exec port has no file for this domain/selector', async () => {
+    const port = new RecordingExecPort();
+    const driver = new RealDmsDriver(port);
+
+    const result = await driver.getDkimRecord('example.com', 'mail');
+    expect(result).toEqual({ ok: false, reason: 'not-generated' });
+  });
+
+  it('getDkimRecord parses a real zone-file body read through the port into a public record only', async () => {
+    const port = new RecordingExecPort();
+    port.dkimFiles.set(
+      'example.com::mail',
+      'mail._domainkey\tIN\tTXT\t( "v=DKIM1; h=sha256; k=rsa; " "p=ABC123" )  ; ----- DKIM key mail for example.com',
+    );
+    const driver = new RealDmsDriver(port);
+
+    const result = await driver.getDkimRecord('example.com', 'mail');
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.record).toEqual({
+        name: 'mail._domainkey.example.com',
+        value: 'v=DKIM1; h=sha256; k=rsa; p=ABC123',
+      });
+      expect(Object.keys(result.record)).not.toContain('privateKey');
+    }
+  });
+
+  it('getDkimRecord reports unparseable rather than throwing on unexpected file content', async () => {
+    const port = new RecordingExecPort();
+    port.dkimFiles.set('example.com::mail', 'not a zone file');
+    const driver = new RealDmsDriver(port);
+
+    const result = await driver.getDkimRecord('example.com', 'mail');
+    expect(result).toEqual({ ok: false, reason: 'unparseable' });
+  });
+
+  it('fail2banList runs "setup fail2ban" and parses IPs from stdout', async () => {
+    const port = new RecordingExecPort();
+    port.nextExecResult = { stdout: 'Banned: 203.0.113.5\n', stderr: '', exitCode: 0 };
+    const driver = new RealDmsDriver(port);
+
+    const result = await driver.fail2banList();
+    expect(result.bannedIps).toEqual(['203.0.113.5']);
+    expect(port.execCalls[0]?.argv).toEqual(['setup', 'fail2ban']);
+  });
+
+  it('fail2banStatus runs "setup fail2ban status" and returns raw stdout', async () => {
+    const port = new RecordingExecPort();
+    port.nextExecResult = { stdout: 'Status\n|- Number of jail:\t2\n', stderr: '', exitCode: 0 };
+    const driver = new RealDmsDriver(port);
+
+    const result = await driver.fail2banStatus();
+    expect(result).toBe('Status\n|- Number of jail:\t2\n');
+    expect(port.execCalls[0]?.argv).toEqual(['setup', 'fail2ban', 'status']);
+  });
+
+  it('fail2ban reads surface a non-zero exit as DmsCommandExecutionError, same as writes', async () => {
+    const port = new RecordingExecPort();
+    port.nextExecResult = { stdout: '', stderr: 'boom', exitCode: 1 };
+    const driver = new RealDmsDriver(port);
+
+    await expect(driver.fail2banList()).rejects.toBeInstanceOf(DmsCommandExecutionError);
   });
 });
 

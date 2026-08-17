@@ -36,6 +36,23 @@ import { AliasesService } from './modules/mail/aliases.service.js';
 import { registerAliasesRoutes } from './modules/mail/aliases.routes.js';
 import { QuotasService } from './modules/mail/quotas.service.js';
 import { registerQuotasRoutes } from './modules/mail/quotas.routes.js';
+import {
+  createDnsLookupPort,
+  createDnsLookupPortFactory,
+  type DnsLookupPort,
+  type DnsLookupPortFactory,
+} from './drivers/dns/index.js';
+import { DnsService } from './modules/security/dns.service.js';
+import { registerDnsRoutes } from './modules/security/dns.routes.js';
+import { DkimService } from './modules/security/dkim.service.js';
+import { registerDkimRoutes } from './modules/security/dkim.routes.js';
+import { createTlsCertificateSource, type TlsCertificateSourcePort } from './drivers/tls/index.js';
+import { TlsService } from './modules/security/tls.service.js';
+import { registerTlsRoutes } from './modules/security/tls.routes.js';
+import { createRspamdClient, type RspamdClientPort } from './drivers/rspamd/index.js';
+import { RspamdService } from './modules/security/rspamd.service.js';
+import { registerRspamdRoutes } from './modules/security/rspamd.routes.js';
+import { startRspamdStatSampler } from './modules/security/rspamd-sampler.js';
 
 export interface BuildAppOptions {
   readonly config: AppConfig;
@@ -59,6 +76,22 @@ export interface BuildAppOptions {
    * default.
    */
   readonly dmsDriver?: DmsDriver;
+  /**
+   * The `DnsLookupPort` every M8 security module built on DNS resolution
+   * is wired to. Same override rationale as `dmsDriver` above — tests
+   * that need specific DNS answers (or a resolver-failure simulation)
+   * pass a hand-built `FakeDnsLookupPort` instead of the default
+   * `createDnsLookupPort` selection.
+   */
+  readonly dnsLookupPort?: DnsLookupPort;
+  /** Per-resolver-address factory for propagation checks (`drivers/dns/propagation.ts`) — defaults alongside `dnsLookupPort` when omitted. */
+  readonly dnsLookupPortFactory?: DnsLookupPortFactory;
+  /** Same override rationale as `dnsLookupPort`, for `TlsService` (`drivers/tls/index.ts`). */
+  readonly tlsCertificateSource?: TlsCertificateSourcePort;
+  /** Same override rationale as `dnsLookupPort`, for `RspamdService` (`drivers/rspamd/index.ts`). */
+  readonly rspamdClient?: RspamdClientPort;
+  /** Sampling cadence for `startRspamdStatSampler` — tests pass a short interval or omit entirely (the default is long enough never to fire during a test's lifetime). */
+  readonly rspamdSampleIntervalMs?: number;
 }
 
 const REQUEST_ID_HEADER = 'request-id';
@@ -200,6 +233,35 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   const aliasesService = new AliasesService(dmsDriver);
   const quotasService = new QuotasService(dmsDriver);
 
+  // M8 — DNS diagnostics (FEATURE_MATRIX.md §10). Mirrors the DMS driver
+  // wiring above: one resolver (plus its per-address factory for
+  // propagation checks) shared by the one service that needs it.
+  const dnsLookupPort = options.dnsLookupPort ?? createDnsLookupPort(config, logger);
+  const dnsLookupPortFactory =
+    options.dnsLookupPortFactory ?? createDnsLookupPortFactory(config, logger);
+  const dnsService = new DnsService(dnsLookupPort, dnsLookupPortFactory);
+  const dkimService = new DkimService(dmsDriver, dnsLookupPort);
+
+  // M8 — TLS certificate status (FEATURE_MATRIX.md §12). Checks the DMS
+  // container's own configured hostname, never an admin-supplied one.
+  const tlsCertificateSource =
+    options.tlsCertificateSource ?? createTlsCertificateSource(config, logger);
+  const tlsService = new TlsService(dmsDriver, tlsCertificateSource, config.dms.containerName);
+
+  // M8 — Rspamd (FEATURE_MATRIX.md §13-15). The sampler is started
+  // unconditionally (it capability-gates itself every tick, `rspamd-sampler.ts`)
+  // and its timer is `.unref()`d plus stopped on `onClose`, so it never
+  // keeps a process — or a test's harness — alive on its own.
+  const rspamdClient = options.rspamdClient ?? createRspamdClient(config, logger);
+  const rspamdService = new RspamdService(dmsDriver, rspamdClient, db);
+  const rspamdSampler = startRspamdStatSampler(
+    { db, dmsDriver, rspamdClient, logger },
+    options.rspamdSampleIntervalMs,
+  );
+  app.addHook('onClose', () => {
+    rspamdSampler.stop();
+  });
+
   registerHealthRoute(app);
   await registerAuthRoutes(app, { authService, config, middleware });
   await registerAdminsRoutes(app, { db, admins, middleware });
@@ -208,6 +270,10 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   await registerMailboxesRoutes(app, { db, mailboxesService, middleware });
   await registerAliasesRoutes(app, { db, aliasesService, middleware });
   await registerQuotasRoutes(app, { quotasService, middleware });
+  await registerDnsRoutes(app, { dnsService, middleware });
+  await registerDkimRoutes(app, { db, dkimService, middleware });
+  await registerTlsRoutes(app, { tlsService, middleware });
+  await registerRspamdRoutes(app, { db, rspamdService, middleware });
 
   return app;
 }

@@ -62,10 +62,33 @@ import {
   type PostfixAccessEntry,
 } from './parsers/postfix-access.js';
 import { parseQuotaToBytes, type QuotaUsageResult } from './quota-usage.js';
-import type { DmsDriver } from './types.js';
+import type { Fail2banListResult } from './fail2ban-parser.js';
+import type { DkimRecordReadResult, DmsDriver } from './types.js';
 
 /** Marker hash the fake writes for a freshly-added/updated mailbox. Never a real `doveadm pw` digest — this project never computes real password hashes (FEATURE_MATRIX.md §6). */
 const FAKE_PASSWORD_HASH_MARKER = '{FAKE-HASH-DEV-ONLY}';
+
+/** Marker public-key body the fake writes for a "generated" DKIM key. Never real key material — mirrors {@link FAKE_PASSWORD_HASH_MARKER}'s own honesty convention (FEATURE_MATRIX.md §11: private keys are never modelled here at all, only this fixture-only public-record stand-in). */
+const FAKE_DKIM_PUBLIC_KEY_MARKER = '{FAKE-DKIM-PUBKEY-DEV-ONLY}';
+
+const DEFAULT_DKIM_SELECTOR = 'mail';
+const DEFAULT_DKIM_KEYSIZE = 2048;
+
+interface FakeDkimKeyState {
+  readonly selector: string;
+  readonly keysize: number;
+}
+
+/** Stable, non-cryptographic hex string derived from `input` — same input always yields the same output, so a fixture "public key" looks consistent across repeated reads without being, or resembling, real key material. */
+function stableHex(input: string, length: number): string {
+  let state = 0;
+  let out = '';
+  for (let i = 0; i < length; i += 1) {
+    state = (state * 33 + input.charCodeAt(i % input.length) + i) >>> 0;
+    out += (state % 16).toString(16);
+  }
+  return out;
+}
 
 /** Throws {@link DmsCommandValidationError} for a rejected `commands.ts` result; otherwise a no-op. Every write method below calls this *before* touching any in-memory state, so a rejected call never partially mutates anything. */
 function assertValid(result: CommandResult): void {
@@ -101,6 +124,10 @@ export class FakeDmsDriver implements DmsDriver {
   private quotas: DovecotQuotaEntry[];
   private sendAccess: PostfixAccessEntry[];
   private receiveAccess: PostfixAccessEntry[];
+  /** Keyed by lowercased domain — models `setup config dkim`'s file-per-domain output (★7) well enough for `getDkimRecord` to have something real to read back after `generateDkim`. */
+  private dkimKeys = new Map<string, FakeDkimKeyState>();
+  /** Mutated by `fail2banBan`/`fail2banUnban` so `fail2banList` reflects real prior calls rather than always returning the same static fixture. */
+  private bannedIps = new Set<string>();
 
   constructor() {
     // Seeded once, at construction, by parsing the same fixture file
@@ -322,15 +349,70 @@ export class FakeDmsDriver implements DmsDriver {
 
   async generateDkim(params: ConfigDkimParams = {}): Promise<void> {
     assertValid(buildConfigDkimCommand(params));
-    // DKIM key material lives outside the three files this driver reads
-    // (★7) — nothing for an in-memory fake to model beyond validation.
+    const selector = params.selector ?? DEFAULT_DKIM_SELECTOR;
+    const keysize = params.keysize ?? DEFAULT_DKIM_KEYSIZE;
+    // ★7: when `domains` is omitted, real DMS auto-sources every mail
+    // account domain under ACCOUNT_PROVISIONER=FILE — mirrored here so a
+    // no-argument `generateDkim()` call (the common case) still produces
+    // something `getDkimRecord` can read back for every domain that
+    // actually exists in this fake's fixture data.
+    const domains = params.domains ?? [...new Set(this.accounts.map((account) => account.domain))];
+    for (const domain of domains) {
+      this.dkimKeys.set(domain.toLowerCase(), { selector, keysize });
+    }
+  }
+
+  async getDkimRecord(domain: string, selector: string): Promise<DkimRecordReadResult> {
+    const state = this.dkimKeys.get(domain.toLowerCase());
+    if (!state || state.selector !== selector) {
+      return { ok: false, reason: 'not-generated' };
+    }
+    const fakeKeyBody = `${FAKE_DKIM_PUBLIC_KEY_MARKER}${stableHex(`${domain}:${selector}:${state.keysize}`, 48)}`;
+    return {
+      ok: true,
+      record: {
+        name: `${selector}._domainkey.${domain}`,
+        value: `v=DKIM1; h=sha256; k=rsa; p=${fakeKeyBody}`,
+      },
+    };
+  }
+
+  async getSslType(): Promise<string | null> {
+    const raw = FIXTURE_DMS_ENV['SSL_TYPE'];
+    return raw === undefined || raw.trim().length === 0 ? null : raw.trim();
   }
 
   async fail2banBan(params: Fail2banIpParams): Promise<void> {
     assertValid(buildFail2banBanCommand(params));
+    this.bannedIps.add(params.ip);
   }
 
   async fail2banUnban(params: Fail2banIpParams): Promise<void> {
     assertValid(buildFail2banUnbanCommand(params));
+    this.bannedIps.delete(params.ip);
+  }
+
+  async fail2banList(): Promise<Fail2banListResult> {
+    const sorted = [...this.bannedIps].sort();
+    return {
+      bannedIps: sorted,
+      raw:
+        sorted.length === 0
+          ? 'No IPs are currently banned.'
+          : sorted.map((ip) => `Banned: ${ip}`).join('\n'),
+    };
+  }
+
+  async fail2banStatus(): Promise<string> {
+    const sorted = [...this.bannedIps].sort();
+    return [
+      'Status',
+      '|- Number of jail:\t2',
+      '`- Jail list:\tdovecot, postfix',
+      '',
+      'Status for the jail: dovecot',
+      `|- Currently banned:\t${sorted.length}`,
+      `\`- Banned IP list:\t${sorted.join(' ')}`,
+    ].join('\n');
   }
 }

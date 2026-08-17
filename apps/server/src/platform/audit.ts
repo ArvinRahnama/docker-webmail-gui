@@ -51,6 +51,19 @@ export const AUDIT_ACTIONS = [
   'alias.create',
   'alias.update',
   'alias.delete',
+  // M8 — security features (FEATURE_MATRIX.md §11, §15, §16, §17, §18).
+  'dkim.generate',
+  'rspamd.threshold_set',
+  'rspamd.symbol_score_set',
+  'rspamd.learn_spam',
+  'rspamd.learn_ham',
+  'clamav.signature_update',
+  'fail2ban.ban',
+  'fail2ban.unban',
+  'sieve.script_update',
+  'sieve.script_activate',
+  'sieve.script_deactivate',
+  'autoresponder.update',
 ] as const;
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];
 

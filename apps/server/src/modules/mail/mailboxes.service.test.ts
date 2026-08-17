@@ -54,6 +54,10 @@ function stubDriver(overrides: Partial<DmsDriver> & { capabilities?: DmsCapabili
     getRestrictedAddresses:
       overrides.getRestrictedAddresses ?? (async () => ({ entries: [], issues: [] })),
     getMailboxUsage: overrides.getMailboxUsage ?? notImplemented('getMailboxUsage'),
+    getDkimRecord: overrides.getDkimRecord ?? notImplemented('getDkimRecord'),
+    getSslType: overrides.getSslType ?? notImplemented('getSslType'),
+    fail2banList: overrides.fail2banList ?? notImplemented('fail2banList'),
+    fail2banStatus: overrides.fail2banStatus ?? notImplemented('fail2banStatus'),
     addMailbox: overrides.addMailbox ?? notImplemented('addMailbox'),
     updateMailboxPassword:
       overrides.updateMailboxPassword ?? notImplemented('updateMailboxPassword'),

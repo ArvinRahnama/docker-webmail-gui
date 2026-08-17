@@ -82,4 +82,25 @@ export interface DmsExecPort {
    * absent, never `undefined`-valued entries.
    */
   getEnv(): Promise<Readonly<Record<string, string | undefined>>>;
+
+  /**
+   * Reads the **public** DKIM DNS record file `opendkim-genkey` writes —
+   * `<selector>.txt` under `/tmp/docker-mailserver/opendkim/keys/<domain>/`
+   * (`docs/research/01-docker-mailserver.md` §7). Returns `null` when no
+   * key has been generated for this domain/selector yet (not an error —
+   * a fresh deployment simply has none). `domain`/`selector` are always
+   * already validated (`drivers/dns/hostname.ts`-shaped domain check,
+   * `validators.ts`'s `validateDkimSelector`) by the caller before this
+   * is invoked, so a real implementation can construct the file path
+   * directly from them with no further sanitisation needed to stay
+   * within the DKIM keys directory.
+   *
+   * **There is no corresponding method for the `.private` key file, on
+   * this port or anywhere else in this codebase** — that omission is the
+   * entire enforcement mechanism behind FEATURE_MATRIX.md §11's "Private
+   * keys are never returned by any API and never rendered." A future
+   * change that adds one is a change this project's threat model
+   * requires extra scrutiny on, not a routine extension.
+   */
+  readDkimPublicKeyFile(domain: string, selector: string): Promise<string | null>;
 }

@@ -13,6 +13,7 @@ function unusedExecPort(): DmsExecPort {
     readFile: () => Promise.reject(new Error('not used in this test')),
     exec: () => Promise.reject(new Error('not used in this test')),
     getEnv: () => Promise.reject(new Error('not used in this test')),
+    readDkimPublicKeyFile: () => Promise.reject(new Error('not used in this test')),
   };
 }
 
@@ -275,7 +276,7 @@ describe('FakeDmsDriver — quota writes', () => {
   });
 });
 
-describe('FakeDmsDriver — restrict, DKIM and fail2ban validate but need no further modelling', () => {
+describe('FakeDmsDriver — restrict, DKIM and fail2ban', () => {
   it('restrictMailbox resolves for a valid call', async () => {
     const driver = new FakeDmsDriver();
     await expect(
@@ -302,6 +303,51 @@ describe('FakeDmsDriver — restrict, DKIM and fail2ban validate but need no fur
     );
   });
 
+  it('getDkimRecord reports not-generated before generateDkim has ever run for a domain', async () => {
+    const driver = new FakeDmsDriver();
+    const result = await driver.getDkimRecord('never-generated.example', 'mail');
+    expect(result).toEqual({ ok: false, reason: 'not-generated' });
+  });
+
+  it('getDkimRecord returns a public record (never a private key field) after generateDkim', async () => {
+    const driver = new FakeDmsDriver();
+    await driver.generateDkim({ domains: ['example.com'], selector: 'mail', keysize: 2048 });
+
+    const result = await driver.getDkimRecord('example.com', 'mail');
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.record.name).toBe('mail._domainkey.example.com');
+      expect(result.record.value).toMatch(/^v=DKIM1; h=sha256; k=rsa; p=/);
+      expect(Object.keys(result.record)).not.toContain('privateKey');
+    }
+  });
+
+  it('getDkimRecord is deterministic for the same domain/selector across calls', async () => {
+    const driver = new FakeDmsDriver();
+    await driver.generateDkim({ domains: ['example.com'] });
+    const first = await driver.getDkimRecord('example.com', 'mail');
+    const second = await driver.getDkimRecord('example.com', 'mail');
+    expect(first).toEqual(second);
+  });
+
+  it('generateDkim with no domains auto-sources every existing mail account domain (★7)', async () => {
+    const driver = new FakeDmsDriver();
+    await driver.generateDkim(); // no `domains` argument
+    const accounts = await driver.listMailboxes();
+    const accountDomains = new Set(accounts.entries.map((account) => account.domain));
+    for (const domain of accountDomains) {
+      const result = await driver.getDkimRecord(domain, 'mail');
+      expect(result.ok).toBe(true);
+    }
+  });
+
+  it('getDkimRecord reports not-generated for the wrong selector', async () => {
+    const driver = new FakeDmsDriver();
+    await driver.generateDkim({ domains: ['example.com'], selector: 'mail' });
+    const result = await driver.getDkimRecord('example.com', 'other-selector');
+    expect(result).toEqual({ ok: false, reason: 'not-generated' });
+  });
+
   it('fail2banBan/fail2banUnban resolve for a valid IP and reject a malformed one', async () => {
     const driver = new FakeDmsDriver();
     await expect(driver.fail2banBan({ ip: '203.0.113.5' })).resolves.toBeUndefined();
@@ -309,5 +355,25 @@ describe('FakeDmsDriver — restrict, DKIM and fail2ban validate but need no fur
     await expect(driver.fail2banBan({ ip: 'garbage' })).rejects.toBeInstanceOf(
       DmsCommandValidationError,
     );
+  });
+
+  it('fail2banList reflects prior fail2banBan/fail2banUnban calls', async () => {
+    const driver = new FakeDmsDriver();
+    expect((await driver.fail2banList()).bannedIps).toEqual([]);
+
+    await driver.fail2banBan({ ip: '203.0.113.5' });
+    await driver.fail2banBan({ ip: '198.51.100.20' });
+    expect((await driver.fail2banList()).bannedIps).toEqual(['198.51.100.20', '203.0.113.5']);
+
+    await driver.fail2banUnban({ ip: '203.0.113.5' });
+    expect((await driver.fail2banList()).bannedIps).toEqual(['198.51.100.20']);
+  });
+
+  it('fail2banStatus returns non-empty raw text that reflects the current ban count', async () => {
+    const driver = new FakeDmsDriver();
+    await driver.fail2banBan({ ip: '203.0.113.5' });
+    const status = await driver.fail2banStatus();
+    expect(typeof status).toBe('string');
+    expect(status).toContain('203.0.113.5');
   });
 });

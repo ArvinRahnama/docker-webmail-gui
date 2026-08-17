@@ -9,7 +9,12 @@
  */
 import type { AdminRole } from '@dwg/shared';
 
-export const PERMISSIONS = ['admins:manage', 'mail:manage', 'security:manage'] as const;
+export const PERMISSIONS = [
+  'admins:manage',
+  'mail:manage',
+  'security:manage',
+  'docker:manage',
+] as const;
 export type Permission = (typeof PERMISSIONS)[number];
 
 const ROLE_PERMISSIONS: Readonly<Record<AdminRole, ReadonlySet<Permission>>> = {

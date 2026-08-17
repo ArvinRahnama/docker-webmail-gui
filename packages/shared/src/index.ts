@@ -17,3 +17,4 @@ export * from './mail.js';
 export * from './security.js';
 export * from './antispam.js';
 export * from './sieve.js';
+export * from './docker.js';

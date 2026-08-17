@@ -27,12 +27,18 @@
 import type { Logger } from 'pino';
 import {
   LOGS_TAIL_DEFAULT,
+  computeProtectedVolumeNames,
   type BrokerRequest,
+  type ConsoleCommand,
+  type ConsoleExecResponse,
   type ContainerInspectResponse,
   type ContainerListResponse,
   type ContainerLogsResponse,
   type ContainerStatsResponse,
   type ImageListResponse,
+  type ImagePruneResponse,
+  type LogFileSource,
+  type LogsFileResponse,
   type NetworkListResponse,
   type OperationAck,
   type SystemDfResponse,
@@ -127,6 +133,7 @@ async function handleContainerInspect(deps: OperationDeps): Promise<ContainerIns
     state: { ...raw.state },
     restartCount: raw.restartCount,
     labels: { ...raw.labels },
+    mounts: raw.mounts.map((mount) => ({ ...mount })),
   };
 }
 
@@ -228,6 +235,148 @@ async function handleNetworkList(deps: OperationDeps): Promise<NetworkListRespon
   return { networks: raw.map((network) => ({ ...network })) };
 }
 
+// ---------------------------------------------------------------------------
+// M9 additions (FEATURE_MATRIX.md §24-26, §32) — see @dwg/shared's
+// broker.ts header for the four properties every handler below preserves:
+// `volume.remove` targets a volume by name and is refused for any
+// protected DMS mount; `image.prune` takes no parameters and always means
+// "dangling only"; `logs.file` reads a fixed, broker-hardcoded path per
+// enum value; `console.exec` runs one of a fixed, zero-argument,
+// broker-owned-argv command set.
+// ---------------------------------------------------------------------------
+
+async function handleVolumeRemove(
+  body: Extract<BrokerRequest, { operation: 'volume.remove' }>,
+  deps: OperationDeps,
+): Promise<OperationAck> {
+  // Fail closed if the managed container itself does not resolve —
+  // `computeProtectedVolumeNames` alone is not the safety boundary (its
+  // own doc comment, @dwg/shared broker.ts); the combination with this
+  // refusal is. Re-inspected fresh on every call, never cached, so a
+  // volume that was unmounted from the managed container since the last
+  // call is judged by its *current* mounts, not a stale set.
+  const ref = await resolveOrForbid(deps);
+  const inspection = await callDocker(deps, 'volume.remove', () =>
+    deps.docker.inspectContainer(ref.id),
+  );
+  const protectedNames = computeProtectedVolumeNames(inspection.mounts);
+  if (protectedNames.has(body.name)) {
+    deps.logger.warn(
+      { volume: body.name },
+      'Refusing to remove a volume backing a protected DMS data mount',
+    );
+    throw new BrokerError(
+      'FORBIDDEN',
+      'This volume backs a protected mail-data mount and cannot be removed.',
+    );
+  }
+  await callDocker(deps, 'volume.remove', () => deps.docker.removeVolume(body.name));
+  return { ok: true };
+}
+
+async function handleImagePrune(deps: OperationDeps): Promise<ImagePruneResponse> {
+  const result = await callDocker(deps, 'image.prune', () => deps.docker.pruneImages());
+  return {
+    imagesDeleted: [...result.imagesDeleted],
+    spaceReclaimedBytes: result.spaceReclaimedBytes,
+  };
+}
+
+/**
+ * The fixed, broker-owned mapping from {@link LogFileSource} to an
+ * absolute path *inside* the managed container
+ * (docs/research/01-docker-mailserver.md §11: `setup debug
+ * show-mail-logs` runs `cat /var/log/mail/mail.log`; `setup fail2ban log`
+ * runs `cat /var/log/mail/fail2ban.log`). There is no client-facing field
+ * anywhere that could name a different path — see `LogsFileRequestSchema`
+ * (@dwg/shared) — and this map's keys are exhaustively checked against
+ * `LogFileSource` by the `Record` annotation itself, so a future enum
+ * addition without a matching path here is a compile error, not a
+ * runtime gap.
+ */
+const LOG_FILE_PATHS: Record<LogFileSource, string> = {
+  mail: '/var/log/mail/mail.log',
+  fail2ban: '/var/log/mail/fail2ban.log',
+};
+
+/**
+ * Splits `tail`'s buffered stdout into lines, dropping the single empty
+ * trailing element a bare `split('\n')` would otherwise produce from the
+ * trailing newline `tail`/`cat` always emit after the last line — without
+ * this, every response would carry one spurious blank final line.
+ */
+function splitTrimmedLines(text: string): string[] {
+  if (text.length === 0) return [];
+  const withoutTrailingNewline = text.endsWith('\n') ? text.slice(0, -1) : text;
+  return withoutTrailingNewline.length === 0 ? [] : withoutTrailingNewline.split('\n');
+}
+
+async function handleLogsFile(
+  body: Extract<BrokerRequest, { operation: 'logs.file' }>,
+  deps: OperationDeps,
+): Promise<LogsFileResponse> {
+  const ref = await resolveOrForbid(deps);
+  const path = LOG_FILE_PATHS[body.source];
+  const tail = body.tail ?? LOGS_TAIL_DEFAULT;
+  // `tail`'s count is a bounded integer (LOGS_TAIL_MIN..LOGS_TAIL_MAX,
+  // @dwg/shared), passed as its own argv element — never concatenated
+  // into a string — so even though it is caller-influenced, it cannot
+  // carry a shell metacharacter or widen the command beyond "print the
+  // last N lines of this one broker-chosen file".
+  const result = await callDocker(deps, 'logs.file', () =>
+    deps.docker.execContainer(ref.id, ['tail', '-n', String(tail), path]),
+  );
+  if (result.exitCode !== 0) {
+    deps.logger.error(
+      { source: body.source, exitCode: result.exitCode, stderr: result.stderr },
+      'logs.file: tail exited non-zero',
+    );
+    throw new BrokerError('UPSTREAM_UNAVAILABLE', 'Could not read the requested log file.');
+  }
+  return { lines: splitTrimmedLines(result.stdout) };
+}
+
+/**
+ * The restricted console's entire argv table — one fixed, zero-argument
+ * argv array per {@link ConsoleCommand} (@dwg/shared's
+ * `CONSOLE_COMMANDS`). The client sends only the symbolic key; every
+ * element of every argv below is a literal this file owns, never
+ * interpolated from, or extended by, anything a caller sent. The `Record`
+ * annotation makes coverage a compile-time property the same way
+ * `LOG_FILE_PATHS` above does.
+ */
+const CONSOLE_COMMAND_ARGV: Record<ConsoleCommand, readonly string[]> = {
+  'postqueue-p': ['postqueue', '-p'],
+  'postconf-n': ['postconf', '-n'],
+  'doveconf-n': ['doveconf', '-n'],
+  'doveadm-who': ['doveadm', 'who'],
+};
+
+async function handleConsoleExec(
+  body: Extract<BrokerRequest, { operation: 'console.exec' }>,
+  deps: OperationDeps,
+): Promise<ConsoleExecResponse> {
+  const ref = await resolveOrForbid(deps);
+  const argv = CONSOLE_COMMAND_ARGV[body.command];
+  const startedAt = Date.now();
+  const result = await callDocker(deps, 'console.exec', () =>
+    deps.docker.execContainer(ref.id, argv),
+  );
+  // Non-zero exit is not thrown here, unlike `logs.file` above: this
+  // response schema has a real place to put it (`exitCode`, echoed
+  // alongside `stdout`/`stderr`), and a command like `doveadm who`
+  // exiting non-zero for "no active sessions" is diagnostic information
+  // for the caller to render, not a broker failure.
+  return {
+    command: body.command,
+    argv: [...argv],
+    stdout: result.stdout,
+    stderr: result.stderr,
+    exitCode: result.exitCode,
+    durationMs: Date.now() - startedAt,
+  };
+}
+
 export async function handleOperation(body: BrokerRequest, deps: OperationDeps): Promise<unknown> {
   switch (body.operation) {
     case 'container.list':
@@ -258,6 +407,14 @@ export async function handleOperation(body: BrokerRequest, deps: OperationDeps):
       return handleVolumeList(deps);
     case 'network.list':
       return handleNetworkList(deps);
+    case 'volume.remove':
+      return handleVolumeRemove(body, deps);
+    case 'image.prune':
+      return handleImagePrune(deps);
+    case 'logs.file':
+      return handleLogsFile(body, deps);
+    case 'console.exec':
+      return handleConsoleExec(body, deps);
     default: {
       // Exhaustiveness guard, not a passthrough — see the file header.
       const exhaustive: never = body;

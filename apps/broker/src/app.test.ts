@@ -3,11 +3,14 @@ import pino from 'pino';
 import {
   BROKER_OPS_PATH,
   BROKER_SECRET_HEADER,
+  ConsoleExecResponseSchema,
   ContainerInspectResponseSchema,
   ContainerListResponseSchema,
   ContainerLogsResponseSchema,
   ContainerStatsResponseSchema,
   ImageListResponseSchema,
+  ImagePruneResponseSchema,
+  LogsFileResponseSchema,
   NetworkListResponseSchema,
   OperationAckSchema,
   SystemDfResponseSchema,
@@ -22,6 +25,7 @@ import type {
   DockerApi,
   RawContainerInspect,
   RawContainerListItem,
+  RawContainerMount,
   RawContainerStats,
   RawImage,
   RawNetwork,
@@ -59,6 +63,18 @@ const MAILSERVER_CONTAINER: RawContainerListItem = {
   createdAt: 1_700_000_000,
 };
 
+/**
+ * One protected DMS data mount (`/var/mail`, backing `dms-mail-data`) and
+ * one ordinary mount (`dms-scratch`) — mirrors
+ * `apps/server/src/drivers/broker/fixtures/containers.ts`'s
+ * `FIXTURE_CONTAINER_MOUNTS` shape so the `volume.remove` tests below
+ * exercise both the refused and the permitted path.
+ */
+const MAILSERVER_MOUNTS: readonly RawContainerMount[] = [
+  { type: 'volume', name: 'dms-mail-data', destination: '/var/mail' },
+  { type: 'volume', name: 'dms-scratch', destination: '/scratch' },
+];
+
 const MAILSERVER_INSPECT: RawContainerInspect = {
   id: 'mailserver-id',
   name: 'mailserver',
@@ -77,6 +93,7 @@ const MAILSERVER_INSPECT: RawContainerInspect = {
     exitCode: 0,
     health: 'healthy',
   },
+  mounts: MAILSERVER_MOUNTS,
 };
 
 const RAW_STATS: RawContainerStats = {
@@ -163,6 +180,9 @@ function createStubDocker(overrides: Partial<DockerApi> = {}): DockerApi {
     listImages: async () => [RAW_IMAGE],
     listVolumes: async () => [RAW_VOLUME],
     listNetworks: async () => [RAW_NETWORK],
+    removeVolume: async () => {},
+    pruneImages: async () => ({ imagesDeleted: ['sha256:pruned'], spaceReclaimedBytes: 1000 }),
+    execContainer: async () => ({ stdout: 'stub output\n', stderr: '', exitCode: 0 }),
     ...overrides,
   };
 }
@@ -480,6 +500,157 @@ describe('successful operations', () => {
     const response = await post(app, { operation: 'network.list' });
     expect(NetworkListResponseSchema.safeParse(response.json()).success).toBe(true);
     await app.close();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// M9 additions
+// ---------------------------------------------------------------------------
+
+describe('volume.remove', () => {
+  it('removes an ordinary volume and calls the adapter with its name', async () => {
+    let calledWith: string | undefined;
+    const app = buildTestApp({
+      removeVolume: async (name) => {
+        calledWith = name;
+      },
+    });
+    const response = await post(app, { operation: 'volume.remove', name: 'dms-scratch' });
+    expect(response.statusCode).toBe(200);
+    expect(OperationAckSchema.safeParse(response.json()).success).toBe(true);
+    expect(calledWith).toBe('dms-scratch');
+    await app.close();
+  });
+
+  it('refuses to remove a volume backing a protected DMS data mount, without ever calling the adapter', async () => {
+    let removeCalled = false;
+    const app = buildTestApp({
+      removeVolume: async () => {
+        removeCalled = true;
+      },
+    });
+    const response = await post(app, { operation: 'volume.remove', name: 'dms-mail-data' });
+    expect(response.statusCode).toBe(403);
+    expect(response.json().error.code).toBe('FORBIDDEN');
+    expect(removeCalled).toBe(false);
+    await app.close();
+  });
+
+  it('re-derives the protected set from the managed container every call, not a hardcoded name', async () => {
+    // Same volume name, but this time it backs no protected destination —
+    // proves the refusal above is driven by the live mounts, not a
+    // literal "dms-mail-data" string comparison baked into the broker.
+    let calledWith: string | undefined;
+    const app = buildTestApp({
+      inspectContainer: async () => ({
+        ...MAILSERVER_INSPECT,
+        mounts: [{ type: 'volume', name: 'dms-mail-data', destination: '/scratch-only' }],
+      }),
+      removeVolume: async (name) => {
+        calledWith = name;
+      },
+    });
+    const response = await post(app, { operation: 'volume.remove', name: 'dms-mail-data' });
+    expect(response.statusCode).toBe(200);
+    expect(calledWith).toBe('dms-mail-data');
+    await app.close();
+  });
+});
+
+describe('image.prune', () => {
+  it('takes no parameters and reports what the adapter deleted', async () => {
+    const app = buildTestApp();
+    const response = await post(app, { operation: 'image.prune' });
+    expect(response.statusCode).toBe(200);
+    const result = ImagePruneResponseSchema.safeParse(response.json());
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.imagesDeleted).toEqual(['sha256:pruned']);
+    }
+    await app.close();
+  });
+
+  it('rejects an attempt to target a specific image — there is no such field', async () => {
+    const response = await post(buildTestApp(), {
+      operation: 'image.prune',
+      imageId: 'sha256:pruned',
+    });
+    expect(response.statusCode).toBe(400);
+    expect(response.json().error.code).toBe('VALIDATION_FAILED');
+  });
+});
+
+describe('logs.file', () => {
+  it('reads the mail source via a broker-owned tail invocation, never a client path', async () => {
+    let receivedArgv: readonly string[] | undefined;
+    const app = buildTestApp({
+      execContainer: async (_id, argv) => {
+        receivedArgv = argv;
+        return { stdout: 'line one\nline two\n', stderr: '', exitCode: 0 };
+      },
+    });
+    const response = await post(app, { operation: 'logs.file', source: 'mail' });
+    expect(response.statusCode).toBe(200);
+    const result = LogsFileResponseSchema.safeParse(response.json());
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.lines).toEqual(['line one', 'line two']);
+    }
+    expect(receivedArgv).toEqual(['tail', '-n', '200', '/var/log/mail/mail.log']);
+    await app.close();
+  });
+
+  it('reads the fail2ban source from its own distinct hardcoded path', async () => {
+    let receivedArgv: readonly string[] | undefined;
+    const app = buildTestApp({
+      execContainer: async (_id, argv) => {
+        receivedArgv = argv;
+        return { stdout: '', stderr: '', exitCode: 0 };
+      },
+    });
+    await post(app, { operation: 'logs.file', source: 'fail2ban' });
+    expect(receivedArgv).toEqual(['tail', '-n', '200', '/var/log/mail/fail2ban.log']);
+    await app.close();
+  });
+
+  it('rejects a source outside the fixed enum, including a path-traversal attempt', async () => {
+    for (const source of ['../../etc/passwd', '/etc/shadow', 'mail.log', '']) {
+      const response = await post(buildTestApp(), { operation: 'logs.file', source });
+      expect(response.statusCode, source).toBe(400);
+      expect(response.json().error.code, source).toBe('VALIDATION_FAILED');
+    }
+  });
+});
+
+describe('console.exec', () => {
+  it('runs an allowlisted command and echoes back the exact argv used', async () => {
+    const app = buildTestApp({
+      execContainer: async () => ({ stdout: 'Mail queue is empty\n', stderr: '', exitCode: 0 }),
+    });
+    const response = await post(app, { operation: 'console.exec', command: 'postqueue-p' });
+    expect(response.statusCode).toBe(200);
+    const result = ConsoleExecResponseSchema.safeParse(response.json());
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.argv).toEqual(['postqueue', '-p']);
+      expect(result.data.exitCode).toBe(0);
+    }
+    await app.close();
+  });
+
+  it('rejects a command outside the fixed enum', async () => {
+    const response = await post(buildTestApp(), { operation: 'console.exec', command: 'rm-rf' });
+    expect(response.statusCode).toBe(400);
+    expect(response.json().error.code).toBe('VALIDATION_FAILED');
+  });
+
+  it('rejects an attempt to pass a raw argv array instead of a symbolic command key', async () => {
+    const response = await post(buildTestApp(), {
+      operation: 'console.exec',
+      command: 'postqueue-p',
+      argv: ['rm', '-rf', '/'],
+    });
+    expect(response.statusCode).toBe(400);
   });
 });
 

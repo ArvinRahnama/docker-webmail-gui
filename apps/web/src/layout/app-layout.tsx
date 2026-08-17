@@ -35,6 +35,19 @@ const SECURITY_NAV_ITEMS = [
   { to: '/security/autoresponder', label: 'Autoresponder' },
 ] as const;
 
+// M9 — Docker & observability (FEATURE_MATRIX.md §24-26, §32). Same
+// "not the real §5.3 shell yet" caveat as the two nav groups above.
+const DOCKER_NAV_ITEMS = [
+  { to: '/docker/containers', label: 'Containers' },
+  { to: '/docker/images', label: 'Images' },
+  { to: '/docker/volumes', label: 'Volumes' },
+  { to: '/docker/networks', label: 'Networks' },
+  { to: '/docker/logs', label: 'Logs' },
+  { to: '/docker/monitoring', label: 'Monitoring' },
+  { to: '/docker/health', label: 'Health' },
+  { to: '/docker/console', label: 'Console' },
+] as const;
+
 export function AppLayout() {
   const navigate = useNavigate();
   const session = useSessionQuery();
@@ -79,6 +92,27 @@ export function AppLayout() {
 
           <nav aria-label="Security" className="flex items-center gap-1">
             {SECURITY_NAV_ITEMS.map((item) => (
+              <NavLink
+                key={item.to}
+                to={item.to}
+                className={({ isActive }) =>
+                  cn(
+                    'rounded-sm px-3 py-1.5 text-body-sm font-medium transition-colors duration-fast',
+                    isActive
+                      ? 'bg-accent-subtle-bg text-accent'
+                      : 'text-text-secondary hover:bg-bg-inset hover:text-text-primary',
+                  )
+                }
+              >
+                {item.label}
+              </NavLink>
+            ))}
+          </nav>
+
+          <div className="h-5 w-px bg-border-default" aria-hidden="true" />
+
+          <nav aria-label="Docker" className="flex items-center gap-1">
+            {DOCKER_NAV_ITEMS.map((item) => (
               <NavLink
                 key={item.to}
                 to={item.to}

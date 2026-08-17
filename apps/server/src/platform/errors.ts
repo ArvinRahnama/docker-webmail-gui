@@ -12,6 +12,7 @@ import type { FastifyReply, FastifyRequest } from 'fastify';
 import type { Logger } from 'pino';
 import { type ErrorCode, isErrorCode } from '@dwg/shared';
 import { DmsCommandExecutionError, DmsCommandValidationError } from '../drivers/dms/errors.js';
+import { BrokerRequestError } from '../drivers/broker/types.js';
 
 // ---------------------------------------------------------------------------
 // AppError
@@ -201,6 +202,32 @@ function mapDmsDriverError(err: unknown): AppError | null {
   return null;
 }
 
+/**
+ * Maps every {@link BrokerRequestError} (M9 — thrown by both
+ * `RealBrokerClient` on a non-2xx broker response and `FakeBrokerClient`
+ * simulating the same refusal, `drivers/broker/types.js`) to an `AppError`
+ * with the broker's own already-safe-to-show message. Only the three
+ * statuses a Docker-module route/service can meaningfully act on get their
+ * own code; everything else (a broker-side `401` from a misconfigured
+ * shared secret, or its own `500 INTERNAL`) collapses to
+ * `UPSTREAM_UNAVAILABLE` — "this dependency failed" — rather than, say,
+ * surfacing as `UNAUTHENTICATED` and confusingly implying the admin's own
+ * session is the problem.
+ */
+const BROKER_STATUS_TO_ERROR_CODE: Readonly<Record<number, ErrorCode>> = {
+  400: 'VALIDATION_FAILED',
+  403: 'FORBIDDEN',
+  404: 'NOT_FOUND',
+};
+
+function mapBrokerClientError(err: unknown): AppError | null {
+  if (err instanceof BrokerRequestError) {
+    const code = BROKER_STATUS_TO_ERROR_CODE[err.statusCode] ?? 'UPSTREAM_UNAVAILABLE';
+    return new AppError(code, err.message);
+  }
+  return null;
+}
+
 export function createErrorHandler(logger: Logger) {
   return function errorHandler(
     errParam: unknown,
@@ -208,7 +235,7 @@ export function createErrorHandler(logger: Logger) {
     reply: FastifyReply,
   ): void {
     const errorId = generateErrorId();
-    const err = mapDmsDriverError(errParam) ?? errParam;
+    const err = mapDmsDriverError(errParam) ?? mapBrokerClientError(errParam) ?? errParam;
 
     if (err instanceof AppError) {
       const logMethod = err.httpStatus >= 500 ? 'error' : 'warn';

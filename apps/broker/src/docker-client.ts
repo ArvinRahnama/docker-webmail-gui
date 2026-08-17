@@ -13,8 +13,11 @@ import type {
   DockerApi,
   RawContainerListItem,
   RawContainerInspect,
+  RawContainerMount,
   RawContainerStats,
+  RawExecResult,
   RawImage,
+  RawImagePruneResult,
   RawLogsOptions,
   RawNetwork,
   RawSystemDf,
@@ -22,6 +25,7 @@ import type {
   RawVersion,
   RawVolume,
 } from './docker-types.js';
+import { DockerStreamDemuxer, type DemuxedFrame } from './stream-demux.js';
 
 /** Docker prefixes container names with `/` (`GET /containers/json`'s `Names`, inspect's `Name`). Strip it so this app's own vocabulary deals in plain names throughout. */
 export function stripLeadingSlash(name: string): string {
@@ -37,6 +41,16 @@ function toContainerListItem(raw: Dockerode.ContainerInfo): RawContainerListItem
     status: raw.Status,
     labels: raw.Labels,
     createdAt: raw.Created,
+  };
+}
+
+function toContainerMount(
+  raw: Dockerode.ContainerInspectInfo['Mounts'][number],
+): RawContainerMount {
+  return {
+    type: raw.Type,
+    name: raw.Name ?? null,
+    destination: raw.Destination,
   };
 }
 
@@ -59,6 +73,7 @@ function toContainerInspect(raw: Dockerode.ContainerInspectInfo): RawContainerIn
       exitCode: raw.State.ExitCode,
       health: raw.State.Health?.Status ?? null,
     },
+    mounts: raw.Mounts.map(toContainerMount),
   };
 }
 
@@ -175,6 +190,39 @@ async function idempotentLifecycleCall(action: () => Promise<unknown>): Promise<
   }
 }
 
+/**
+ * Drains an exec's hijacked duplex stream to completion, decoding it
+ * incrementally with {@link DockerStreamDemuxer} as chunks arrive —
+ * exactly the class's intended use (`stream-demux.ts`'s own doc comment)
+ * — rather than buffering raw bytes first and decoding once, so a frame
+ * split across two chunk-boundary-adjacent `data` events is handled the
+ * same way it would be for a live `follow` connection. Every command this
+ * broker ever execs (`operations.ts`'s fixed `console.exec` map and
+ * `logs.file`'s hardcoded `tail` invocation) is short-lived and
+ * non-interactive, so buffering its complete decoded output in memory
+ * before returning is the right tradeoff — there is no streaming
+ * exec/attach UI in this project (ARCHITECTURE.md — no general `exec.*`
+ * operation exists at all).
+ */
+function collectExecFrames(stream: NodeJS.ReadableStream): Promise<DemuxedFrame[]> {
+  return new Promise((resolve, reject) => {
+    const demuxer = new DockerStreamDemuxer();
+    const frames: DemuxedFrame[] = [];
+    stream.on('data', (chunk: Buffer) => {
+      frames.push(...demuxer.push(chunk));
+    });
+    stream.on('end', () => resolve(frames));
+    stream.on('error', (err: Error) => reject(err));
+  });
+}
+
+function joinFrames(frames: readonly DemuxedFrame[], kind: DemuxedFrame['stream']): string {
+  return frames
+    .filter((frame) => frame.stream === kind)
+    .map((frame) => frame.data.toString('utf8'))
+    .join('');
+}
+
 /** Builds a {@link DockerApi} backed by a real `dockerode` client against `socketPath`. Connecting is lazy — `dockerode` does not touch the socket until the first call, so constructing this is safe even in a process where the Docker socket may not (yet) exist. */
 export function createRealDockerApi(socketPath: string): DockerApi {
   const docker = new Dockerode({ socketPath });
@@ -259,6 +307,79 @@ export function createRealDockerApi(socketPath: string): DockerApi {
     async listNetworks() {
       const raw = await docker.listNetworks();
       return raw.map(toNetwork);
+    },
+
+    async removeVolume(name): Promise<void> {
+      // No `force` — an in-use volume 409s and surfaces to the caller as
+      // an ordinary upstream failure via `callDocker` (operations.ts);
+      // the *protected* case never reaches this method at all (that
+      // check happens before this is ever called, see docker-types.ts's
+      // doc comment on this method).
+      await docker.getVolume(name).remove();
+    },
+
+    async pruneImages(): Promise<RawImagePruneResult> {
+      // No filters constructed or passed: Docker's own documented
+      // default for `POST /images/prune` with no `dangling` filter
+      // prunes only dangling (untagged, unused) images — the same
+      // default `docker image prune` (without `-a`) uses. [INFERRED —
+      // the operation table in
+      // docs/research/02-docker-api-security.md §A.1 lists the filter
+      // but does not spell out its default] This already *is*
+      // `image.prune`'s whole contract (@dwg/shared broker.ts: "always
+      // means remove dangling images, never remove image X"), so there
+      // is nothing to construct here beyond the bare call — and
+      // @types/dockerode's `pruneImages(options?: {})` signature has no
+      // typed room for a filters object regardless.
+      const raw = await docker.pruneImages();
+      // Real daemons have been observed returning `ImagesDeleted: null`
+      // (not `[]`) when nothing was pruned, despite @types/dockerode
+      // claiming a bare array — defensive fallback here mirrors
+      // `toSystemInfo`/`toSystemDf` above, which apply the same
+      // treatment to fields Docker's own JSON is looser about than its
+      // types claim.
+      const deleted = raw.ImagesDeleted ?? [];
+      return {
+        // Only the `Deleted` half of each `{Untagged, Deleted}` pair:
+        // `Untagged` records a tag removed from an image that may still
+        // exist under another tag, which is not "deleted" in the sense
+        // `ImagePruneResponseSchema` documents ("Image IDs actually
+        // deleted").
+        imagesDeleted: deleted
+          .map((entry) => entry.Deleted)
+          .filter((id): id is string => typeof id === 'string' && id.length > 0),
+        spaceReclaimedBytes: raw.SpaceReclaimed ?? 0,
+      };
+    },
+
+    async execContainer(id, argv): Promise<RawExecResult> {
+      const container = docker.getContainer(id);
+      const exec = await container.exec({
+        // Spread into a fresh mutable array: `argv` arrives as
+        // `readonly string[]` (docker-types.ts), `ExecCreateOptions.Cmd`
+        // wants a plain `string[]`.
+        Cmd: [...argv],
+        AttachStdout: true,
+        AttachStderr: true,
+        // Never a PTY: keeps the stream in the documented multiplexed
+        // format (§A.2) `stream-demux.ts` already decodes, and none of
+        // this broker's fixed diagnostic commands are interactive.
+        Tty: false,
+        // `Privileged` deliberately omitted — never set (§A.4, §C.1).
+      });
+      const stream = await exec.start({ Detach: false, Tty: false });
+      const frames = await collectExecFrames(stream);
+      const inspection = await exec.inspect();
+      return {
+        stdout: joinFrames(frames, 'stdout'),
+        stderr: joinFrames(frames, 'stderr'),
+        // `ExitCode` is `null` while the exec is still running; the
+        // stream has already ended (its `end` event fired) by the time
+        // we reach this inspect call, so a real `null` here would mean
+        // the daemon disagrees with its own stream framing — defensive,
+        // not an expected path.
+        exitCode: inspection.ExitCode ?? -1,
+      };
     },
   };
 }

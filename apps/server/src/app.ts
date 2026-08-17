@@ -61,6 +61,23 @@ import { SieveService } from './modules/security/sieve.service.js';
 import { registerSieveRoutes } from './modules/security/sieve.routes.js';
 import { AutoresponderService } from './modules/security/autoresponder.service.js';
 import { registerAutoresponderRoutes } from './modules/security/autoresponder.routes.js';
+import { createBrokerClient, type BrokerClient } from './drivers/broker/index.js';
+import { ContainersService } from './modules/docker/containers.service.js';
+import { registerContainersRoutes } from './modules/docker/containers.routes.js';
+import { ImagesService } from './modules/docker/images.service.js';
+import { registerImagesRoutes } from './modules/docker/images.routes.js';
+import { VolumesService } from './modules/docker/volumes.service.js';
+import { registerVolumesRoutes } from './modules/docker/volumes.routes.js';
+import { NetworksService } from './modules/docker/networks.service.js';
+import { registerNetworksRoutes } from './modules/docker/networks.routes.js';
+import { LogsService } from './modules/docker/logs.service.js';
+import { registerLogsRoutes } from './modules/docker/logs.routes.js';
+import { MonitoringService } from './modules/docker/monitoring.service.js';
+import { registerMonitoringRoutes } from './modules/docker/monitoring.routes.js';
+import { HealthService } from './modules/docker/health.service.js';
+import { registerDockerHealthRoutes } from './modules/docker/health.routes.js';
+import { ConsoleService } from './modules/docker/console.service.js';
+import { registerConsoleRoutes } from './modules/docker/console.routes.js';
 
 export interface BuildAppOptions {
   readonly config: AppConfig;
@@ -100,6 +117,15 @@ export interface BuildAppOptions {
   readonly rspamdClient?: RspamdClientPort;
   /** Sampling cadence for `startRspamdStatSampler` — tests pass a short interval or omit entirely (the default is long enough never to fire during a test's lifetime). */
   readonly rspamdSampleIntervalMs?: number;
+  /**
+   * The `BrokerClient` every M9 Docker module is built on. Same override
+   * rationale as `dmsDriver`/`dnsLookupPort` above — tests that need
+   * specific broker behaviour (a container that fails to resolve, a
+   * refused volume removal) pass a hand-built stub instead of the default
+   * {@link createBrokerClient} selection (real in production, fixture-backed
+   * `FakeBrokerClient` otherwise).
+   */
+  readonly brokerClient?: BrokerClient;
 }
 
 const REQUEST_ID_HEADER = 'request-id';
@@ -284,6 +310,21 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   // comment for why there is no separate persistence layer.
   const autoresponderService = new AutoresponderService(dmsDriver);
 
+  // M9 — Docker & observability (FEATURE_MATRIX.md §24-26, §32). One
+  // `BrokerClient` shared by every module below, mirroring how one
+  // `dmsDriver` backs every M7 mail service above. `ConsoleService` alone
+  // also takes `config.enableExecConsole` — the one flag-gated module in
+  // this group (AGENT_BRIEF.md §4: "off by default").
+  const brokerClient = options.brokerClient ?? createBrokerClient(config, logger);
+  const containersService = new ContainersService(brokerClient);
+  const imagesService = new ImagesService(brokerClient);
+  const volumesService = new VolumesService(brokerClient);
+  const networksService = new NetworksService(brokerClient);
+  const logsService = new LogsService(brokerClient);
+  const monitoringService = new MonitoringService(brokerClient);
+  const healthService = new HealthService(brokerClient);
+  const consoleService = new ConsoleService(brokerClient, config.enableExecConsole);
+
   registerHealthRoute(app);
   await registerAuthRoutes(app, { authService, config, middleware });
   await registerAdminsRoutes(app, { db, admins, middleware });
@@ -300,6 +341,14 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   await registerClamavRoutes(app, { db, clamavService, middleware });
   await registerSieveRoutes(app, { db, sieveService, middleware });
   await registerAutoresponderRoutes(app, { db, autoresponderService, middleware });
+  await registerContainersRoutes(app, { db, containersService, middleware });
+  await registerImagesRoutes(app, { db, imagesService, middleware });
+  await registerVolumesRoutes(app, { db, volumesService, middleware });
+  await registerNetworksRoutes(app, { networksService, middleware });
+  await registerLogsRoutes(app, { logsService, middleware });
+  await registerMonitoringRoutes(app, { monitoringService, middleware });
+  await registerDockerHealthRoutes(app, { healthService, middleware });
+  await registerConsoleRoutes(app, { db, consoleService, middleware });
 
   return app;
 }

@@ -3,9 +3,13 @@
  * response fields in docs/research/02-docker-api-security.md §A.1 — not
  * captured from a real daemon (none available in this environment).
  * Names mirror the four DMS volumes documented in
- * IMPLEMENTATION_PLAN.md §2.1 (mail data, state, logs, config), purely
- * for developer-facing plausibility — this fixture carries no real mail
- * data.
+ * `docs/research/01-docker-mailserver.md` §6 (mail data, state, logs,
+ * config) and match `FIXTURE_CONTAINER_MOUNTS` (`containers.ts`)
+ * name-for-name, so a test that cross-references `volume.list` against
+ * `container.inspect`'s mounts (exactly what `VolumesService` does) sees
+ * a consistent fixture world. `dms-scratch` is a fifth, ordinary volume
+ * with no protected mount — the one this fixture set expects removal
+ * tests to succeed against.
  */
 import type { VolumeSummary } from '@dwg/shared';
 
@@ -23,9 +27,21 @@ export const FIXTURE_VOLUMES: readonly VolumeSummary[] = [
     labels: {},
   },
   {
+    name: 'dms-mail-logs',
+    driver: 'local',
+    mountpoint: '/var/lib/docker/volumes/dms-mail-logs/_data',
+    labels: {},
+  },
+  {
     name: 'dms-config',
     driver: 'local',
     mountpoint: '/var/lib/docker/volumes/dms-config/_data',
+    labels: {},
+  },
+  {
+    name: 'dms-scratch',
+    driver: 'local',
+    mountpoint: '/var/lib/docker/volumes/dms-scratch/_data',
     labels: {},
   },
 ];

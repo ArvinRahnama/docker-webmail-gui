@@ -64,6 +64,17 @@ export const AUDIT_ACTIONS = [
   'sieve.script_activate',
   'sieve.script_deactivate',
   'autoresponder.update',
+  // M9 — Docker & observability (FEATURE_MATRIX.md §24-26, §32). One
+  // action per broker write the Docker modules expose — matching the
+  // exact operation names in `@dwg/shared`'s `BROKER_OPERATIONS` so an
+  // audit row's action is traceable straight back to the broker call it
+  // caused.
+  'container.start',
+  'container.stop',
+  'container.restart',
+  'volume.remove',
+  'image.prune',
+  'console.exec',
 ] as const;
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];
 

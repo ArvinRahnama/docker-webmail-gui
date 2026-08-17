@@ -23,6 +23,14 @@ import { SieveHomePage } from '@/security/sieve-home-page';
 import { SieveScriptsPage } from '@/security/sieve-scripts-page';
 import { AutoresponderHomePage } from '@/security/autoresponder-home-page';
 import { AutoresponderPage } from '@/security/autoresponder-page';
+import { ContainersPage } from '@/docker/containers-page';
+import { ImagesPage } from '@/docker/images-page';
+import { VolumesPage } from '@/docker/volumes-page';
+import { NetworksPage } from '@/docker/networks-page';
+import { LogsPage } from '@/docker/logs-page';
+import { MonitoringPage } from '@/docker/monitoring-page';
+import { HealthPage } from '@/docker/health-page';
+import { ConsolePage } from '@/docker/console-page';
 
 /**
  * Root component: providers, then routes (milestone brief §5/§6;
@@ -63,6 +71,14 @@ export default function App() {
                 <Route path="/security/sieve/:user" element={<SieveScriptsPage />} />
                 <Route path="/security/autoresponder" element={<AutoresponderHomePage />} />
                 <Route path="/security/autoresponder/:user" element={<AutoresponderPage />} />
+                <Route path="/docker/containers" element={<ContainersPage />} />
+                <Route path="/docker/images" element={<ImagesPage />} />
+                <Route path="/docker/volumes" element={<VolumesPage />} />
+                <Route path="/docker/networks" element={<NetworksPage />} />
+                <Route path="/docker/logs" element={<LogsPage />} />
+                <Route path="/docker/monitoring" element={<MonitoringPage />} />
+                <Route path="/docker/health" element={<HealthPage />} />
+                <Route path="/docker/console" element={<ConsolePage />} />
               </Route>
             </Route>
 

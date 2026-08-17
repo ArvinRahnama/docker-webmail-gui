@@ -12,11 +12,14 @@ import { request } from 'undici';
 import {
   BROKER_OPS_PATH,
   BROKER_SECRET_HEADER,
+  ConsoleExecResponseSchema,
   ContainerInspectResponseSchema,
   ContainerListResponseSchema,
   ContainerLogsResponseSchema,
   ContainerStatsResponseSchema,
   ImageListResponseSchema,
+  ImagePruneResponseSchema,
+  LogsFileResponseSchema,
   NetworkListResponseSchema,
   OperationAckSchema,
   SystemDfResponseSchema,
@@ -25,11 +28,15 @@ import {
   SystemVersionResponseSchema,
   VolumeListResponseSchema,
   type BrokerRequest,
+  type ConsoleCommand,
+  type ConsoleExecResponse,
   type ContainerInspectResponse,
   type ContainerLogLine,
   type ContainerStatsResponse,
   type ContainerSummary,
+  type ImagePruneResponse,
   type ImageSummary,
+  type LogFileSource,
   type NetworkSummary,
   type SystemDfResponse,
   type SystemInfoResponse,
@@ -37,18 +44,16 @@ import {
   type SystemVersionResponse,
   type VolumeSummary,
 } from '@dwg/shared';
-import type { BrokerClient, ContainerListParams, ContainerLogsParams } from './types.js';
+import {
+  BrokerRequestError,
+  type BrokerClient,
+  type ContainerListParams,
+  type ContainerLogsParams,
+  type LogsFileParams,
+} from './types.js';
 
-/** Thrown for any non-2xx broker response. Carries the HTTP status and the broker's own (already-safe-to-show) message — never a raw stack trace. */
-export class BrokerRequestError extends Error {
-  readonly statusCode: number;
-
-  constructor(statusCode: number, message: string) {
-    super(message);
-    this.name = 'BrokerRequestError';
-    this.statusCode = statusCode;
-  }
-}
+/** Re-exported for backward compatibility — `BrokerRequestError` now lives in `types.ts` so `FakeBrokerClient` can throw the same class; this file is still where most callers expect to find it. */
+export { BrokerRequestError };
 
 function extractErrorMessage(body: unknown): string {
   if (typeof body === 'object' && body !== null && 'error' in body) {
@@ -179,5 +184,25 @@ export class RealBrokerClient implements BrokerClient {
   async networkList(): Promise<readonly NetworkSummary[]> {
     const result = await this.call({ operation: 'network.list' }, NetworkListResponseSchema);
     return result.networks;
+  }
+
+  async volumeRemove(name: string): Promise<void> {
+    await this.call({ operation: 'volume.remove', name }, OperationAckSchema);
+  }
+
+  async imagePrune(): Promise<ImagePruneResponse> {
+    return this.call({ operation: 'image.prune' }, ImagePruneResponseSchema);
+  }
+
+  async logsFile(source: LogFileSource, params: LogsFileParams = {}): Promise<readonly string[]> {
+    const result = await this.call(
+      { operation: 'logs.file', source, tail: params.tail },
+      LogsFileResponseSchema,
+    );
+    return result.lines;
+  }
+
+  async consoleExec(command: ConsoleCommand): Promise<ConsoleExecResponse> {
+    return this.call({ operation: 'console.exec', command }, ConsoleExecResponseSchema);
   }
 }

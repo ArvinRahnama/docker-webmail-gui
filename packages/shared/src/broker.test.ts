@@ -5,15 +5,21 @@ import {
   BROKER_RESPONSE_SCHEMAS,
   BrokerOperationSchema,
   BrokerRequestSchema,
+  ConsoleExecRequestSchema,
   ContainerLogsRequestSchema,
   ContainerListRequestSchema,
+  LogsFileRequestSchema,
   LOGS_TAIL_MAX,
   LOGS_TAIL_MIN,
   type BrokerOperation,
 } from './broker.js';
 
 describe('BROKER_OPERATIONS', () => {
-  it('is exactly the documented M4 vocabulary, with no duplicates', () => {
+  it('is exactly the documented vocabulary, with no duplicates', () => {
+    // Written out in full rather than derived, so growing the vocabulary is
+    // always a deliberate edit here. M9 added the last four; each takes a
+    // symbolic selector only — a volume name, a log-source enum value, or a
+    // command key — never a path, argv, or container reference.
     const expected = [
       'container.list',
       'container.inspect',
@@ -29,6 +35,10 @@ describe('BROKER_OPERATIONS', () => {
       'image.list',
       'volume.list',
       'network.list',
+      'volume.remove',
+      'image.prune',
+      'logs.file',
+      'console.exec',
     ];
     expect([...BROKER_OPERATIONS].sort()).toEqual([...expected].sort());
     expect(new Set(BROKER_OPERATIONS).size).toBe(BROKER_OPERATIONS.length);
@@ -163,6 +173,73 @@ describe('container.logs — bounded params only', () => {
   });
 });
 
+describe('logs.file — a fixed source enum, never a client-supplied path', () => {
+  it('accepts each documented source', () => {
+    expect(
+      LogsFileRequestSchema.safeParse({ operation: 'logs.file', source: 'mail' }).success,
+    ).toBe(true);
+    expect(
+      LogsFileRequestSchema.safeParse({ operation: 'logs.file', source: 'fail2ban' }).success,
+    ).toBe(true);
+  });
+
+  it('rejects anything outside the enum, including path-traversal and absolute-path attempts', () => {
+    for (const source of [
+      '../../etc/passwd',
+      '/etc/shadow',
+      '/var/log/mail/mail.log',
+      'mail.log',
+      'mail/../fail2ban',
+      '',
+      'MAIL',
+    ]) {
+      expect(
+        LogsFileRequestSchema.safeParse({ operation: 'logs.file', source }).success,
+        source,
+      ).toBe(false);
+    }
+  });
+
+  it('rejects a path field alongside a valid source — there is no field to put one in', () => {
+    expect(
+      LogsFileRequestSchema.safeParse({
+        operation: 'logs.file',
+        source: 'mail',
+        path: '/etc/passwd',
+      }).success,
+    ).toBe(false);
+  });
+});
+
+describe('console.exec — a fixed zero-argument command enum, never a client-supplied argv', () => {
+  it('accepts each documented command', () => {
+    for (const command of ['postqueue-p', 'postconf-n', 'doveconf-n', 'doveadm-who']) {
+      expect(
+        ConsoleExecRequestSchema.safeParse({ operation: 'console.exec', command }).success,
+      ).toBe(true);
+    }
+  });
+
+  it('rejects an unlisted command string', () => {
+    for (const command of ['rm-rf', 'whoami', 'postqueue -p', '']) {
+      expect(
+        ConsoleExecRequestSchema.safeParse({ operation: 'console.exec', command }).success,
+        command,
+      ).toBe(false);
+    }
+  });
+
+  it('rejects an argv array passed alongside a valid command key', () => {
+    expect(
+      ConsoleExecRequestSchema.safeParse({
+        operation: 'console.exec',
+        command: 'postqueue-p',
+        argv: ['postqueue', '-p'],
+      }).success,
+    ).toBe(false);
+  });
+});
+
 // ---------------------------------------------------------------------------
 // The schema-level security test: no request schema anywhere accepts a
 // HostConfig/Binds/Privileged/CapAdd/PidMode-shaped field. This does not
@@ -207,6 +284,13 @@ describe('BrokerRequestSchema — dangerous Docker fields are structurally impos
     'image.list': { operation: 'image.list' },
     'volume.list': { operation: 'volume.list' },
     'network.list': { operation: 'network.list' },
+    // M9 additions. Each carries a symbolic selector, never a path, argv or
+    // container spec — which is what keeps the poisoning test below meaningful
+    // as the vocabulary grows.
+    'volume.remove': { operation: 'volume.remove', name: 'some-unprotected-volume' },
+    'image.prune': { operation: 'image.prune' },
+    'logs.file': { operation: 'logs.file', source: 'mail' },
+    'console.exec': { operation: 'console.exec', command: 'postqueue-p' },
   };
 
   it('the fixture above covers every operation the enum defines, exactly', () => {
@@ -232,14 +316,37 @@ describe('BrokerRequestSchema — dangerous Docker fields are structurally impos
     }
   });
 
+  /**
+   * `volume.remove` legitimately takes a volume `name`, so it is the one
+   * operation/field pairing this guard cannot assert against.
+   *
+   * The exemption is deliberately scoped to that single pairing rather than
+   * dropping `name` from the key list, which would silently weaken the guard
+   * for all seventeen other operations. A volume name is not a container
+   * reference: it cannot designate a container, and it cannot carry a spec.
+   *
+   * What protects volume names is a different control with its own test —
+   * the broker refuses any volume backing a DMS data mount, re-derived from
+   * the managed container's own mounts on every call rather than from a
+   * hardcoded list. See `apps/broker/src/operations.ts`.
+   */
+  const CONTAINER_REF_GUARD_EXEMPTIONS = new Set(['volume.remove::name']);
+
   it('rejects a container id/name on every operation, including container.inspect/start/stop/restart', () => {
     for (const operation of BROKER_OPERATIONS) {
       for (const key of ['id', 'Id', 'container', 'containerId', 'name', 'Name']) {
+        if (CONTAINER_REF_GUARD_EXEMPTIONS.has(`${operation}::${key}`)) continue;
         const poisoned = { ...MINIMAL_VALID_BODY[operation], [key]: 'mailserver' };
         const result = BrokerRequestSchema.safeParse(poisoned);
         expect(result.success, `operation ${operation} must reject a "${key}" field`).toBe(false);
       }
     }
+  });
+
+  it('exempts nothing beyond the single documented volume-name pairing', () => {
+    // Pins the exemption set itself, so a future operation cannot quietly
+    // opt out of the container-reference guard by adding an entry above.
+    expect([...CONTAINER_REF_GUARD_EXEMPTIONS]).toEqual(['volume.remove::name']);
   });
 });
 

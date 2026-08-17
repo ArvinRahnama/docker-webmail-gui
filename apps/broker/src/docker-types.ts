@@ -21,6 +21,20 @@ export interface RawContainerListItem {
   readonly createdAt: number;
 }
 
+/**
+ * One entry from Docker inspect's own `Mounts` array, reduced to exactly
+ * the fields `@dwg/shared`'s `ContainerMountSchema` needs — deliberately
+ * the same shape (`type`/`name`/`destination`) so `operations.ts` can pass
+ * this straight through (and into `computeProtectedVolumeNames`) with no
+ * mapping step to forget. `name` is `null` for a bind mount or any type
+ * other than `volume`, matching Docker's own optional `Name` field.
+ */
+export interface RawContainerMount {
+  readonly type: string;
+  readonly name: string | null;
+  readonly destination: string;
+}
+
 export interface RawContainerInspect {
   readonly id: string;
   /** Leading `/` already stripped. */
@@ -42,6 +56,14 @@ export interface RawContainerInspect {
     readonly exitCode: number;
     readonly health: string | null;
   };
+  /**
+   * The managed container's own live mounts — the sole input to
+   * {@link computeProtectedVolumeNames [@dwg/shared]}'s protected-volume
+   * derivation (`operations.ts`'s `volume.remove` handler). Never includes
+   * the host `Source` path, mirroring `ContainerMountSchema`'s own
+   * omission of it.
+   */
+  readonly mounts: readonly RawContainerMount[];
 }
 
 export interface RawVersion {
@@ -156,6 +178,32 @@ export interface RawLogsOptions {
 }
 
 /**
+ * Result of `pruneImages()` — already reduced to the two fields
+ * `ImagePruneResponseSchema` (`@dwg/shared`) needs. `imagesDeleted` is
+ * image *ids* only (the `Deleted` half of Docker's own
+ * `Untagged`/`Deleted` pair per removed image) — see `docker-client.ts`
+ * for why the `Untagged` half is dropped.
+ */
+export interface RawImagePruneResult {
+  readonly imagesDeleted: readonly string[];
+  readonly spaceReclaimedBytes: number;
+}
+
+/**
+ * Result of one exec run to completion. Always the full, buffered
+ * stdout/stderr of a single short-lived diagnostic command (never a
+ * live/streamed session) — see `console.exec`'s and `logs.file`'s fixed,
+ * zero-argument-or-broker-owned-argv command sets in
+ * `apps/broker/src/operations.ts`, neither of which ever runs anything
+ * long-lived enough for unbounded buffering to be a real concern.
+ */
+export interface RawExecResult {
+  readonly stdout: string;
+  readonly stderr: string;
+  readonly exitCode: number;
+}
+
+/**
  * The broker's entire Docker vocabulary. Every method here is one Docker
  * Engine API call (docs/research/02-docker-api-security.md §A.1) — there
  * is no generic `call(method, path, body)` escape hatch, mirroring the
@@ -177,4 +225,33 @@ export interface DockerApi {
   listImages(): Promise<readonly RawImage[]>;
   listVolumes(): Promise<readonly RawVolume[]>;
   listNetworks(): Promise<readonly RawNetwork[]>;
+  /**
+   * Removes one volume **by name** — the one place this interface accepts
+   * a bare string identifier rather than resolving identity itself, matching
+   * `VolumeRemoveRequestSchema` (`@dwg/shared`) one layer up. Callers
+   * (`operations.ts`) must run the protected-mount check before ever
+   * reaching this method; this method itself performs no such check, so it
+   * is not by itself a safety boundary — see that file's `volume.remove`
+   * handler.
+   */
+  removeVolume(name: string): Promise<void>;
+  /**
+   * Always "remove every dangling image" — there is no by-name/by-id
+   * overload, matching `ImagePruneRequestSchema`'s complete absence of
+   * parameters (`@dwg/shared`). See `docker-client.ts` for the Docker-side
+   * default this relies on.
+   */
+  pruneImages(): Promise<RawImagePruneResult>;
+  /**
+   * Runs one command **to completion** inside the managed container and
+   * returns its buffered output plus exit code — never a live/attached
+   * session. `argv` is always broker-constructed (`operations.ts`'s fixed
+   * `console.exec` command map, or its hardcoded `logs.file` `tail`
+   * invocation); this method has no way to distinguish the two callers and
+   * enforces nothing about `argv`'s origin itself; the callers are the
+   * boundary. Implementations must pass `argv` as `Cmd` verbatim (never
+   * wrapped in a shell) and must never set `Privileged`
+   * (docs/research/02-docker-api-security.md §C.1, §A.4).
+   */
+  execContainer(id: string, argv: readonly string[]): Promise<RawExecResult>;
 }

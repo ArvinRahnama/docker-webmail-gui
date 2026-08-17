@@ -95,12 +95,17 @@ describe('FakeBrokerClient — deterministic, in-memory, stateful across its own
     const inspect = await client.containerInspect();
     expect(inspect.state.running).toBe(false);
 
+    // Fixture world has a second, always-stopped, non-managed container
+    // (`FIXTURE_OTHER_CONTAINER_ID` — containers.ts) alongside the managed
+    // one, so "running only" is asserted by content, and the managed
+    // container's own entry is found by id rather than assumed to be at a
+    // particular array position/length.
     const runningOnly = await client.containerList();
     expect(runningOnly).toHaveLength(0);
 
     const all = await client.containerList({ all: true });
-    expect(all).toHaveLength(1);
-    expect(all[0]?.state).toBe('exited');
+    const managed = all.find((c) => c.id === inspect.id);
+    expect(managed?.state).toBe('exited');
   });
 
   it('containerStart reverses containerStop', async () => {

@@ -17,6 +17,12 @@ import { StoragePage } from '@/mail/storage-page';
 import { EmailAuthListPage } from '@/security/email-auth-list-page';
 import { EmailAuthDetailPage } from '@/security/email-auth-detail-page';
 import { TlsPage } from '@/security/tls-page';
+import { ClamavPage } from '@/security/clamav-page';
+import { Fail2banPage } from '@/security/fail2ban-page';
+import { SieveHomePage } from '@/security/sieve-home-page';
+import { SieveScriptsPage } from '@/security/sieve-scripts-page';
+import { AutoresponderHomePage } from '@/security/autoresponder-home-page';
+import { AutoresponderPage } from '@/security/autoresponder-page';
 
 /**
  * Root component: providers, then routes (milestone brief §5/§6;
@@ -51,6 +57,12 @@ export default function App() {
                 <Route path="/security/email-auth" element={<EmailAuthListPage />} />
                 <Route path="/security/email-auth/:domain" element={<EmailAuthDetailPage />} />
                 <Route path="/security/tls" element={<TlsPage />} />
+                <Route path="/security/clamav" element={<ClamavPage />} />
+                <Route path="/security/fail2ban" element={<Fail2banPage />} />
+                <Route path="/security/sieve" element={<SieveHomePage />} />
+                <Route path="/security/sieve/:user" element={<SieveScriptsPage />} />
+                <Route path="/security/autoresponder" element={<AutoresponderHomePage />} />
+                <Route path="/security/autoresponder/:user" element={<AutoresponderPage />} />
               </Route>
             </Route>
 

@@ -1,20 +1,39 @@
 /**
- * Typed wrappers over `/api/v1/security/dns/*`
- * (`apps/server/src/modules/security/dns.routes.ts`). Mirrors
+ * Typed wrappers over `/api/v1/security/*`
+ * (`apps/server/src/modules/security/*.routes.ts`). Mirrors
  * `mail-api.ts`'s shape.
  */
 import {
+  AutoresponderStatusResponseSchema,
+  ClamAvDetectionsResponseSchema,
+  ClamAvStatusResponseSchema,
+  ClamAvUpdateResponseSchema,
   DkimStatusResponseSchema,
   EmailAuthReportSchema,
+  Fail2banStatusResponseSchema,
+  Fail2banWriteResponseSchema,
   GenerateDkimRequestSchema,
   PropagationReportSchema,
+  PutSieveScriptRequestSchema,
+  SieveScriptDetailResponseSchema,
+  SieveScriptListResponseSchema,
+  SieveWriteResponseSchema,
   TlsStatusResponseSchema,
+  UpdateAutoresponderRequestSchema,
+  type AutoresponderStatus,
+  type ClamAvDetectionsResponse,
+  type ClamAvStatusResponse,
+  type ClamAvUpdateResponse,
   type DkimStatus,
   type EmailAuthReport,
+  type Fail2banStatusResponse,
   type GenerateDkimRequest,
   type PropagationRecordType,
   type PropagationReport,
+  type SieveScriptDetailResponse,
+  type SieveScriptSummary,
   type TlsStatusResponse,
+  type UpdateAutoresponderRequest,
 } from '@dwg/shared';
 import { request } from './api-client';
 
@@ -77,4 +96,123 @@ export async function fetchDnsPropagation(
     PropagationReportSchema,
     { method: 'GET' },
   );
+}
+
+// ---------------------------------------------------------------------------
+// ClamAV (FEATURE_MATRIX.md §16)
+// ---------------------------------------------------------------------------
+
+export async function fetchClamavStatus(): Promise<ClamAvStatusResponse> {
+  return request('/api/v1/security/clamav', ClamAvStatusResponseSchema, { method: 'GET' });
+}
+
+export async function fetchClamavDetections(): Promise<ClamAvDetectionsResponse> {
+  return request('/api/v1/security/clamav/detections', ClamAvDetectionsResponseSchema, {
+    method: 'GET',
+  });
+}
+
+export async function triggerClamavUpdate(): Promise<ClamAvUpdateResponse> {
+  return request('/api/v1/security/clamav/update', ClamAvUpdateResponseSchema, {
+    method: 'POST',
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Fail2ban (`docs/research/03-mail-stack-components.md` §10)
+// ---------------------------------------------------------------------------
+
+export async function fetchFail2banStatus(): Promise<Fail2banStatusResponse> {
+  return request('/api/v1/security/fail2ban', Fail2banStatusResponseSchema, { method: 'GET' });
+}
+
+export async function banFail2banIp(ip: string): Promise<void> {
+  await request('/api/v1/security/fail2ban/ban', Fail2banWriteResponseSchema, {
+    method: 'POST',
+    body: { ip },
+  });
+}
+
+export async function unbanFail2banIp(ip: string): Promise<void> {
+  await request('/api/v1/security/fail2ban/unban', Fail2banWriteResponseSchema, {
+    method: 'POST',
+    body: { ip },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Sieve (FEATURE_MATRIX.md §17)
+// ---------------------------------------------------------------------------
+
+export async function fetchSieveScripts(user: string): Promise<readonly SieveScriptSummary[]> {
+  const { scripts } = await request(
+    `/api/v1/security/sieve/${encodeURIComponent(user)}`,
+    SieveScriptListResponseSchema,
+    { method: 'GET' },
+  );
+  return scripts;
+}
+
+export async function fetchSieveScript(
+  user: string,
+  name: string,
+): Promise<SieveScriptDetailResponse> {
+  return request(
+    `/api/v1/security/sieve/${encodeURIComponent(user)}/${encodeURIComponent(name)}`,
+    SieveScriptDetailResponseSchema,
+    { method: 'GET' },
+  );
+}
+
+export async function putSieveScript(user: string, name: string, content: string): Promise<void> {
+  const body = PutSieveScriptRequestSchema.parse({ content });
+  await request(
+    `/api/v1/security/sieve/${encodeURIComponent(user)}/${encodeURIComponent(name)}`,
+    SieveWriteResponseSchema,
+    { method: 'PUT', body },
+  );
+}
+
+export async function activateSieveScript(user: string, name: string): Promise<void> {
+  await request(
+    `/api/v1/security/sieve/${encodeURIComponent(user)}/${encodeURIComponent(name)}/activate`,
+    SieveWriteResponseSchema,
+    { method: 'POST' },
+  );
+}
+
+export async function deactivateSieveScripts(user: string): Promise<void> {
+  await request(
+    `/api/v1/security/sieve/${encodeURIComponent(user)}/deactivate`,
+    SieveWriteResponseSchema,
+    { method: 'POST' },
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Autoresponder (FEATURE_MATRIX.md §18) — built on Sieve; see
+// `sieve.service.ts`'s doc comment server-side. Never a schema for raw
+// Sieve text here — only structured fields.
+// ---------------------------------------------------------------------------
+
+export async function fetchAutoresponderStatus(user: string): Promise<AutoresponderStatus> {
+  const { status } = await request(
+    `/api/v1/security/autoresponder/${encodeURIComponent(user)}`,
+    AutoresponderStatusResponseSchema,
+    { method: 'GET' },
+  );
+  return status;
+}
+
+export async function updateAutoresponder(
+  user: string,
+  input: UpdateAutoresponderRequest,
+): Promise<AutoresponderStatus> {
+  const body = UpdateAutoresponderRequestSchema.parse(input);
+  const { status } = await request(
+    `/api/v1/security/autoresponder/${encodeURIComponent(user)}`,
+    AutoresponderStatusResponseSchema,
+    { method: 'PUT', body },
+  );
+  return status;
 }

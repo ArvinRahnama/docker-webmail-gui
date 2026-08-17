@@ -58,6 +58,12 @@ function stubDriver(overrides: Partial<DmsDriver> & { capabilities?: DmsCapabili
     getSslType: overrides.getSslType ?? notImplemented('getSslType'),
     fail2banList: overrides.fail2banList ?? notImplemented('fail2banList'),
     fail2banStatus: overrides.fail2banStatus ?? notImplemented('fail2banStatus'),
+    clamavPing: overrides.clamavPing ?? notImplemented('clamavPing'),
+    clamavVersion: overrides.clamavVersion ?? notImplemented('clamavVersion'),
+    clamavStats: overrides.clamavStats ?? notImplemented('clamavStats'),
+    clamavLogTail: overrides.clamavLogTail ?? notImplemented('clamavLogTail'),
+    sieveList: overrides.sieveList ?? notImplemented('sieveList'),
+    sieveGet: overrides.sieveGet ?? notImplemented('sieveGet'),
     addMailbox: overrides.addMailbox ?? notImplemented('addMailbox'),
     updateMailboxPassword:
       overrides.updateMailboxPassword ?? notImplemented('updateMailboxPassword'),
@@ -70,6 +76,11 @@ function stubDriver(overrides: Partial<DmsDriver> & { capabilities?: DmsCapabili
     generateDkim: overrides.generateDkim ?? notImplemented('generateDkim'),
     fail2banBan: overrides.fail2banBan ?? notImplemented('fail2banBan'),
     fail2banUnban: overrides.fail2banUnban ?? notImplemented('fail2banUnban'),
+    clamavUpdateSignatures:
+      overrides.clamavUpdateSignatures ?? notImplemented('clamavUpdateSignatures'),
+    sievePut: overrides.sievePut ?? notImplemented('sievePut'),
+    sieveActivate: overrides.sieveActivate ?? notImplemented('sieveActivate'),
+    sieveDeactivate: overrides.sieveDeactivate ?? notImplemented('sieveDeactivate'),
   };
 }
 

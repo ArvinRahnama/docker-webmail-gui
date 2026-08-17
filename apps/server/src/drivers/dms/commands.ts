@@ -42,6 +42,7 @@ import {
   validateIpAddress,
   validatePassword,
   validateQuota,
+  validateSieveScriptName,
 } from './validators.js';
 
 export interface DmsCommand {
@@ -354,4 +355,133 @@ export function buildFail2banLogCommand(): CommandResult {
 /** `setup fail2ban status` — per-jail `fail2ban-client status` dump. */
 export function buildFail2banStatusCommand(): CommandResult {
   return ok(['setup', 'fail2ban', 'status']);
+}
+
+// ---------------------------------------------------------------------------
+// clamav / clamd — not a `setup` subcommand (docker-mailserver has none for
+// ClamAV); these invoke the daemon's own control-socket protocol and the
+// standalone `freshclam` updater directly, same "fixed DMS-bundled binary,
+// argv array" allowance `buildDoveadmQuotaGetCommand` documents above.
+// ---------------------------------------------------------------------------
+
+/**
+ * Default clamd control-socket path for the Debian `clamav-daemon` package
+ * docker-mailserver installs under `ENABLE_CLAMAV=1`
+ * (`docs/research/03-mail-stack-components.md` §2) — `[INFERRED]`, not
+ * independently confirmed against a live image this session. If a real
+ * deployment uses a different path, this constant is the one place to fix
+ * it; nothing downstream hardcodes the path a second time.
+ */
+const CLAMD_SOCKET_PATH = '/var/run/clamav/clamd.ctl';
+
+export type ClamdVerb = 'PING' | 'VERSION' | 'STATS';
+
+/**
+ * Sends one clamd control-socket command and reads the reply, via `socat`
+ * piping the command over **stdin** — never an argv element, and never a
+ * shell pipe (★3 / SECURITY.md §3.2). The research doc's own worked example
+ * is the shell one-liner `echo VERSION | socat - UNIX-CONNECT:...`; this
+ * reproduces the same two-process shape without `sh -c` by reusing the
+ * exact stdin channel `commands.ts` already pipes a password through
+ * elsewhere in this module. `socat`'s presence in the image is
+ * `[UNCERTAIN]` (research doc names it as the practical example, but this
+ * session could not confirm it against a live container) — a missing
+ * binary simply fails the exec with a non-zero exit, which the driver
+ * surfaces as a normal "unreachable" state, never a crash. `verb` is a
+ * closed union, never caller-supplied text, so there is nothing here for a
+ * validator to reject.
+ */
+export function buildClamdCommand(verb: ClamdVerb): CommandResult {
+  return ok(['socat', '-', `UNIX-CONNECT:${CLAMD_SOCKET_PATH}`], `${verb}\n`);
+}
+
+/** `freshclam` — triggers a signature database update (FEATURE_MATRIX.md §16: "a real operation, offered with confirmation and rate limiting"). No arguments, so there is nothing to validate. */
+export function buildFreshclamCommand(): CommandResult {
+  return ok(['freshclam']);
+}
+
+/**
+ * `docs/research/01-docker-mailserver.md` §11 and this module's own
+ * `buildFail2banLogCommand` establish `/var/log/mail/` as this project's
+ * confirmed DMS log directory; `mail.log` is the combined log file
+ * docker-mailserver's rsyslog configuration writes Postfix/Dovecot/ClamAV
+ * lines into alike. Tailing rather than reading the whole file bounds both
+ * the exec payload and the "how far back does this count reach" claim the
+ * UI must state honestly (`clamav-parser.ts`'s `countClamavDetections` doc
+ * comment).
+ */
+const CLAMAV_LOG_TAIL_LINES = '5000';
+
+export function buildClamavLogTailCommand(): CommandResult {
+  return ok(['tail', '-n', CLAMAV_LOG_TAIL_LINES, '/var/log/mail/mail.log']);
+}
+
+// ---------------------------------------------------------------------------
+// sieve — `doveadm sieve list|get|put|activate|deactivate` (FEATURE_MATRIX.md
+// §17, §18; `docs/research/03-mail-stack-components.md` §6). Same
+// "`doveadm`, not `setup`" allowance as `buildDoveadmQuotaGetCommand`.
+// ---------------------------------------------------------------------------
+
+export interface SieveUserParams {
+  readonly user: string;
+}
+
+export interface SieveScriptParams {
+  readonly user: string;
+  readonly name: string;
+}
+
+export interface SievePutParams {
+  readonly user: string;
+  readonly name: string;
+  readonly content: string;
+}
+
+/** `doveadm -f json sieve list -u <user>` — every stored script name plus which one is active. */
+export function buildSieveListCommand(params: SieveUserParams): CommandResult {
+  const userError = validateAddressForArgv(params.user);
+  if (userError) return err(userError);
+  return ok(['doveadm', '-f', 'json', 'sieve', 'list', '-u', params.user]);
+}
+
+/** `doveadm sieve get -u <user> <name>` — a script's current source. */
+export function buildSieveGetCommand(params: SieveScriptParams): CommandResult {
+  const userError = validateAddressForArgv(params.user);
+  if (userError) return err(userError);
+  const nameError = validateSieveScriptName(params.name);
+  if (nameError) return err(nameError);
+  return ok(['doveadm', 'sieve', 'get', '-u', params.user, params.name]);
+}
+
+/**
+ * `doveadm sieve put -u <user> <name>` — script content via stdin, never
+ * argv (the same reasoning as a password: arbitrary-length, arbitrary-byte
+ * text has no business being a `ps`-visible command-line argument). Pigeonhole
+ * compiles the script before installing it, so a syntax error here surfaces
+ * as a non-zero exit with a real compiler message in stderr — the service
+ * layer maps that to a validation failure, not an upstream-unavailable one
+ * (`sieve.service.ts`).
+ */
+export function buildSievePutCommand(params: SievePutParams): CommandResult {
+  const userError = validateAddressForArgv(params.user);
+  if (userError) return err(userError);
+  const nameError = validateSieveScriptName(params.name);
+  if (nameError) return err(nameError);
+  return ok(['doveadm', 'sieve', 'put', '-u', params.user, params.name], params.content);
+}
+
+/** `doveadm sieve activate -u <user> <name>` — makes `name` the one script Dovecot executes at delivery time for `user`. */
+export function buildSieveActivateCommand(params: SieveScriptParams): CommandResult {
+  const userError = validateAddressForArgv(params.user);
+  if (userError) return err(userError);
+  const nameError = validateSieveScriptName(params.name);
+  if (nameError) return err(nameError);
+  return ok(['doveadm', 'sieve', 'activate', '-u', params.user, params.name]);
+}
+
+/** `doveadm sieve deactivate -u <user>` — takes no script name; deactivates whichever script is currently active, leaving every stored script's content untouched. */
+export function buildSieveDeactivateCommand(params: SieveUserParams): CommandResult {
+  const userError = validateAddressForArgv(params.user);
+  if (userError) return err(userError);
+  return ok(['doveadm', 'sieve', 'deactivate', '-u', params.user]);
 }

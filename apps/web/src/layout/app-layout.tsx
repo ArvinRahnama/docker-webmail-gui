@@ -29,6 +29,10 @@ const MAIL_NAV_ITEMS = [
 const SECURITY_NAV_ITEMS = [
   { to: '/security/email-auth', label: 'Email Auth' },
   { to: '/security/tls', label: 'TLS' },
+  { to: '/security/clamav', label: 'ClamAV' },
+  { to: '/security/fail2ban', label: 'Fail2ban' },
+  { to: '/security/sieve', label: 'Sieve' },
+  { to: '/security/autoresponder', label: 'Autoresponder' },
 ] as const;
 
 export function AppLayout() {

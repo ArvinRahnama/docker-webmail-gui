@@ -16,3 +16,4 @@ export * from './broker.js';
 export * from './mail.js';
 export * from './security.js';
 export * from './antispam.js';
+export * from './sieve.js';

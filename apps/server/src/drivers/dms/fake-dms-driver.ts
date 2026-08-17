@@ -28,6 +28,11 @@ import {
   buildFail2banUnbanCommand,
   buildQuotaDeleteCommand,
   buildQuotaSetCommand,
+  buildSieveActivateCommand,
+  buildSieveDeactivateCommand,
+  buildSieveGetCommand,
+  buildSieveListCommand,
+  buildSievePutCommand,
   type AddAliasParams,
   type AddMailboxParams,
   type CommandResult,
@@ -39,11 +44,14 @@ import {
   type RestrictMailboxParams,
   type RestrictScope,
   type SetQuotaParams,
+  type SievePutParams,
+  type SieveScriptParams,
+  type SieveUserParams,
   type UpdateMailboxPasswordParams,
 } from './commands.js';
 import { detectCapabilities, type DmsCapabilities } from './capabilities.js';
 import { deriveDomains, type DerivedDomain } from './domains.js';
-import { DmsCommandValidationError } from './errors.js';
+import { DmsCommandExecutionError, DmsCommandValidationError } from './errors.js';
 import {
   FIXTURE_DMS_ENV,
   FIXTURE_DOVECOT_QUOTAS_CF,
@@ -63,7 +71,27 @@ import {
 } from './parsers/postfix-access.js';
 import { parseQuotaToBytes, type QuotaUsageResult } from './quota-usage.js';
 import type { Fail2banListResult } from './fail2ban-parser.js';
-import type { DkimRecordReadResult, DmsDriver } from './types.js';
+import type { SieveScriptSummary } from './sieve-list-parser.js';
+import type { ClamavReadResult, DkimRecordReadResult, DmsDriver } from './types.js';
+
+/** Deterministic, fixture-only clamd `VERSION` reply — same shape a real deployment's clamd would send, never live data (mirrors `FAKE_PASSWORD_HASH_MARKER`'s own "obviously fake" convention below). */
+const FIXTURE_CLAMAV_VERSION = 'ClamAV 0.103.11/27000/Fri Aug 14 08:00:00 2026';
+/** Deliberately shaped like real `STATS` output (`POOLS:`/`STATE:`/`THREADS:`/`QUEUE:` lines per `docs/research/03-mail-stack-components.md` §2) without claiming to be a captured sample — free text this project never parses regardless (`clamav-parser.ts`). */
+const FIXTURE_CLAMAV_STATS = [
+  'POOLS: 1',
+  '',
+  'STATE: VALID PRIMARY',
+  'THREADS: live 1  idle 0 max 12 idle-timeout 30',
+  'QUEUE: 0 items',
+  '',
+  'MEMSTATS: N/A',
+  'END',
+].join('\n');
+/** One fixture "detection" line the fake's `clamavLogTail` returns, so `countClamavDetections` has something real to find in development without a live container's log. */
+const FIXTURE_CLAMAV_LOG = [
+  'Aug 14 09:00:00 mail clamd[1]: /var/mail/example.com/user/tmp/eicar.txt: Eicar-Test-Signature FOUND',
+  'Aug 14 09:00:01 mail clamd[1]: /var/mail/example.com/user/tmp/clean.txt: OK',
+].join('\n');
 
 /** Marker hash the fake writes for a freshly-added/updated mailbox. Never a real `doveadm pw` digest — this project never computes real password hashes (FEATURE_MATRIX.md §6). */
 const FAKE_PASSWORD_HASH_MARKER = '{FAKE-HASH-DEV-ONLY}';
@@ -128,6 +156,8 @@ export class FakeDmsDriver implements DmsDriver {
   private dkimKeys = new Map<string, FakeDkimKeyState>();
   /** Mutated by `fail2banBan`/`fail2banUnban` so `fail2banList` reflects real prior calls rather than always returning the same static fixture. */
   private bannedIps = new Set<string>();
+  /** Keyed by Dovecot user (email), then script name — mirrors `doveadm sieve`'s own "many stored scripts, at most one active" model (`sieve-list-parser.ts`) entirely in memory. */
+  private sieveScripts = new Map<string, Map<string, { content: string; active: boolean }>>();
 
   constructor() {
     // Seeded once, at construction, by parsing the same fixture file
@@ -414,5 +444,92 @@ export class FakeDmsDriver implements DmsDriver {
       `|- Currently banned:\t${sorted.length}`,
       `\`- Banned IP list:\t${sorted.join(' ')}`,
     ].join('\n');
+  }
+
+  async clamavPing(): Promise<ClamavReadResult> {
+    return { ok: true, output: 'PONG' };
+  }
+
+  async clamavVersion(): Promise<ClamavReadResult> {
+    return { ok: true, output: FIXTURE_CLAMAV_VERSION };
+  }
+
+  async clamavStats(): Promise<ClamavReadResult> {
+    return { ok: true, output: FIXTURE_CLAMAV_STATS };
+  }
+
+  async clamavLogTail(): Promise<ClamavReadResult> {
+    return { ok: true, output: FIXTURE_CLAMAV_LOG };
+  }
+
+  async clamavUpdateSignatures(): Promise<string> {
+    return 'ClamAV update process started at ...\ndaily.cvd database is up-to-date (version: 27000, sigs: 2000000)';
+  }
+
+  /** Every write below validates through the *same* `commands.ts` builder the real driver uses (this class's own doc comment) before touching `sieveScripts`, so an invalid user/name/oversized-by-argv-shape call is rejected identically by both implementations. */
+  private scriptsFor(user: string): Map<string, { content: string; active: boolean }> {
+    let scripts = this.sieveScripts.get(user);
+    if (!scripts) {
+      scripts = new Map();
+      this.sieveScripts.set(user, scripts);
+    }
+    return scripts;
+  }
+
+  async sieveList(user: string): Promise<readonly SieveScriptSummary[]> {
+    assertValid(buildSieveListCommand({ user }));
+    const scripts = this.sieveScripts.get(user);
+    if (!scripts) return [];
+    return [...scripts.entries()]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([name, state]) => ({ name, active: state.active }));
+  }
+
+  async sieveGet(user: string, name: string): Promise<string> {
+    assertValid(buildSieveGetCommand({ user, name }));
+    const script = this.sieveScripts.get(user)?.get(name);
+    if (!script) {
+      throw new DmsCommandExecutionError(
+        ['doveadm', 'sieve', 'get', '-u', user, name],
+        1,
+        `sieve: user=${user}: Sieve script not found: ${name}`,
+      );
+    }
+    return script.content;
+  }
+
+  async sievePut(params: SievePutParams): Promise<void> {
+    assertValid(buildSievePutCommand(params));
+    const scripts = this.scriptsFor(params.user);
+    const existing = scripts.get(params.name);
+    scripts.set(params.name, { content: params.content, active: existing?.active ?? false });
+  }
+
+  async sieveActivate(params: SieveScriptParams): Promise<void> {
+    assertValid(buildSieveActivateCommand(params));
+    const scripts = this.sieveScripts.get(params.user);
+    const target = scripts?.get(params.name);
+    if (!scripts || !target) {
+      throw new DmsCommandExecutionError(
+        ['doveadm', 'sieve', 'activate', '-u', params.user, params.name],
+        1,
+        `sieve: user=${params.user}: Sieve script not found: ${params.name}`,
+      );
+    }
+    // Only one script is ever active per user, matching real Pigeonhole
+    // semantics (`sieve-list-parser.ts`'s own doc comment) — deactivate
+    // every other stored script before activating the target one.
+    for (const [name, state] of scripts) {
+      scripts.set(name, { ...state, active: name === params.name });
+    }
+  }
+
+  async sieveDeactivate(params: SieveUserParams): Promise<void> {
+    assertValid(buildSieveDeactivateCommand(params));
+    const scripts = this.sieveScripts.get(params.user);
+    if (!scripts) return;
+    for (const [name, state] of scripts) {
+      scripts.set(name, { ...state, active: false });
+    }
   }
 }

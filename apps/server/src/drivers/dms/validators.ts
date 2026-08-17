@@ -148,3 +148,37 @@ export function validatePassword(value: string): string | null {
   if (typeof value !== 'string' || value.length === 0) return 'password must not be empty';
   return null;
 }
+
+// eslint-disable-next-line no-control-regex -- deliberately matching control chars to reject them, mirrors CONTAINS_CONTROL_CHAR above
+const SIEVE_NAME_CONTROL_CHAR = /[\x00-\x1F\x7F]/;
+/** Letters, numbers, `-`, `_`, `.` — enough to name a script meaningfully (`dwg-autoresponder`, `my.filter`) without resembling a path segment or a flag. */
+const SIEVE_SCRIPT_NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/;
+
+/**
+ * Validates a `doveadm sieve` script name (FEATURE_MATRIX.md §17/§18) —
+ * the argv leaf for `sieve get|put|activate`'s trailing `<name>`. Rejects
+ * anything that could be mistaken for a flag or a path component (`.`/`..`
+ * alone, or an embedded `/`), matching this file's own "a value shaped
+ * like a flag is refused outright" convention.
+ */
+export function validateSieveScriptName(value: string): string | null {
+  if (typeof value !== 'string' || value.length === 0) {
+    return 'script name must not be empty';
+  }
+  if (value.startsWith('-')) {
+    return 'script name must not start with "-" (would be read as a command-line flag)';
+  }
+  if (value === '.' || value === '..') {
+    return 'script name must not be "." or ".."';
+  }
+  if (value.includes('/') || value.includes('\\')) {
+    return 'script name must not contain a path separator';
+  }
+  if (SIEVE_NAME_CONTROL_CHAR.test(value) || /\s/.test(value)) {
+    return 'script name must not contain whitespace or control characters';
+  }
+  if (!SIEVE_SCRIPT_NAME_PATTERN.test(value)) {
+    return 'script name may only contain letters, numbers, "-", "_" and "." (max 128 characters), and must start with a letter or number';
+  }
+  return null;
+}

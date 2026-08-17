@@ -10,6 +10,8 @@
 import {
   buildAliasAddCommand,
   buildAliasDeleteCommand,
+  buildClamavLogTailCommand,
+  buildClamdCommand,
   buildConfigDkimCommand,
   buildDoveadmQuotaGetCommand,
   buildEmailAddCommand,
@@ -20,8 +22,14 @@ import {
   buildFail2banListCommand,
   buildFail2banStatusCommand,
   buildFail2banUnbanCommand,
+  buildFreshclamCommand,
   buildQuotaDeleteCommand,
   buildQuotaSetCommand,
+  buildSieveActivateCommand,
+  buildSieveDeactivateCommand,
+  buildSieveGetCommand,
+  buildSieveListCommand,
+  buildSievePutCommand,
   type AddAliasParams,
   type AddMailboxParams,
   type CommandResult,
@@ -33,12 +41,16 @@ import {
   type RestrictMailboxParams,
   type RestrictScope,
   type SetQuotaParams,
+  type SievePutParams,
+  type SieveScriptParams,
+  type SieveUserParams,
   type UpdateMailboxPasswordParams,
 } from './commands.js';
 import { detectCapabilities, type DmsCapabilities } from './capabilities.js';
 import { deriveDomains, type DerivedDomain } from './domains.js';
 import { parseDkimZoneFile } from './dkim-record.js';
 import { parseFail2banList, type Fail2banListResult } from './fail2ban-parser.js';
+import { parseSieveList, type SieveScriptSummary } from './sieve-list-parser.js';
 import { DmsCommandExecutionError, DmsCommandValidationError } from './errors.js';
 import type { DmsExecPort } from './exec-port.js';
 import type { ParseResult } from './parsers/parse-result.js';
@@ -47,7 +59,7 @@ import { parsePostfixAccounts, type PostfixAccountEntry } from './parsers/postfi
 import { parsePostfixVirtual, type PostfixVirtualEntry } from './parsers/postfix-virtual.js';
 import { parsePostfixAccess, type PostfixAccessEntry } from './parsers/postfix-access.js';
 import { parseDoveadmQuotaGet, type QuotaUsageResult } from './quota-usage.js';
-import type { DkimRecordReadResult, DmsDriver } from './types.js';
+import type { ClamavReadResult, DkimRecordReadResult, DmsDriver } from './types.js';
 
 const RESTRICT_SCOPE_FILE_NAME = {
   send: 'postfix-send-access.cf',
@@ -196,5 +208,72 @@ export class RealDmsDriver implements DmsDriver {
 
   async fail2banStatus(): Promise<string> {
     return this.runRead(buildFail2banStatusCommand());
+  }
+
+  /**
+   * Runs a command and reports failure as data, never an exception — see
+   * `ClamavReadResult`'s doc comment (`types.ts`) for why the ClamAV reads
+   * below need this instead of `runRead`'s throw-on-failure contract.
+   */
+  private async execSoft(result: CommandResult): Promise<ClamavReadResult> {
+    if (!result.ok) return { ok: false, reason: result.error };
+    const { argv, stdin } = result.command;
+    try {
+      const execResult = await this.execPort.exec(
+        argv,
+        stdin === undefined ? undefined : { stdin },
+      );
+      if (execResult.exitCode !== 0) {
+        return {
+          ok: false,
+          reason: execResult.stderr.trim() || `"${argv.join(' ')}" exited ${execResult.exitCode}`,
+        };
+      }
+      return { ok: true, output: execResult.stdout };
+    } catch (err) {
+      return { ok: false, reason: err instanceof Error ? err.message : 'Command failed to run.' };
+    }
+  }
+
+  async clamavPing(): Promise<ClamavReadResult> {
+    return this.execSoft(buildClamdCommand('PING'));
+  }
+
+  async clamavVersion(): Promise<ClamavReadResult> {
+    return this.execSoft(buildClamdCommand('VERSION'));
+  }
+
+  async clamavStats(): Promise<ClamavReadResult> {
+    return this.execSoft(buildClamdCommand('STATS'));
+  }
+
+  async clamavLogTail(): Promise<ClamavReadResult> {
+    return this.execSoft(buildClamavLogTailCommand());
+  }
+
+  /** Unlike the four reads above, a failed `freshclam` run is a real error to surface (`types.ts`'s doc comment on this method) — `runRead` already throws on a non-zero exit, which is exactly the behaviour wanted here. */
+  async clamavUpdateSignatures(): Promise<string> {
+    return this.runRead(buildFreshclamCommand());
+  }
+
+  async sieveList(user: string): Promise<readonly SieveScriptSummary[]> {
+    const stdout = await this.runRead(buildSieveListCommand({ user }));
+    return parseSieveList(stdout);
+  }
+
+  async sieveGet(user: string, name: string): Promise<string> {
+    return this.runRead(buildSieveGetCommand({ user, name }));
+  }
+
+  async sievePut(params: SievePutParams): Promise<void> {
+    await this.run(buildSievePutCommand(params));
+  }
+
+  async sieveActivate(params: SieveScriptParams): Promise<void> {
+    await this.run(buildSieveActivateCommand(params));
+  }
+
+  async sieveDeactivate(params: SieveUserParams): Promise<void> {
+    await this.run(buildSieveDeactivateCommand(params));
   }
 }

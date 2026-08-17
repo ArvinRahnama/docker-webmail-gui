@@ -53,6 +53,14 @@ import { createRspamdClient, type RspamdClientPort } from './drivers/rspamd/inde
 import { RspamdService } from './modules/security/rspamd.service.js';
 import { registerRspamdRoutes } from './modules/security/rspamd.routes.js';
 import { startRspamdStatSampler } from './modules/security/rspamd-sampler.js';
+import { Fail2banService } from './modules/security/fail2ban.service.js';
+import { registerFail2banRoutes } from './modules/security/fail2ban.routes.js';
+import { ClamavService } from './modules/security/clamav.service.js';
+import { registerClamavRoutes } from './modules/security/clamav.routes.js';
+import { SieveService } from './modules/security/sieve.service.js';
+import { registerSieveRoutes } from './modules/security/sieve.routes.js';
+import { AutoresponderService } from './modules/security/autoresponder.service.js';
+import { registerAutoresponderRoutes } from './modules/security/autoresponder.routes.js';
 
 export interface BuildAppOptions {
   readonly config: AppConfig;
@@ -262,6 +270,20 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     rspamdSampler.stop();
   });
 
+  // M8 — Fail2ban (`docs/research/03-mail-stack-components.md` §10).
+  const fail2banService = new Fail2banService(dmsDriver);
+
+  // M8 — ClamAV (FEATURE_MATRIX.md §16).
+  const clamavService = new ClamavService(dmsDriver);
+
+  // M8 — Sieve filters (FEATURE_MATRIX.md §17).
+  const sieveService = new SieveService(dmsDriver);
+
+  // M8 — Autoresponder (FEATURE_MATRIX.md §18). Built entirely on
+  // `sieveService`'s own put/activate/deactivate — see that service's doc
+  // comment for why there is no separate persistence layer.
+  const autoresponderService = new AutoresponderService(dmsDriver);
+
   registerHealthRoute(app);
   await registerAuthRoutes(app, { authService, config, middleware });
   await registerAdminsRoutes(app, { db, admins, middleware });
@@ -274,6 +296,10 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   await registerDkimRoutes(app, { db, dkimService, middleware });
   await registerTlsRoutes(app, { tlsService, middleware });
   await registerRspamdRoutes(app, { db, rspamdService, middleware });
+  await registerFail2banRoutes(app, { db, fail2banService, middleware });
+  await registerClamavRoutes(app, { db, clamavService, middleware });
+  await registerSieveRoutes(app, { db, sieveService, middleware });
+  await registerAutoresponderRoutes(app, { db, autoresponderService, middleware });
 
   return app;
 }

@@ -106,11 +106,7 @@ export const RspamdTrendResponseSchema = z.object({
 export type RspamdTrendResponse = z.infer<typeof RspamdTrendResponseSchema>;
 
 // ---------------------------------------------------------------------------
-// ClamAV — §16. Detection counts are explicitly out of scope here: they
-// require log access this milestone does not build (see the module's own
-// read-me-first comment in `clamav.service.ts`) — there is deliberately
-// no "detections" field anywhere in this schema, matching the same
-// "never fabricate" discipline as the Rspamd trend above.
+// ClamAV — §16.
 // ---------------------------------------------------------------------------
 
 export const ClamAvStatusResponseSchema = z.object({
@@ -129,6 +125,27 @@ export const ClamAvUpdateResponseSchema = z.object({
   output: z.string(),
 });
 export type ClamAvUpdateResponse = z.infer<typeof ClamAvUpdateResponseSchema>;
+
+/**
+ * Detection counts — clamd exposes no counter for this (research doc §2's
+ * ★2), so the only route to a number is parsing the mail log
+ * (`clamav.service.ts`, `drivers/dms/clamav-parser.ts`'s
+ * `countClamavDetections`). `count`/`windowDescription` are both `null`
+ * together — `available: false` is the single source of truth for "there
+ * is no number to show," never a fabricated `0` standing in for "could not
+ * check." `windowDescription` must always accompany a non-null `count`
+ * (AGENT_BRIEF.md: "label them as log-derived with their retention
+ * window") — this is a log-tail sample, not a lifetime total.
+ */
+export const ClamAvDetectionsResponseSchema = z.object({
+  capability: CapabilityStatusSchema,
+  available: z.boolean(),
+  count: z.number().int().nonnegative().nullable(),
+  windowDescription: z.string().nullable(),
+  /** Safe-to-show reason when `available` is `false` (unsupported, or the log tail itself could not be read). */
+  reason: z.string().nullable(),
+});
+export type ClamAvDetectionsResponse = z.infer<typeof ClamAvDetectionsResponseSchema>;
 
 // ---------------------------------------------------------------------------
 // Fail2ban (`docs/research/03-mail-stack-components.md` §10).

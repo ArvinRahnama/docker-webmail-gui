@@ -18,3 +18,6 @@ export * from './security.js';
 export * from './antispam.js';
 export * from './sieve.js';
 export * from './docker.js';
+export * from './jobs.js';
+export * from './backups.js';
+export * from './config-editor.js';

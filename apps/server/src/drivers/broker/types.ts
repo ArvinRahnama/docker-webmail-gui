@@ -13,6 +13,7 @@
  * (ARCHITECTURE.md §7.2, §9).
  */
 import type {
+  BackupVolumeKey,
   ConsoleCommand,
   ConsoleExecResponse,
   ContainerInspectResponse,
@@ -115,4 +116,25 @@ export interface BrokerClient {
   logsFile(source: LogFileSource, params?: LogsFileParams): Promise<readonly string[]>;
   /** Runs one of the fixed, zero-argument console command enum and returns its full output. */
   consoleExec(command: ConsoleCommand): Promise<ConsoleExecResponse>;
+  /**
+   * Streams the raw `tar` of one backup volume, untouched — the read half
+   * of M10 backups (`modules/backups/backup-archive.ts`). Deliberately
+   * outside the `call()`-less JSON operation model every method above
+   * uses: `archive-routes.ts` (broker) is a dedicated streaming route, not
+   * a `BrokerOperation`, because a volume can be many gigabytes and the
+   * JSON `/v1/ops` contract is sized for small request/response bodies.
+   * Still a *named intent* addressed by the same closed
+   * {@link BackupVolumeKey} enum the broker owns the path mapping for —
+   * there is no field anywhere in this call that could carry a path.
+   */
+  archiveGet(volumeKey: BackupVolumeKey): Promise<NodeJS.ReadableStream>;
+  /**
+   * The write half of {@link archiveGet} — restore's mechanism
+   * (`modules/backups/backup-archive.ts`). Callers must confirm the
+   * managed container is stopped before calling this; neither this method
+   * nor the broker route behind it perform that check themselves (restore
+   * is Tier 4 and that refusal happens earlier, at the route/service
+   * layer — see `modules/backups/backups.service.ts`).
+   */
+  archivePut(volumeKey: BackupVolumeKey, tarStream: NodeJS.ReadableStream): Promise<void>;
 }

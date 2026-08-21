@@ -75,6 +75,17 @@ export const AUDIT_ACTIONS = [
   'volume.remove',
   'image.prune',
   'console.exec',
+  // M10 — jobs, backups, restore, config editor, updates
+  // (FEATURE_MATRIX.md §27-29, §31; IMPLEMENTATION_PLAN.md §2.1-§2.2).
+  'job.cancel',
+  'backup.create',
+  'backup.verify',
+  'backup.delete',
+  'backup.download',
+  'backup.restore',
+  'config.apply',
+  'config.reveal_secret',
+  'update.apply_refused',
 ] as const;
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];
 

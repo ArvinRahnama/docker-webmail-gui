@@ -8,11 +8,13 @@
  * unexpectedly-shaped response cannot silently become "valid" data the
  * rest of the server trusts.
  */
+import { Readable } from 'node:stream';
 import { request } from 'undici';
 import {
   BROKER_OPS_PATH,
   BROKER_SECRET_HEADER,
   ConsoleExecResponseSchema,
+  type BackupVolumeKey,
   ContainerInspectResponseSchema,
   ContainerListResponseSchema,
   ContainerLogsResponseSchema,
@@ -204,5 +206,56 @@ export class RealBrokerClient implements BrokerClient {
 
   async consoleExec(command: ConsoleCommand): Promise<ConsoleExecResponse> {
     return this.call({ operation: 'console.exec', command }, ConsoleExecResponseSchema);
+  }
+
+  // -------------------------------------------------------------------------
+  // M10 — backups/restore (IMPLEMENTATION_PLAN.md §2.1). Both methods speak
+  // to `archive-routes.ts` (the broker), not `/v1/ops` — see `types.ts`'s
+  // doc comment on `archiveGet` for why. `bodyTimeout: 0` (undici's
+  // "disabled") on both: a multi-gigabyte mail volume has no fixed
+  // transfer time, unlike every JSON operation above, which is why those
+  // alone use `this.timeoutMs`.
+  // -------------------------------------------------------------------------
+
+  async archiveGet(volumeKey: BackupVolumeKey): Promise<NodeJS.ReadableStream> {
+    const response = await request(`${this.baseUrl}/v1/archive/${volumeKey}`, {
+      method: 'GET',
+      headers: { [BROKER_SECRET_HEADER]: this.sharedSecret },
+      headersTimeout: this.timeoutMs,
+      bodyTimeout: 0,
+    });
+
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      const json: unknown = await response.body.json();
+      throw new BrokerRequestError(response.statusCode, extractErrorMessage(json));
+    }
+
+    return response.body;
+  }
+
+  async archivePut(volumeKey: BackupVolumeKey, tarStream: NodeJS.ReadableStream): Promise<void> {
+    const response = await request(`${this.baseUrl}/v1/archive/${volumeKey}`, {
+      method: 'PUT',
+      headers: {
+        'content-type': 'application/x-tar',
+        [BROKER_SECRET_HEADER]: this.sharedSecret,
+      },
+      // undici's `body` wants a real `stream.Readable`, not the broader
+      // `NodeJS.ReadableStream` this method (and `BrokerClient` as a
+      // whole) is typed against — `Readable.from` accepts any readable
+      // (it implements `Symbol.asyncIterator`) and hands back exactly
+      // that, with no re-buffering.
+      body: Readable.from(tarStream),
+      headersTimeout: this.timeoutMs,
+      bodyTimeout: 0,
+    });
+
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      const json: unknown = await response.body.json();
+      throw new BrokerRequestError(response.statusCode, extractErrorMessage(json));
+    }
+    // 204 No Content — drain so the underlying socket is released back to
+    // undici's pool rather than left half-read.
+    await response.body.dump();
   }
 }

@@ -183,6 +183,8 @@ function createStubDocker(overrides: Partial<DockerApi> = {}): DockerApi {
     removeVolume: async () => {},
     pruneImages: async () => ({ imagesDeleted: ['sha256:pruned'], spaceReclaimedBytes: 1000 }),
     execContainer: async () => ({ stdout: 'stub output\n', stderr: '', exitCode: 0 }),
+    getContainerArchive: () => Promise.reject(new Error('not stubbed')),
+    putContainerArchive: () => Promise.reject(new Error('not stubbed')),
     ...overrides,
   };
 }

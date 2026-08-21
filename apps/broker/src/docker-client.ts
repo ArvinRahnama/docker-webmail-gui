@@ -352,6 +352,25 @@ export function createRealDockerApi(socketPath: string): DockerApi {
       };
     },
 
+    async getContainerArchive(id, path): Promise<NodeJS.ReadableStream> {
+      // `dockerode`'s `getArchive` maps straight onto `GET
+      // /containers/{id}/archive?path=…` and resolves with the raw
+      // response stream — no buffering, no decoding, so what
+      // `archive-routes.ts` pipes to its own HTTP response is exactly
+      // what Docker sent.
+      return docker.getContainer(id).getArchive({ path });
+    },
+
+    async putContainerArchive(id, path, tarStream): Promise<void> {
+      // `dockerode`'s `putArchive` maps onto `PUT
+      // /containers/{id}/archive?path=…`, streaming the request body
+      // through unmodified. `path` here is the *directory* Docker
+      // extracts into — for this project's four fixed volume paths
+      // (`/var/mail`, …) that is always the path itself, matching how
+      // `getContainerArchive` reads that same path.
+      await docker.getContainer(id).putArchive(tarStream, { path });
+    },
+
     async execContainer(id, argv): Promise<RawExecResult> {
       const container = docker.getContainer(id);
       const exec = await container.exec({

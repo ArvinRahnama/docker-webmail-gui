@@ -126,6 +126,21 @@ export default [
       // idiomatic Node+TS code, not a real bug. This is typescript-eslint's
       // own documented recommendation.
       'no-undef': 'off',
+      // A leading underscore is this codebase's existing marker for a
+      // binding that exists to satisfy a signature or to drain an iterable,
+      // not to be read — fake drivers implement real ports and must keep
+      // the parameters they ignore. Without this, the only ways to pass
+      // lint are deleting a parameter the interface requires or scattering
+      // disable comments, both worse than the convention already in use.
+      '@typescript-eslint/no-unused-vars': [
+        'error',
+        {
+          argsIgnorePattern: '^_',
+          varsIgnorePattern: '^_',
+          caughtErrorsIgnorePattern: '^_',
+          destructuredArrayIgnorePattern: '^_',
+        },
+      ],
       'no-restricted-syntax': ['error', ...restrictedSyntaxSecurityRules],
       'no-restricted-imports': [
         'error',

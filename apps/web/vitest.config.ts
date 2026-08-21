@@ -18,6 +18,13 @@ export default defineConfig({
   },
   test: {
     environment: 'jsdom',
+    // `.mockClear()` between tests. Without it, spies created once per file
+    // at `vi.mock` time accumulate calls across tests, and an assertion that
+    // something was *not* called silently reads a previous test's calls —
+    // which turned a passing refusal test into a false failure here.
+    // Implementations survive (that is `resetMocks`), so per-test
+    // `mockResolvedValue` setups are unaffected.
+    clearMocks: true,
     setupFiles: ['./src/test/setup.ts'],
     include: ['src/**/*.test.{ts,tsx}'],
     css: false,

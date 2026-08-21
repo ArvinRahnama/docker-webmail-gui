@@ -14,6 +14,11 @@ export const PERMISSIONS = [
   'mail:manage',
   'security:manage',
   'docker:manage',
+  // M10 — jobs, backups, restore, the config/environment editor and
+  // updates (FEATURE_MATRIX.md §27-29, §31). One permission for the
+  // whole maintenance surface, mirroring `docker:manage`'s own grouping
+  // of several M9 modules under one gate.
+  'maintenance:manage',
 ] as const;
 export type Permission = (typeof PERMISSIONS)[number];
 

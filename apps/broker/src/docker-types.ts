@@ -254,4 +254,34 @@ export interface DockerApi {
    * (docs/research/02-docker-api-security.md §C.1, §A.4).
    */
   execContainer(id: string, argv: readonly string[]): Promise<RawExecResult>;
+  /**
+   * Streams a `tar` of one absolute path inside the container, untouched —
+   * exactly Docker's own `GET /containers/{id}/archive?path=…` response
+   * body (docker-mailserver's data volumes, `docs/research/01-docker-mailserver.md`
+   * §6, §11), byte for byte. This is the mechanism behind M10 backups
+   * (`apps/server/src/modules/backups/backup-archive.ts`): the whole
+   * point of never re-serialising this stream is that every entry's
+   * original uid/gid/mode/mtime — including the vmail 5000:5000 ownership
+   * the milestone brief calls out by name — survives round-trip
+   * untouched. `path` is always one of the four broker-owned constants in
+   * `archive-routes.ts`'s `ARCHIVE_VOLUME_PATHS`, never a caller-supplied
+   * string — this method itself enforces nothing about `path`'s origin,
+   * exactly like `execContainer`'s `argv` above; the caller is the
+   * boundary.
+   */
+  getContainerArchive(id: string, path: string): Promise<NodeJS.ReadableStream>;
+  /**
+   * Writes a `tar` stream into the container at one absolute path,
+   * replacing whatever is there — the restore half of
+   * {@link getContainerArchive}. Docker's own `PUT
+   * .../archive` extracts the tar's entries using the uid/gid/mode
+   * recorded in *their own headers*, not the caller's identity, which is
+   * what makes vmail ownership preservation automatic for a backup this
+   * project never re-serialised (see `getContainerArchive`'s doc comment)
+   * — there is no separate chown step anywhere in this codebase because
+   * none is needed. Callers (`modules/backups/backup-archive.ts`) must
+   * confirm the target container is stopped before calling this — restore
+   * is Tier 4 and this method performs no such check itself.
+   */
+  putContainerArchive(id: string, path: string, tarStream: NodeJS.ReadableStream): Promise<void>;
 }

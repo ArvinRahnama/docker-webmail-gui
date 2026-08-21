@@ -11,3 +11,4 @@ export * from './images.js';
 export * from './volumes.js';
 export * from './networks.js';
 export * from './console.js';
+export * from './archive.js';

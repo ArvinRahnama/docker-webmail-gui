@@ -20,7 +20,8 @@ import type { BrokerConfig } from './config.js';
 import type { DockerApi } from './docker-types.js';
 import { createSecretGuard } from './auth.js';
 import { BrokerError, createBrokerErrorHandler } from './errors.js';
-import { handleOperation } from './operations.js';
+import { handleOperation, type OperationDeps } from './operations.js';
+import { registerArchiveRoutes } from './archive-routes.js';
 
 export interface BuildBrokerAppOptions {
   readonly config: BrokerConfig;
@@ -80,6 +81,13 @@ export function buildBrokerApp(options: BuildBrokerAppOptions): FastifyInstance 
       void reply.send(validated);
     },
   );
+
+  // M10 backups/restore (IMPLEMENTATION_PLAN.md §2.1) — two streaming
+  // routes outside the JSON `/v1/ops` contract above; see
+  // `archive-routes.ts`'s own header for why they cannot be operations in
+  // that closed vocabulary.
+  const operationDeps: OperationDeps = { docker, dms: config.dms, logger };
+  registerArchiveRoutes(app, { config, docker, deps: operationDeps });
 
   return app;
 }

@@ -64,7 +64,8 @@ export interface OperationDeps {
   readonly logger: Logger;
 }
 
-async function resolveOrForbid(deps: OperationDeps): Promise<ManagedContainerRef> {
+/** Exported for `archive-routes.ts`, which needs the exact same "resolve the managed container or refuse" behaviour for the two streaming archive routes — those live outside the `/v1/ops` JSON dispatch this file otherwise owns, but must fail closed identically. */
+export async function resolveOrForbid(deps: OperationDeps): Promise<ManagedContainerRef> {
   try {
     return await resolveManagedContainer(deps.docker, deps.dms);
   } catch (err) {

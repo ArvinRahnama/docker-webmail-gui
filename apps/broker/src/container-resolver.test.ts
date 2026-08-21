@@ -34,6 +34,8 @@ function stubDocker(containers: readonly RawContainerListItem[]): DockerApi {
     removeVolume: () => Promise.reject(new Error('not stubbed')),
     pruneImages: () => Promise.reject(new Error('not stubbed')),
     execContainer: () => Promise.reject(new Error('not stubbed')),
+    getContainerArchive: () => Promise.reject(new Error('not stubbed')),
+    putContainerArchive: () => Promise.reject(new Error('not stubbed')),
   };
 }
 

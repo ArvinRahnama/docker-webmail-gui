@@ -11,9 +11,11 @@
 import { afterEach } from 'vitest';
 import { cleanup } from '@testing-library/react';
 import '@testing-library/jest-dom/vitest';
+import { FakeEventSource } from './fake-event-source';
 
 afterEach(() => {
   cleanup();
+  FakeEventSource.reset();
 });
 
 // A handful of suites (tokens.contrast.test.ts, oklch.test.ts) opt into the
@@ -69,5 +71,15 @@ if (typeof window !== 'undefined') {
 
   if (typeof window.scrollTo !== 'function') {
     window.scrollTo = () => {};
+  }
+
+  // jsdom ships no `EventSource`, so a page that subscribes to a job stream
+  // throws on mount and takes the whole file down with it — including tests
+  // that never meant to touch the stream. The stand-in is inert: it opens
+  // nothing and fires nothing until a test drives it, so rendering stays
+  // free while `FakeEventSource.last` remains available to suites that do
+  // want to assert on stream behaviour.
+  if (typeof window.EventSource !== 'function') {
+    window.EventSource = FakeEventSource as unknown as typeof EventSource;
   }
 }

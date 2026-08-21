@@ -78,6 +78,19 @@ import { HealthService } from './modules/docker/health.service.js';
 import { registerDockerHealthRoutes } from './modules/docker/health.routes.js';
 import { ConsoleService } from './modules/docker/console.service.js';
 import { registerConsoleRoutes } from './modules/docker/console.routes.js';
+import { JobsRepository } from './platform/jobs/jobs.repository.js';
+import { createJobRunner, type JobRunner } from './platform/jobs/job-runner.js';
+import { JobsService } from './modules/jobs/jobs.service.js';
+import { registerJobsRoutes } from './modules/jobs/jobs.routes.js';
+import { BackupsRepository } from './modules/backups/backups.repository.js';
+import { BackupsService } from './modules/backups/backups.service.js';
+import { registerBackupsRoutes } from './modules/backups/backups.routes.js';
+import { ConfigRepository } from './modules/config/config.repository.js';
+import { ConfigService } from './modules/config/config.service.js';
+import { registerConfigRoutes } from './modules/config/config.routes.js';
+import { createRegistryClient, type RegistryClientPort } from './drivers/registry/index.js';
+import { UpdatesService } from './modules/updates/updates.service.js';
+import { registerUpdatesRoutes } from './modules/updates/updates.routes.js';
 
 export interface BuildAppOptions {
   readonly config: AppConfig;
@@ -126,6 +139,17 @@ export interface BuildAppOptions {
    * `FakeBrokerClient` otherwise).
    */
   readonly brokerClient?: BrokerClient;
+  /**
+   * The one `JobRunner` every M10 module (backups/restore today) enqueues
+   * work on. Same override rationale as `brokerClient` above — a test that
+   * wants to inspect job state mid-run, or avoid startup recovery's log
+   * line, passes its own instance instead of the default `createJobRunner`
+   * selection, which always runs recovery against whichever `db` this call
+   * received.
+   */
+  readonly jobRunner?: JobRunner;
+  /** Same override rationale as `brokerClient` — tests that need a specific registry answer (an update available, a mismatched digest, an unreachable registry) pass a hand-built stub instead of the default {@link createRegistryClient} selection (real in production, fixture-backed `FakeRegistryClient` otherwise). */
+  readonly registryClient?: RegistryClientPort;
 }
 
 const REQUEST_ID_HEADER = 'request-id';
@@ -325,6 +349,35 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   const healthService = new HealthService(brokerClient);
   const consoleService = new ConsoleService(brokerClient, config.enableExecConsole);
 
+  // M10 — jobs, backups, restore, config editor, updates
+  // (IMPLEMENTATION_PLAN.md §2.1-§2.2). One `JobRunner` shared by every
+  // module that enqueues long-running work, mirroring `brokerClient`/
+  // `dmsDriver` above — see `platform/jobs/job-runner.ts` for why it runs
+  // strictly one job at a time.
+  const jobsRepository = new JobsRepository(db);
+  const jobRunner = options.jobRunner ?? createJobRunner(jobsRepository, logger);
+  const jobsService = new JobsService(jobsRepository, jobRunner);
+
+  // Backups/restore (IMPLEMENTATION_PLAN.md §2.1) — built on the same
+  // `jobRunner`/`brokerClient` constructed above.
+  const backupsRepository = new BackupsRepository(db);
+  const backupsService = new BackupsService(
+    backupsRepository,
+    jobRunner,
+    brokerClient,
+    config.backupDir,
+  );
+
+  // Config/environment editor (FEATURE_MATRIX.md §28-29).
+  const configRepository = new ConfigRepository(db);
+  const configService = new ConfigService(configRepository, db, config);
+
+  // Updates (IMPLEMENTATION_PLAN.md §2.2) — comparison only; see
+  // `modules/updates/updates.service.ts`'s header for why apply is
+  // deferred.
+  const registryClient = options.registryClient ?? createRegistryClient(config, logger);
+  const updatesService = new UpdatesService(brokerClient, registryClient, backupsRepository);
+
   registerHealthRoute(app);
   await registerAuthRoutes(app, { authService, config, middleware });
   await registerAdminsRoutes(app, { db, admins, middleware });
@@ -349,6 +402,10 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   await registerMonitoringRoutes(app, { monitoringService, middleware });
   await registerDockerHealthRoutes(app, { healthService, middleware });
   await registerConsoleRoutes(app, { db, consoleService, middleware });
+  await registerJobsRoutes(app, { db, jobsService, middleware });
+  await registerBackupsRoutes(app, { db, backupsService, middleware });
+  await registerConfigRoutes(app, { db, configService, middleware });
+  await registerUpdatesRoutes(app, { db, updatesService, middleware });
 
   return app;
 }

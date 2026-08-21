@@ -31,6 +31,10 @@ import { LogsPage } from '@/docker/logs-page';
 import { MonitoringPage } from '@/docker/monitoring-page';
 import { HealthPage } from '@/docker/health-page';
 import { ConsolePage } from '@/docker/console-page';
+import { JobsPage, JobDetailPage } from '@/maintenance/jobs-page';
+import { BackupsPage } from '@/maintenance/backups-page';
+import { UpdatesPage } from '@/maintenance/updates-page';
+import { ConfigPage } from '@/maintenance/config-page';
 
 /**
  * Root component: providers, then routes (milestone brief §5/§6;
@@ -79,6 +83,11 @@ export default function App() {
                 <Route path="/docker/monitoring" element={<MonitoringPage />} />
                 <Route path="/docker/health" element={<HealthPage />} />
                 <Route path="/docker/console" element={<ConsolePage />} />
+                <Route path="/maintenance/jobs" element={<JobsPage />} />
+                <Route path="/maintenance/jobs/:id" element={<JobDetailPage />} />
+                <Route path="/maintenance/backups" element={<BackupsPage />} />
+                <Route path="/maintenance/updates" element={<UpdatesPage />} />
+                <Route path="/maintenance/config" element={<ConfigPage />} />
               </Route>
             </Route>
 

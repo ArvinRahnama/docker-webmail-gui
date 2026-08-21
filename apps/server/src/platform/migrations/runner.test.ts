@@ -33,10 +33,14 @@ describe('runMigrations', () => {
       'notifications',
       'settings',
       'schema_migrations',
+      // M10 addition (migration 004) — see that migration's own doc
+      // comment for why it exists alongside 001's already-present `jobs`/
+      // `backups` tables.
+      'config_snapshots',
     ]) {
       expect(tables).toContain(expected);
     }
-    expect(appliedVersions(db)).toEqual([1, 2, 3]);
+    expect(appliedVersions(db)).toEqual([1, 2, 3, 4]);
     db.close();
   });
 

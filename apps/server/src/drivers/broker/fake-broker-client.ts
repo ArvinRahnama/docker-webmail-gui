@@ -6,8 +6,10 @@
  * machine with no Docker at all, and a developer cannot restart their
  * own containers by accident.
  */
+import { Readable } from 'node:stream';
 import {
   computeProtectedVolumeNames,
+  type BackupVolumeKey,
   type ConsoleCommand,
   type ConsoleExecResponse,
   type ContainerInspectResponse,
@@ -49,6 +51,7 @@ import {
   FIXTURE_SYSTEM_PING,
   FIXTURE_SYSTEM_VERSION,
   FIXTURE_VOLUMES,
+  buildFixtureVolumeTar,
 } from './fixtures/index.js';
 
 const FIXTURE_LOG_FILE_LINES: Readonly<Record<LogFileSource, readonly string[]>> = {
@@ -162,5 +165,17 @@ export class FakeBrokerClient implements BrokerClient {
 
   async consoleExec(command: ConsoleCommand): Promise<ConsoleExecResponse> {
     return FIXTURE_CONSOLE_OUTPUTS[command];
+  }
+
+  /** A small, deterministic, hand-built tar per volume key (`fixtures/archive.ts` — labelled there as constructed, not captured; there is no Docker daemon here to capture from). Real enough to exercise manifest generation and restore's round trip end to end without a broker. */
+  async archiveGet(volumeKey: BackupVolumeKey): Promise<NodeJS.ReadableStream> {
+    return Readable.from([buildFixtureVolumeTar(volumeKey)]);
+  }
+
+  /** Nothing to actually write — same "static fixture, no real backing store" shape as `volumeRemove` above. Still fully drains `tarStream`, matching what a real archive write would do, so a caller awaiting this in a loop behaves identically against either driver. */
+  async archivePut(_volumeKey: BackupVolumeKey, tarStream: NodeJS.ReadableStream): Promise<void> {
+    for await (const _chunk of tarStream) {
+      // Drain only — see the doc comment above.
+    }
   }
 }

@@ -23,10 +23,11 @@ describe('/api/v1/docker/images', () => {
   });
 
   // -----------------------------------------------------------------
-  // The behaviour the milestone brief calls out by name: "image.prune
-  // cannot target a named image." There is no field anywhere to name
-  // one — asserted here by proving the route rejects any body at all
-  // beyond the empty one, and that no by-id removal route exists.
+  // The control FEATURE_MATRIX.md §24 requires: cleanup is dangling-only,
+  // and holds "because there is no selection to make". There is no field
+  // anywhere to name an image — asserted here by proving the route rejects
+  // any body at all beyond the empty one, and that no by-id removal route
+  // exists.
   // -----------------------------------------------------------------
 
   it('prunes dangling images and takes no parameters', async () => {

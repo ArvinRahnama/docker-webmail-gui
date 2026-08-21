@@ -4,9 +4,9 @@
  * this file is short on purpose, because everything in it runs with
  * access to the Docker socket.
  *
- * Request handling order matters and is the direct implementation of
- * "reject before any parsing" (this milestone's brief): the shared-secret
- * guard is registered as an `onRequest` hook, which Fastify runs *before*
+ * Request handling order matters, and rejection happens before any
+ * parsing at all: the shared-secret guard is registered as an `onRequest`
+ * hook, which Fastify runs *before*
  * its `preParsing`/body-parsing lifecycle steps
  * (https://fastify.dev/docs/latest/Reference/Lifecycle/) — an
  * unauthenticated caller's body is never even handed to the JSON parser,

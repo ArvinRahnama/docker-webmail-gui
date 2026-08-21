@@ -1,6 +1,6 @@
 /**
  * Backups and restore (M10 — IMPLEMENTATION_PLAN.md §2.1; FEATURE_MATRIX.md
- * §27; AGENT_BRIEF.md "the most data-destructive milestone"). This file is
+ * §27, which calls it "the highest-risk feature"). This file is
  * the self-describing contract: the four DMS data volumes, the manifest
  * format written *inside* every backup archive, and the API request/
  * response shapes `modules/backups/*` and `apps/web/src/maintenance/*`
@@ -173,15 +173,16 @@ export type BackupJobAck = z.infer<typeof BackupJobAckSchema>;
 
 // ---------------------------------------------------------------------------
 // Restore — Tier 4 (UX_ARCHITECTURE.md §8). Pre-flight is a pure read; the
-// restore request itself carries the two hard, server-checked gates this
-// milestone's brief requires: an explicit `confirm: true` (never defaulted,
+// restore request itself carries the two hard, server-checked gates
+// FEATURE_MATRIX.md §27 requires ("either a verified recent backup or
+// explicit acknowledgement"): an explicit `confirm: true` (never defaulted,
 // mirroring `DeleteMailboxRequestSchema`'s `mailData` — FEATURE_MATRIX.md
 // §3's "always pass an explicit flag" rule) and, only when no recent
 // verified backup already exists, an explicit acknowledgement. Container-
 // stopped and manifest-digest compatibility are *not* acknowledgeable —
 // preflight reports them, but the restore route refuses outright rather
-// than accepting an override, per IMPLEMENTATION_PLAN.md §2.1's "refuses
-// with an explanation rather than proceeding hopefully".
+// than accepting an override, per IMPLEMENTATION_PLAN.md §2.1's
+// "refuse-with-explanation on mismatch rather than proceeding hopefully".
 // ---------------------------------------------------------------------------
 
 export const RestorePreflightResponseSchema = z.object({

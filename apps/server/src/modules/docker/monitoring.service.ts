@@ -1,5 +1,5 @@
 /**
- * Monitoring service (M9 — FEATURE_MATRIX.md §26). One read-only snapshot
+ * Monitoring service (M9 — FEATURE_MATRIX.md §33-34). One read-only snapshot
  * combining the managed container's resource stats with host-level Docker
  * system info/version/disk-usage — four independent broker calls fetched
  * together so one screen renders from a single request. Nothing here is a

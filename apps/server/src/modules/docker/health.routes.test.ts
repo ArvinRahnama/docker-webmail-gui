@@ -32,8 +32,8 @@ describe('/api/v1/docker/health', () => {
   });
 
   // -----------------------------------------------------------------
-  // The behaviour the milestone brief calls out by name: "health checks
-  // degrade independently" — one failing broker call must never drag
+  // The control FEATURE_MATRIX.md §30 requires: "Nothing is inferred from
+  // another check's result" — one failing broker call must never drag
   // down (or otherwise influence) a check whose own call succeeded.
   // -----------------------------------------------------------------
 

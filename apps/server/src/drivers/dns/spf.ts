@@ -1,6 +1,6 @@
 /**
- * SPF checker — presence plus the validation beyond presence the brief
- * calls for: multiple SPF records, >10 DNS lookups (RFC 7208 §4.6.4), and
+ * SPF checker — the "validation goes beyond presence" FEATURE_MATRIX.md
+ * §10 requires: multiple SPF records, >10 DNS lookups (RFC 7208 §4.6.4), and
  * `~all` vs `-all` vs `?all` (`docs/research/03-mail-stack-components.md`
  * §8's "Common SPF/DMARC errors" section; RFC 7208).
  *

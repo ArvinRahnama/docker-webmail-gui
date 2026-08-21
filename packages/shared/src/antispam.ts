@@ -134,8 +134,9 @@ export type ClamAvUpdateResponse = z.infer<typeof ClamAvUpdateResponseSchema>;
  * together — `available: false` is the single source of truth for "there
  * is no number to show," never a fabricated `0` standing in for "could not
  * check." `windowDescription` must always accompany a non-null `count`
- * (AGENT_BRIEF.md: "label them as log-derived with their retention
- * window") — this is a log-tail sample, not a lifetime total.
+ * (FEATURE_MATRIX.md §16: "Clearly labelled as log-derived, with its
+ * retention window stated") — this is a log-tail sample, not a lifetime
+ * total.
  */
 export const ClamAvDetectionsResponseSchema = z.object({
   capability: CapabilityStatusSchema,

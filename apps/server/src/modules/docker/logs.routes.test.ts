@@ -41,10 +41,11 @@ describe('/api/v1/docker/logs/file/:source', () => {
   });
 
   // ---------------------------------------------------------------------
-  // The behaviour the milestone brief calls out by name: "a log source
-  // outside the enum is rejected, including traversal attempts." Rejected
-  // by this route's own validation, before `LogsService`/the broker are
-  // ever reached — asserted by a spy that must never be called.
+  // The control AGENT_BRIEF.md §3 rule 4 requires: "Log sources and
+  // editable files are server-side enums." A source outside the enum,
+  // traversal attempts included, is rejected by this route's own
+  // validation, before `LogsService`/the broker are ever reached —
+  // asserted by a spy that must never be called.
   // ---------------------------------------------------------------------
 
   it('rejects any source outside the fixed enum, including path traversal, without ever calling the broker', async () => {

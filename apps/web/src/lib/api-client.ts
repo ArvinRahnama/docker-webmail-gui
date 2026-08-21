@@ -1,5 +1,5 @@
 /**
- * Centralised, typed API client (milestone brief §5; ARCHITECTURE.md §7.1).
+ * Centralised, typed API client (ARCHITECTURE.md §7.1).
  *
  * Every call goes through {@link request}, which:
  *  - always sends `credentials: 'include'` (the session is an HttpOnly

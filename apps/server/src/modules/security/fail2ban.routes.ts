@@ -2,9 +2,9 @@
  * `/api/v1/security/fail2ban/*` (`docs/research/03-mail-stack-components.md`
  * §10). Status is a read; ban/unban are mutations, each audited
  * (`platform/audit.ts`) — unban in particular restores network access for
- * a previously-blocked IP, so the brief calls it out by name as requiring
- * confirmation, enforced client-side (`ConfirmDialog`) and recorded here
- * regardless.
+ * a previously-blocked IP, which FEATURE_MATRIX.md §16b requires
+ * confirmation for — enforced client-side (`ConfirmDialog`) and recorded
+ * here regardless.
  */
 import type { FastifyInstance } from 'fastify';
 import {

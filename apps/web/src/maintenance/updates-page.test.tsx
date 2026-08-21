@@ -42,7 +42,7 @@ function renderPage() {
   );
 }
 
-describe('UpdatesPage — the three-state verdict (AGENT_BRIEF.md §4)', () => {
+describe('UpdatesPage — the three-state verdict (the DNS-state discipline, AGENT_BRIEF.md §4)', () => {
   it('says "Up to date" only when both digests resolved and matched', async () => {
     vi.mocked(fetchUpdateStatus).mockResolvedValue(makeStatus());
 

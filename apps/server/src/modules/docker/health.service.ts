@@ -1,9 +1,9 @@
 /**
- * Health centre service (M9 — FEATURE_MATRIX.md §26). Three checks —
+ * Health centre service (M9 — FEATURE_MATRIX.md §30). Three checks —
  * broker connectivity, the managed container's own state, and general
  * Docker daemon reachability — each independently fetched and
- * independently allowed to fail, per the milestone brief: "never infer one
- * check's state from another's."
+ * independently allowed to fail: "Nothing is inferred from another check's
+ * result."
  *
  * Concretely, that rule means every `checkXxx` method below makes its own
  * broker call inside its own `try`/`catch` and stamps its own `checkedAt`

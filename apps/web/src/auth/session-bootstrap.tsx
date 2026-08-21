@@ -6,8 +6,8 @@ import { SESSION_QUERY_KEY } from './use-session';
 
 /**
  * Wires `api-client.ts`'s session-expiry hook to a real SPA navigation
- * (milestone brief §5: "Session expiry redirects to login rather than
- * showing a raw 401"). Mounted once, inside the router, so `useNavigate`
+ * — an expired session sends the admin to the login screen rather than
+ * surfacing a raw 401. Mounted once, inside the router, so `useNavigate`
  * is available — `api-client.ts` itself stays framework-agnostic and
  * falls back to a hard `location.assign` if this never mounts (e.g. a
  * unit test that exercises the client directly).

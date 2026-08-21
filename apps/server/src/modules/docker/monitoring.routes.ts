@@ -1,5 +1,5 @@
 /**
- * `/api/v1/docker/monitoring` (M9 — FEATURE_MATRIX.md §26). Read-only —
+ * `/api/v1/docker/monitoring` (M9 — FEATURE_MATRIX.md §33-34). Read-only —
  * one snapshot of container stats plus host-level Docker system info.
  */
 import type { FastifyInstance } from 'fastify';

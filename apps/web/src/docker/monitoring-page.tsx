@@ -36,7 +36,7 @@ function StatTile({
 }
 
 /**
- * `/docker/monitoring` (M9 — FEATURE_MATRIX.md §26). A live snapshot, not
+ * `/docker/monitoring` (M9 — FEATURE_MATRIX.md §33-34). A live snapshot, not
  * a time series — the "spam trend"-style sampling this project uses
  * elsewhere has no equivalent here yet (`MonitoringService`'s own doc
  * comment). Read-only.

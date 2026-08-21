@@ -19,7 +19,7 @@ const SOURCES: readonly { readonly id: LogSource; readonly label: string }[] = [
 ];
 
 /**
- * `/docker/logs` (M9 — FEATURE_MATRIX.md §19-21, §26). Two independent
+ * `/docker/logs` (M9 — FEATURE_MATRIX.md §19-21). Two independent
  * kinds of "logs": the managed container's own stdout/stderr, and a fixed
  * two-value enum of in-container log files. There is no free-text path
  * field anywhere on this page — the mail/fail2ban tabs are the entire

@@ -34,7 +34,7 @@ import {
 import { request } from './api-client';
 
 // ---------------------------------------------------------------------------
-// Containers (FEATURE_MATRIX.md §24)
+// Containers (FEATURE_MATRIX.md §22-23)
 // ---------------------------------------------------------------------------
 
 export async function fetchContainers(): Promise<readonly ContainerSummary[]> {

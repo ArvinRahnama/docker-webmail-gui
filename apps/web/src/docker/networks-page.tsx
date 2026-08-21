@@ -7,7 +7,7 @@ import { ApiClientError, ApiError } from '@/lib/api-client';
 import type { NetworkSummary } from '@dwg/shared';
 import { useNetworksQuery } from './use-docker-queries';
 
-/** `/docker/networks` (M9 — FEATURE_MATRIX.md §24). Read-only (AGENT_BRIEF.md §4) — no action column, no mutation anywhere on this page. */
+/** `/docker/networks` (M9 — FEATURE_MATRIX.md §26). Read-only (AGENT_BRIEF.md §4) — no action column, no mutation anywhere on this page. */
 export function NetworksPage() {
   const query = useNetworksQuery();
 

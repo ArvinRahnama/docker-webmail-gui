@@ -1,8 +1,8 @@
 /**
- * Networks service (M9 — FEATURE_MATRIX.md §24). Read-only
- * (AGENT_BRIEF.md §4: "Networks — Read-only.") — there is no mutating
- * method here, and no mutating operation exists in the broker protocol
- * for networks at all.
+ * Networks service (M9 — FEATURE_MATRIX.md §26, "Full (read-only)";
+ * AGENT_BRIEF.md §4 lists networks read-only for the same reason). There
+ * is no mutating method here, and no mutating operation exists in the
+ * broker protocol for networks at all.
  */
 import type { NetworkSummary } from '@dwg/shared';
 import type { BrokerClient } from '../../drivers/broker/types.js';

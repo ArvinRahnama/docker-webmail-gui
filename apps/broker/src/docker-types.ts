@@ -262,7 +262,7 @@ export interface DockerApi {
    * (`apps/server/src/modules/backups/backup-archive.ts`): the whole
    * point of never re-serialising this stream is that every entry's
    * original uid/gid/mode/mtime — including the vmail 5000:5000 ownership
-   * the milestone brief calls out by name — survives round-trip
+   * FEATURE_MATRIX.md §27 calls out by name — survives round-trip
    * untouched. `path` is always one of the four broker-owned constants in
    * `archive-routes.ts`'s `ARCHIVE_VOLUME_PATHS`, never a caller-supplied
    * string — this method itself enforces nothing about `path`'s origin,

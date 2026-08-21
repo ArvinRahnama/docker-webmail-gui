@@ -7,12 +7,12 @@ import { ApiClientError, ApiError } from '@/lib/api-client';
 import { useHealthChecksQuery } from './use-docker-queries';
 
 /**
- * `/docker/health` (M9 — FEATURE_MATRIX.md §26). Each check card renders
+ * `/docker/health` (M9 — FEATURE_MATRIX.md §30). Each check card renders
  * exactly what `HealthService` computed for it, independently, including
  * its own `checkedAt` — this page never infers or displays a combined
  * "overall" state that isn't itself one of the checks, so a partial
- * outage is always visible as exactly which check is affected, matching
- * the milestone brief: "never infer one check's state from another's."
+ * outage is always visible as exactly which check is affected:
+ * "Nothing is inferred from another check's result."
  */
 export function HealthPage() {
   const query = useHealthChecksQuery();

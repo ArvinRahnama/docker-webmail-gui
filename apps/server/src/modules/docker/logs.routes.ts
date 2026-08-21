@@ -1,5 +1,5 @@
 /**
- * `/api/v1/docker/logs/*` (M9 — FEATURE_MATRIX.md §19-21, §26). Read-only.
+ * `/api/v1/docker/logs/*` (M9 — FEATURE_MATRIX.md §19-21). Read-only.
  * `GET /file/:source` validates `:source` against the fixed two-value
  * `LogFileSourceSchema` (`@dwg/shared`) *before* it ever reaches
  * `LogsService`/the broker — a value outside the enum, including a

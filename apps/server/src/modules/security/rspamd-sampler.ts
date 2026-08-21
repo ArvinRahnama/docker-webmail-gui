@@ -86,7 +86,8 @@ export function startRspamdStatSampler(
 /**
  * Reads back the sampled trend. `collecting: true` — never a fabricated
  * or interpolated line — until both enough samples exist *and* they span
- * at least 24 hours, matching the brief's exact wording.
+ * at least 24 hours, the window FEATURE_MATRIX.md §1 states in the tile's
+ * own copy: "Collecting — trend available after 24h".
  */
 export function getRspamdTrend(
   db: Database,

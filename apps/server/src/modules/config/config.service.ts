@@ -1,7 +1,7 @@
 /**
- * The config editor's fixed flow (M10 — this milestone's brief: "validate
- * -> diff -> explain restart/recreate impact -> confirm -> apply -> verify
- * -> audit"). `validate` and `apply` share one allowlist check
+ * The config editor's fixed flow (M10 — FEATURE_MATRIX.md §28-29: "Flow
+ * is fixed: validate -> diff -> explain consequences -> confirm -> apply
+ * -> verify -> audit"). `validate` and `apply` share one allowlist check
  * (`validateChangeSet`) so the two can never silently disagree about what
  * is allowed; `apply` re-runs it server-side rather than trusting a
  * client's earlier `validate` call, and refuses the *entire* change set

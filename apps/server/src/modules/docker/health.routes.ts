@@ -1,5 +1,5 @@
 /**
- * `/api/v1/docker/health` (M9 — FEATURE_MATRIX.md §26). Read-only — the
+ * `/api/v1/docker/health` (M9 — FEATURE_MATRIX.md §30). Read-only — the
  * health centre's entire surface is `HealthService.getChecks()`, whose own
  * doc comment carries the independence guarantee this route relies on.
  */

@@ -37,12 +37,13 @@ import { UpdatesPage } from '@/maintenance/updates-page';
 import { ConfigPage } from '@/maintenance/config-page';
 
 /**
- * Root component: providers, then routes (milestone brief §5/§6;
- * UX_ARCHITECTURE.md §5.2). `/` and every `/mail/*` route this milestone
- * ships live behind `RequireAuth`. Everything under `Route
- * element={<AppLayout />}` shares the top nav shell; `/change-password`
- * deliberately does not (§6: a forced-password-change admin lands on a
- * standalone page, not the full app chrome).
+ * Root component: providers, then routes (UX_ARCHITECTURE.md §5.2). `/`
+ * and every `/mail/*` route this milestone ships live behind
+ * `RequireAuth`. Everything under `Route element={<AppLayout />}` shares
+ * the top nav shell; `/change-password` deliberately does not — an admin
+ * forced to change their password lands on a standalone page rather than
+ * the full app chrome, so the only route out is the one that unblocks
+ * them.
  */
 export default function App() {
   return (

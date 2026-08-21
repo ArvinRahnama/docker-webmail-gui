@@ -65,8 +65,8 @@ export class AppError extends Error {
 // for both `errorId` and (in app.ts) Fastify request IDs. ULID-shaped
 // (48-bit millisecond timestamp + 80 bits of CSPRNG randomness, Crockford
 // Base32, so it sorts lexicographically in generation order) but hand-rolled
-// against node:crypto only — the milestone brief asks that this not pull in
-// a dependency (e.g. the `ulid` package) just for this.
+// against node:crypto only, deliberately: a dependency (e.g. the `ulid`
+// package) is not worth taking on for twenty lines of encoding.
 // ---------------------------------------------------------------------------
 
 const CROCKFORD_BASE32_ALPHABET = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';

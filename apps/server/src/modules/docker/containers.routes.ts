@@ -1,13 +1,13 @@
 /**
- * `/api/v1/docker/containers/*` (M9 — FEATURE_MATRIX.md §24). Listing and
+ * `/api/v1/docker/containers/*` (M9 — FEATURE_MATRIX.md §22-23). Listing and
  * inspecting are reads; start/stop/restart are mutations against "the"
  * managed mail container and are each audited (`platform/audit.ts`) —
  * there is no route here that takes a container id, matching the broker's
  * own container-identity resolution (ARCHITECTURE.md §6).
  *
- * **`container.create`/recreate do not exist here.** Recreate is
- * explicitly deferred (the milestone brief) because it needs
- * `container.create`, which the broker deliberately lacks
+ * **`container.create`/recreate do not exist here.** Recreate does not
+ * ship at all (FEATURE_MATRIX.md §22): it needs `container.create`, which
+ * the broker deliberately lacks because that call grants host root
  * (docs/research/02-docker-api-security.md §A.1).
  */
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';

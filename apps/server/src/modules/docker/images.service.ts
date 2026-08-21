@@ -3,9 +3,9 @@
  * "remove every dangling image" — there is no by-id removal anywhere in
  * this service, this module's routes, or the broker protocol underneath
  * it (`@dwg/shared`'s `ImagePruneRequestSchema` takes no parameters at
- * all), so "an image in use by any container can never be selected for
- * removal" holds because there is no selection to make, not only because
- * the UI declines to offer one.
+ * all), so §24's "an image in use by any container — running or stopped —
+ * can never be selected" holds because there is no selection to make, not
+ * only because the UI declines to offer one.
  */
 import type { ImagePruneResponse, ImageSummary } from '@dwg/shared';
 import type { BrokerClient } from '../../drivers/broker/types.js';

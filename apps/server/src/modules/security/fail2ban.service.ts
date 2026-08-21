@@ -1,7 +1,8 @@
 /**
  * Fail2ban service (`docs/research/03-mail-stack-components.md` §10;
- * AGENT_BRIEF.md: "jail status and banned IPs via `setup fail2ban`. Unban
- * is a mutation: confirm and audit it."). All three `DmsDriver` methods
+ * FEATURE_MATRIX.md §16b: "`setup fail2ban` provides jail status and the
+ * banned-IP list; unbanning is a real mutation, so it requires
+ * confirmation and is audited"). All three `DmsDriver` methods
  * this wraps (`fail2banList`, `fail2banStatus`, `fail2banBan`/
  * `fail2banUnban`) already exist — this service adds only capability
  * gating and the read-side merge, mirroring `RspamdService`'s shape.
@@ -48,7 +49,7 @@ export class Fail2banService {
     }
   }
 
-  /** `setup fail2ban ban <IP>` — a real, symmetric counterpart to `unban`; not itself called out by name in the brief, but the same capability and the same driver method exist for it, and an admin manually banning a problem IP is a legitimate action. */
+  /** `setup fail2ban ban <IP>` — a real, symmetric counterpart to `unban`; named nowhere in FEATURE_MATRIX.md §16b, which mentions only unbanning, but the same capability and the same driver method exist for it, and an admin manually banning a problem IP is a legitimate action. */
   async ban(ip: string): Promise<void> {
     await this.assertSupported();
     await this.dmsDriver.fail2banBan({ ip });

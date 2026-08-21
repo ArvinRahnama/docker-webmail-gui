@@ -1,6 +1,6 @@
 /**
  * `/maintenance/updates` (M10 — IMPLEMENTATION_PLAN.md §2.2,
- * FEATURE_MATRIX.md §30). Two facts and one refusal:
+ * FEATURE_MATRIX.md §31). Two facts and one refusal:
  *
  *  - What image the container is running now, and what the registry has
  *    for the same tag. Either can be unresolvable, and an unresolvable

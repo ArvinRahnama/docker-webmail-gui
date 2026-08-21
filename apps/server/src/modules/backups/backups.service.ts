@@ -7,8 +7,8 @@
  * ARCHITECTURE.md §7.5.
  *
  * **Restore's refusals are enforced here, before a job is ever enqueued**
- * (IMPLEMENTATION_PLAN.md §2.1: "refuses with an explanation rather than
- * proceeding hopefully") — container-running and manifest-digest
+ * (IMPLEMENTATION_PLAN.md §2.1: "refuse-with-explanation on mismatch
+ * rather than proceeding hopefully") — container-running and manifest-digest
  * incompatibility are never something the *job* discovers partway
  * through; `restore()` re-derives the exact same pre-flight facts
  * `preflight()` reports and refuses on either before touching anything.
@@ -40,7 +40,7 @@ export interface BackupActor {
   readonly label: string;
 }
 
-/** Static, always-present reminder surfaced in the pre-flight report itself — IMPLEMENTATION_PLAN.md §2.1's "documented gotcha that silently breaks mail delivery when missed" is not left to documentation an admin may never open. */
+/** Static, always-present reminder surfaced in the pre-flight report itself — FEATURE_MATRIX.md §27's "documented restore gotcha that silently breaks mail delivery if missed" is not left to documentation an admin may never open. */
 const VMAIL_OWNERSHIP_NOTE =
   'This restore preserves the original uid/gid of every file exactly as the backup recorded it — including the vmail account (5000:5000 by default). Nothing in this process re-chowns extracted files; if a deployment stores mail under a non-default vmail uid/gid, that ownership is exactly what gets restored.';
 
@@ -239,8 +239,8 @@ export class BackupsService {
 
     // Container-stopped and manifest-compatibility are *not*
     // acknowledgeable — refused outright, matching
-    // IMPLEMENTATION_PLAN.md §2.1 exactly ("refuses with an explanation
-    // rather than proceeding hopefully"). Only the backup-gate
+    // IMPLEMENTATION_PLAN.md §2.1 exactly ("refuse-with-explanation on
+    // mismatch rather than proceeding hopefully"). Only the backup-gate
     // (no-recent-verified-backup) accepts an explicit acknowledgement.
     if (preflight.containerRunning) {
       throw new AppError(

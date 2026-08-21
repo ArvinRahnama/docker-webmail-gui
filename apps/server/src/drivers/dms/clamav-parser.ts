@@ -13,9 +13,10 @@
  * `STATS` is explicitly documented upstream as unstable free text
  * (`docs.clamav.net`), so this module makes no attempt to parse it at
  * all — it is carried verbatim end to end (driver → service → schema →
- * UI), matching the brief's "parse defensively and show it raw if parsing
- * fails" instruction taken to its logical conclusion: for a format with no
- * documented schema, the only honest thing to parse it *into* is itself.
+ * UI), taking FEATURE_MATRIX.md §16's `STATS` row ("parsed defensively
+ * and shown raw if parsing fails") to its logical conclusion: for a format
+ * with no documented schema, the only honest thing to parse it *into* is
+ * itself.
  *
  * {@link countClamavDetections} is the "detection counts... log parsing
  * only" half of FEATURE_MATRIX.md §16. clamd exposes no counter for this

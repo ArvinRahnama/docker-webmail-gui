@@ -1,5 +1,5 @@
 /**
- * `/api/v1/docker/networks` (M9 — FEATURE_MATRIX.md §24). Read-only
+ * `/api/v1/docker/networks` (M9 — FEATURE_MATRIX.md §26). Read-only
  * (AGENT_BRIEF.md §4) — one route, no mutations, nothing audited.
  */
 import type { FastifyInstance } from 'fastify';

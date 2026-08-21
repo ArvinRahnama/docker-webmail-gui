@@ -7,7 +7,8 @@
  * whole document's content before it is ever piped to `doveadm sieve put`.
  *
  * **Security-critical, so deliberately simple.** `vnd.dovecot.execute` and
- * `sieve_pipe` are the two extensions the brief names as able to invoke an
+ * `sieve_pipe` are the two extensions FEATURE_MATRIX.md §17 names as able
+ * to invoke an
  * external program from inside a script Dovecot runs at mail-delivery
  * time — a real code-execution path if left reachable through an admin
  * panel. Rather than writing (or depending on) a full Sieve parser to

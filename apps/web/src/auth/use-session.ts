@@ -5,7 +5,7 @@ import { changePassword, fetchSession, login, logout } from '@/lib/auth-api';
 export const SESSION_QUERY_KEY = ['session'] as const;
 
 /**
- * The session bootstrap query (milestone brief §6). A failed fetch here
+ * The session bootstrap query. A failed fetch here
  * almost always means "not logged in" (`GET /auth/session` 401s with no
  * cookie or an expired one) rather than a transient failure worth
  * retrying, so `retry` is off — retrying would just delay the login

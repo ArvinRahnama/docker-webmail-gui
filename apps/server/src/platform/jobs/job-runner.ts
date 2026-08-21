@@ -1,8 +1,8 @@
 /**
- * The in-process job runner (M10 — the milestone brief's "one in-process
- * runner executing one job at a time — deliberately serial, because two
+ * The in-process job runner (M10 — ARCHITECTURE.md §7.5: "A single
+ * in-process runner executes them one at a time (deliberate: two
  * concurrent restores, or a backup during a restore, is a data-corruption
- * scenario"). A job is any closure a caller (`modules/backups/*`,
+ * scenario)"). A job is any closure a caller (`modules/backups/*`,
  * eventually others) hands to {@link JobRunner.enqueue}; this file knows
  * nothing about backups, restore or DMS — it only knows how to run one
  * closure at a time, persist its status/progress/log through

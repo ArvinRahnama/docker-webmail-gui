@@ -27,8 +27,8 @@ interface BannedIpRow {
  * `/security/fail2ban` (`docs/research/03-mail-stack-components.md` §10).
  * `setup fail2ban status`'s exact output shape is `[UNCERTAIN]`, so the
  * raw text is always shown alongside the defensively-extracted banned-IP
- * table, never a fallback-only field. Unban is a mutation the brief calls
- * out by name as needing confirmation — gated behind `ConfirmDialog`.
+ * table, never a fallback-only field. Unban is a mutation FEATURE_MATRIX.md
+ * §16b requires confirmation for — gated behind `ConfirmDialog`.
  */
 export function Fail2banPage() {
   const query = useFail2banStatusQuery();

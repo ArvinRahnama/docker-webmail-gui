@@ -1,6 +1,6 @@
 /**
- * DMARC checker — presence plus the validation beyond presence the brief
- * calls for: `p=none` (monitoring only, not enforced) and a missing
+ * DMARC checker — the "validation goes beyond presence" FEATURE_MATRIX.md
+ * §10 requires: `p=none` (monitoring only, not enforced) and a missing
  * `rua=` aggregate-report address
  * (`docs/research/03-mail-stack-components.md` §8; RFC 7489).
  */

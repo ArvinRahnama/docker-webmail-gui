@@ -31,8 +31,9 @@ describe('/api/v1/docker/volumes', () => {
   });
 
   // ---------------------------------------------------------------------
-  // The behaviour the milestone brief calls out by name: "deleting a
-  // protected DMS volume is refused (assert the refusal, not a prompt)."
+  // The control FEATURE_MATRIX.md §25 requires: "Deletion of a volume
+  // holding mail data is blocked outright, not merely confirmed" — so this
+  // asserts the refusal itself, never a confirmation prompt.
   // ---------------------------------------------------------------------
 
   it('refuses to remove a volume backing a protected DMS data mount', async () => {

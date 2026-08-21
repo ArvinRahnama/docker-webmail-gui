@@ -25,7 +25,7 @@ import {
 } from '@/lib/docker-api';
 
 // ---------------------------------------------------------------------------
-// Containers (FEATURE_MATRIX.md §24)
+// Containers (FEATURE_MATRIX.md §22-23)
 // ---------------------------------------------------------------------------
 
 export const containersKey = ['docker', 'containers'] as const;

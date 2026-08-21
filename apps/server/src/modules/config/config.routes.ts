@@ -1,8 +1,8 @@
 /**
- * `/api/v1/config/*` (M10 — this milestone's brief: "validate -> diff ->
- * explain restart/recreate impact -> confirm -> apply -> verify ->
- * audit"). `POST /validate` is the diff+impact step, callable as often as
- * the UI wants while an admin is still editing; `POST /apply` re-runs the
+ * `/api/v1/config/*` (M10 — FEATURE_MATRIX.md §28-29: "Flow is fixed:
+ * validate -> diff -> explain consequences -> confirm -> apply -> verify
+ * -> audit"). `POST /validate` is the diff+impact step, callable as often
+ * as the UI wants while an admin is still editing; `POST /apply` re-runs the
  * exact same check server-side (`ConfigService.apply`) before ever
  * writing anything, so a stale or hand-crafted request cannot skip
  * straight past a refusal `/validate` would have shown.

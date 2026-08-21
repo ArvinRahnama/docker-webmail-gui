@@ -10,9 +10,9 @@
  * combined mail log and counts plausible detection lines
  * (`drivers/dms/clamav-parser.ts`'s `countClamavDetections`), and the
  * response always states the sampling window alongside the number
- * (AGENT_BRIEF.md: "label them as log-derived with their retention
- * window") — this is a bounded, best-effort sample, never presented as a
- * lifetime total.
+ * (FEATURE_MATRIX.md §16: "Clearly labelled as log-derived, with its
+ * retention window stated") — this is a bounded, best-effort sample,
+ * never presented as a lifetime total.
  */
 import {
   countClamavDetections,

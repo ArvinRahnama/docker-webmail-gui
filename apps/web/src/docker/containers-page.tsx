@@ -31,12 +31,12 @@ function statusForContainerState(state: string): Status {
 }
 
 /**
- * `/docker/containers` (M9 — FEATURE_MATRIX.md §24). Every container Docker
- * knows about is listed for visibility; lifecycle actions (start/stop/
- * restart) only ever target "the" managed mail container — there is no
- * per-row action for any other container, matching the broker's own
- * container-identity resolution (ARCHITECTURE.md §6). **Recreate is
- * deferred** — it needs `container.create`, which the broker deliberately
+ * `/docker/containers` (M9 — FEATURE_MATRIX.md §22-23). Every container
+ * Docker knows about is listed for visibility; lifecycle actions (start/
+ * stop/restart) only ever target "the" managed mail container — there is
+ * no per-row action for any other container, matching the broker's own
+ * container-identity resolution (ARCHITECTURE.md §6). **Recreate does not
+ * ship** — it needs `container.create`, which the broker deliberately
  * lacks, so no such control appears here.
  */
 export function ContainersPage() {

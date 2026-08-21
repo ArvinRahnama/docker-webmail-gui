@@ -2,8 +2,8 @@
  * The configuration/environment editor (M10 — FEATURE_MATRIX.md §28-29;
  * SECURITY.md §3.10 "Editable config files are a server-side allowlist of
  * DMS paths"). Fixed flow: validate -> diff -> impact -> confirm -> apply
- * -> verify -> audit (this milestone's brief) — every schema below exists
- * to name one step of that pipeline.
+ * -> verify -> audit, per §28-29 above — every schema below exists to
+ * name one step of that pipeline.
  *
  * **Scope decision, stated plainly because it narrows FEATURE_MATRIX §29's
  * wording:** DMS's actual configuration surface is overwhelmingly

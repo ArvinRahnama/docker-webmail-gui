@@ -1,5 +1,5 @@
 /**
- * Containers service (M9 — FEATURE_MATRIX.md §24). A thin wrapper over
+ * Containers service (M9 — FEATURE_MATRIX.md §22-23). A thin wrapper over
  * `BrokerClient`: every method here is one broker operation, with no
  * business logic of its own to test independently of the broker contract
  * — mirroring `Fail2banService`'s shape for a module this simple. Lifecycle

@@ -55,9 +55,10 @@ export const BROKER_OPERATIONS = [
   // in-container log files via a hardcoded path, never a client-supplied
   // one; `console.exec` runs one of a fixed enum of zero-argument
   // diagnostic commands with broker-owned argv — the client sends a
-  // symbolic key, never a command string or argv array. This is the
-  // "narrowly-typed allowlisted-command operation" the milestone brief
-  // permits in place of a general `exec.*` — there is still no operation
+  // symbolic key, never a command string or argv array. This is
+  // FEATURE_MATRIX.md §32's "restricted command console, not a shell" —
+  // "A server-side allowlist of named diagnostic commands with fixed
+  // argv" — in place of a general `exec.*`; there is still no operation
   // anywhere in this file that accepts argv, a path, or a container spec
   // from the caller.
   'volume.remove',

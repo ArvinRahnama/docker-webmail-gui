@@ -75,8 +75,9 @@ describe('/api/v1/docker/console — enabled', () => {
   });
 
   // -----------------------------------------------------------------
-  // The behaviour the milestone brief calls out by name: the console
-  // "rejects any command outside the enum."
+  // The control FEATURE_MATRIX.md §32 requires: "A server-side allowlist
+  // of named diagnostic commands with fixed argv", so any command outside
+  // the enum is rejected.
   // -----------------------------------------------------------------
 
   it('rejects a command outside the fixed enum', async () => {

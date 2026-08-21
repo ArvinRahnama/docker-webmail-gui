@@ -1,5 +1,5 @@
 /**
- * Log viewer service (M9 — FEATURE_MATRIX.md §19-21, §26). Two sources:
+ * Log viewer service (M9 — FEATURE_MATRIX.md §19-21). Two sources:
  * the managed container's own stdout/stderr (`containerLogs`, Docker's
  * `container.logs`), and a fixed two-value enum of in-container log files
  * (`file`, `logs.file`) — mail and fail2ban. There is no third method that

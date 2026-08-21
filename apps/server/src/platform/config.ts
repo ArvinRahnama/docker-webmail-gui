@@ -138,8 +138,10 @@ const rawEnvSchema = z
     // them.
     COOKIE_SECURE: booleanVar(true),
     // Absolute and idle session expiry (ARCHITECTURE.md §7.4), both
-    // configurable, expressed in hours. Defaults per the M3 brief: 12h
-    // absolute, 2h idle.
+    // configurable, expressed in hours. 12h absolute and 2h idle are this
+    // module's own defaults, not a figure any document fixes — an admin
+    // panel session should not outlive a working day, and an abandoned one
+    // should go sooner.
     SESSION_ABSOLUTE_TTL_HOURS: positiveNumberVar(12),
     SESSION_IDLE_TTL_HOURS: positiveNumberVar(2),
     DATA_DIR: stringVar('./data'),

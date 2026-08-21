@@ -8,15 +8,20 @@
  * `UpdateStatusResponseSchema` doc comment).
  *
  * **Steps 4-6 (pull with progress, recreate, rollback) are deliberately
- * not implemented here.** Recreating the managed container needs
- * `container.create`, which the broker deliberately lacks
- * (AGENT_BRIEF.md: "Do not add it. Implement everything up to that point
- * and report the apply step as deferred") — and pulling an image the
- * panel could never actually deploy has no standalone value, so it is
- * bundled into that same, clearly-stated deferral rather than half-built
- * on its own. `applyRefused` is that deferral made observable: a real
- * route an admin can call, that always explains exactly why, audited
- * every time — never a silent 404.
+ * not implemented here.** The constraint is not a policy written down
+ * somewhere; it is the shape of the broker protocol itself. Recreating
+ * the managed container decomposes into stop -> remove -> create ->
+ * start, and neither `container.create` nor `container.remove` exists in
+ * `BROKER_OPERATIONS` (`packages/shared/src/broker.ts`) — withholding
+ * `POST /containers/create`, the call that grants host root, is the
+ * reason the broker exists at all (ARCHITECTURE.md §2; AGENT_BRIEF.md §2,
+ * which lists those operations as "deliberately absent from the
+ * operation enum"). There is no `image.pull` either, and adding one in
+ * isolation would only let the panel download an image it could never
+ * deploy, so pull is bundled into the same deferral rather than
+ * half-built on its own. `applyRefused` is that deferral made
+ * observable: a real route an admin can call, that always explains
+ * exactly why, audited every time — never a silent 404.
  */
 import type { UpdateStatusResponse } from '@dwg/shared';
 import type { BrokerClient } from '../../drivers/broker/types.js';

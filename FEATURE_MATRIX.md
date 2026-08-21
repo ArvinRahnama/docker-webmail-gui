@@ -249,17 +249,19 @@ Live streaming (SSE), search, severity/time filtering, download, pause/resume, b
 
 ## 22. Container status · 23. Start / Stop / Restart — **Constrained**
 
-Status, health, uptime, image, ports and resource usage via Docker inspect/stats. Start, stop and restart are real, routed through the broker as **named operations against an allowlist of managed containers**.
+Status, health, uptime, image, ports and resource usage via Docker inspect/stats. Every container on the host is **listed** for visibility, but start, stop and restart target only **"the" managed mail container**, whose identity the broker resolves from its own configuration at request time. This is stronger than an allowlist: no broker request schema has a field a container could be named in at all, so there is no per-row lifecycle action for any other container and nothing to refuse.
 
-**Recreate is separated deliberately.** "Recreate" is not a Docker API operation — it decomposes into stop → remove → **create** → start, and `POST /containers/create` is the exact call that grants host root (arbitrary bind mounts, `Privileged`, `PidMode: host`). The broker therefore **never accepts a container specification from the web tier**. Recreate is only available as a fixed, parameterless operation against an allowlisted container using a server-side-stored specification. Non-allowlisted containers are visible but read-only, with the reason shown.
+**Recreate does not ship, and is not planned while the broker looks like this.** "Recreate" is not a Docker API operation — it decomposes into stop → remove → **create** → start, and `POST /containers/create` is the exact call that grants host root (arbitrary bind mounts, `Privileged`, `PidMode: host`). Withholding that call is the entire reason the broker exists, so `container.create`, `container.remove` and any recreate composite are absent from the broker's operation vocabulary (`packages/shared/src/broker.ts`) — not permission-gated, not admin-only, simply not expressible over the protocol. A server-side-stored container specification would not change this: the panel would still have to make the `create` call to use it. **No recreate control appears anywhere in the UI** (see also §28, §31). Recreating the container stays a host-side operation done with your own deployment tooling.
 
 Lifecycle actions are **Tier 2** confirmations stating the operational consequence (mail delivery stops during restart).
 
 ---
 
-## 24. Docker images — **Full**
+## 24. Docker images — **Full (list and dangling cleanup; no pull)**
 
-List with tag, ID, size, created date, and which containers use them. Cleanup is offered for **dangling images only**, and an image in use by any container — running or stopped — can never be selected. Pull with progress streaming is supported as part of updates.
+List with tag, ID, size, created date, and which containers use them. Cleanup is offered for **dangling images only**: the broker's `image.prune` operation takes no parameters at all, so "an image in use by any container — running or stopped — can never be selected" holds because there is no selection to make, not merely because the UI declines to offer one.
+
+**There is no pull.** `image.pull` is absent from the broker's operation vocabulary, because an image this panel pulled is an image it could never deploy — deploying it needs the `container.create` the broker deliberately withholds (§22). Pulling would spend registry egress and host disk to reach a state indistinguishable from doing nothing, so the update page reports the newer digest and leaves the pull to the deployment tooling that can act on it (§31).
 
 ---
 
@@ -301,13 +303,15 @@ Real checks against real sources: Docker daemon (`/_ping`), container state and 
 
 ---
 
-## 31. Updates — **Partial**
+## 31. Updates — **Partial** (checking is real; applying is refused)
 
-Current version (running image digest), available version (registry), update preview, backup recommendation, progress and failure handling are real. Release notes are linked to the upstream release page rather than scraped and reformatted.
+**What is real:** the current version (the running image's digest, from Docker inspect), the available version (the newest matching tag's digest, resolved against the registry), the verdict comparing the two, and the backup facts that would gate an update — whether a verified backup exists and when it was last verified. A registry that cannot be reached yields `Unknown`, never "up to date". Release notes are linked to the upstream release page rather than scraped and reformatted.
 
-The brief's requirement that we never blindly `docker compose pull && up -d` is met: updating requires the **recreate** path (§22), which uses a server-side-stored container specification, never a client-supplied one.
+**Applying an update is refused, and that refusal is the shipped behaviour.** Applying means pull → stop → remove → create → start, and the `create` step needs the `container.create` operation the broker deliberately does not have (§22). Rather than hide the control or fail obscurely, `POST /api/v1/updates/apply` is a real route that always refuses with `CAPABILITY_UNSUPPORTED`, explains exactly which Docker operation is missing and why, audits the refusal, and tells the admin what to run on the host instead. The UI renders that explanation from the server's own response instead of hard-coding it, so the page cannot drift out of step with what the backend will actually do. There is likewise no pull-with-progress (§24) and no `update.apply` job type — a step that can never complete is not modelled as a job.
 
-**Rollback is honest about its limits.** Reverting to the previous image digest is real and supported. But a rollback **cannot undo data or schema migrations** performed by the new version — mail data and DMS state are not versioned. The UI states this plainly and requires a verified backup before an update proceeds. Promising a clean rollback would be the most dangerous lie this product could tell.
+The brief's requirement that we never blindly `docker compose pull && up -d` is therefore met in the strongest available form: the panel cannot do it at all.
+
+**Rollback is not implemented either — but its caveat still ships.** Reverting the running image to its previous digest would need the same recreate path, so there is no rollback button. The caveat is shown regardless, unconditionally, next to the version comparison: reverting an image **cannot undo data or configuration-file migrations** performed while the newer version ran, because docker-mailserver does not version its on-disk state. Anyone updating through their own tooling needs that fact whether or not this panel is the thing performing the update, and restoring a backup taken before the update is the only way to undo such a migration. Promising a clean rollback would be the most dangerous lie this product could tell.
 
 ---
 
@@ -335,14 +339,14 @@ Mail volume, spam volume and error counts come from log parsing and our own samp
 
 ## Summary
 
-| Status          | Count                                    | Items                                                                                                                                                                                           |
-| --------------- | ---------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Full**        | 19                                       | Aliases, Forwarding, Passwords, Quotas, DNS, DKIM, Sieve, Autoresponder, Logs ×3, Images, Networks, Backups/Restore, Health, Monitoring, System resources, Rspamd (read), Spam statistics       |
-| **Partial**     | 8                                        | Dashboard, Domains, Mailboxes, TLS, ClamAV, Updates, SMTP/IMAP settings                                                                                                                         |
-| **Constrained** | 7                                        | Spam rules, Containers/lifecycle, Volumes, Config editor, Environment, Terminal/Exec, Rspamd (write)                                                                                            |
-| **Unsupported** | 0 whole features; **5 sub-capabilities** | Create/delete/disable domain · true mailbox disable (only send/receive restrict) · Let's Encrypt issuance · bulk mailbox delete (refused by us) · general Rspamd config editing (refused by us) |
+| Status          | Count                                    | Items                                                                                                                                                                                                                                                                                                                                                      |
+| --------------- | ---------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Full**        | 19                                       | Aliases, Forwarding, Passwords, Quotas, DNS, DKIM, Sieve, Autoresponder, Logs ×3, Images, Networks, Backups/Restore, Health, Monitoring, System resources, Rspamd (read), Spam statistics                                                                                                                                                                  |
+| **Partial**     | 8                                        | Dashboard, Domains, Mailboxes, TLS, ClamAV, Updates, SMTP/IMAP settings                                                                                                                                                                                                                                                                                    |
+| **Constrained** | 7                                        | Spam rules, Containers/lifecycle, Volumes, Config editor, Environment, Terminal/Exec, Rspamd (write)                                                                                                                                                                                                                                                       |
+| **Unsupported** | 0 whole features; **7 sub-capabilities** | Create/delete/disable domain · true mailbox disable (only send/receive restrict) · Let's Encrypt issuance · bulk mailbox delete (refused by us) · general Rspamd config editing (refused by us) · container recreate and update apply/rollback (refused by us — they need `container.create`, §22/§31) · image pull (no destination without recreate, §24) |
 
-Every unsupported sub-capability ships as a visible, disabled control with an explanation — never hidden, never faked.
+Every unsupported sub-capability is stated here rather than quietly dropped. Most ship as a visible, disabled control with an explanation — never hidden, never faked. Container recreate, image pull and update rollback are the exception: they have no control anywhere, because the broker has no operation for a control to call. `POST /api/v1/updates/apply` is the one place a user can still ask for that path, and it answers with the reason, names the missing Docker operation, and audits the refusal (§22, §24, §31).
 
 ## Deferred to runtime verification (Phase 12)
 

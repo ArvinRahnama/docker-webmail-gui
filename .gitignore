@@ -28,15 +28,19 @@ blob-report/
 *.pfx
 secrets/
 
-# Application runtime state
-data/
+# Application runtime state — anchored to the repository root with a leading
+# slash. These are the runtime directories DATA_DIR/BACKUP_DIR default to
+# (`./data`, `./backups`); unanchored, `backups/` also matched the source
+# directory `apps/server/src/modules/backups/` and silently excluded the
+# entire backup/restore module from version control.
+/data/
 *.sqlite
 *.sqlite3
 *.db
 *.db-journal
 *.db-wal
 *.db-shm
-backups/
+/backups/
 
 # Logs
 logs/
@@ -49,6 +53,10 @@ yarn-error.log*
 .vscode/*
 !.vscode/extensions.json
 .idea/
+# Local agent tooling — permission grants, machine-specific absolute paths
+# and agent definitions. None of it is project source, and it is per-machine
+# rather than shared, so the whole directory stays out of the repository.
+.claude/
 *.swp
 *.swo
 .DS_Store

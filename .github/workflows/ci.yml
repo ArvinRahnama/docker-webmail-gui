@@ -53,3 +53,39 @@ jobs:
 
       - name: Build
         run: npm run build
+
+  e2e:
+    name: End-to-end (Playwright)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Browsers are cached by neither `npm ci` nor actions/setup-node —
+      # they're downloaded binaries, not an npm dependency — so this is a
+      # separate step. Chromium only: this repository has one project
+      # (playwright.config.ts) and no cross-browser requirement yet.
+      # `--with-deps` additionally installs the OS shared libraries
+      # Chromium needs, which a bare Ubuntu runner doesn't have; a
+      # developer's own machine usually already does, which is why this
+      # flag isn't part of `npm run test:e2e` itself.
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      # Builds the real server (webServer's command in playwright.config.ts)
+      # and drives it with the fake Docker/DMS/DNS/TLS/Rspamd/registry
+      # drivers — no Docker daemon, no live docker-mailserver, no outbound
+      # network call. `playwright test` itself fails (non-zero exit) if
+      # e2e/ ever matches zero spec files, so a regression that deleted or
+      # misconfigured the suite fails this job rather than passing silently.
+      - name: Run E2E tests
+        run: npm run test:e2e

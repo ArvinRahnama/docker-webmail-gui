@@ -7,11 +7,15 @@ build
 out
 *.tsbuildinfo
 
-# Coverage / test artefacts
+# Coverage / test artefacts. The Playwright directories are anchored to the
+# repository root, same reasoning as .gitignore's identical rule (commit
+# 8120194): unanchored, they'd also match a same-named directory nested
+# anywhere under apps/ or packages/, and Prettier 3 reads this file, so
+# that would silently drop such a directory from `format`/`format:check`.
 coverage
-test-results
-playwright-report
-blob-report
+/test-results
+/playwright-report
+/blob-report
 
 # Generated / vendored
 package-lock.json

@@ -78,6 +78,29 @@ describe('request', () => {
     expect(postInit?.credentials).toBe('include');
   });
 
+  it('skips the CSRF fetch entirely for a state-changing request with skipCsrf: true', async () => {
+    // Regression test: login is a POST with no session yet to have issued
+    // a CSRF token, and GET /auth/csrf-token itself requires a session
+    // (auth.routes.ts) — so before `skipCsrf` existed, `login()` fetching
+    // one unconditionally meant every login 401'd before its own POST was
+    // ever sent. Caught by e2e/login.spec.ts, a real browser against a
+    // real server; this pins the same behaviour at the unit level.
+    const { request } = await freshApiClient();
+    vi.mocked(fetch).mockResolvedValueOnce(jsonResponse({ ok: true }));
+
+    await request('/api/v1/auth/login', okSchema, {
+      method: 'POST',
+      body: { email: 'a@b.test', password: 'x' },
+      skipCsrf: true,
+    });
+
+    expect(fetch).toHaveBeenCalledTimes(1);
+    const [url, init] = vi.mocked(fetch).mock.calls[0]!;
+    expect(url).toBe('/api/v1/auth/login');
+    const headers = init?.headers as Record<string, string>;
+    expect(headers[CSRF_HEADER_NAME]).toBeUndefined();
+  });
+
   it('reuses a cached CSRF token across multiple state-changing requests', async () => {
     const { request } = await freshApiClient();
     vi.mocked(fetch)

@@ -75,13 +75,18 @@ export function requireAuthContext(request: FastifyRequest): AuthContext {
 export interface RequireSessionOptions {
   /**
    * Lets an admin whose `forcePasswordChange` flag is set reach this
-   * route anyway. Only `POST /auth/logout`, `POST /auth/change-password`
-   * and `GET /auth/csrf-token` set this: the first two are how the
-   * requirement gets satisfied or abandoned, and the third is a
+   * route anyway. Four routes set this, each for a different reason:
+   * `POST /auth/logout` and `POST /auth/change-password` are how the
+   * requirement gets satisfied or abandoned; `GET /auth/csrf-token` is a
    * prerequisite for submitting the change-password request itself
-   * (`requireCsrf` needs a token to check against) — leaving it gated
-   * would strand a force-password-change admin with no way to ever
-   * satisfy the requirement.
+   * (`requireCsrf` needs a token to check against); and `GET /auth/session`
+   * is how the SPA *learns* `forcePasswordChange` is set in the first
+   * place — auth-guard.tsx's `RequireAuth`/`RedirectIfAuthenticated` read
+   * it from this endpoint's response to decide whether to route to
+   * `/change-password` at all. Gating any of the four would strand a
+   * force-password-change admin: either with no way to ever satisfy the
+   * requirement, or — `/session`'s case — with a valid cookie the SPA has
+   * no way to discover, stuck re-showing the login form forever.
    */
   readonly allowPasswordChangeRequired?: boolean;
 }

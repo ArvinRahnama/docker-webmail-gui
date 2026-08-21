@@ -143,14 +143,28 @@ export async function registerAuthRoutes(
         },
       );
 
-      authApp.get('/session', { preHandler: [requireSession()] }, async (request, reply) => {
-        const { session, admin } = requireAuthContext(request);
-        const response: SessionInfoResponse = {
-          admin: toAdminSummary(admin),
-          expiresAt: session.expiresAt,
-        };
-        void reply.send(SessionInfoResponseSchema.parse(response));
-      });
+      // allowPasswordChangeRequired: true — read-only, and reveals nothing
+      // beyond what /login's own response already returned (the same
+      // AdminSummary, including forcePasswordChange). The SPA's routing
+      // (auth-guard.tsx's RequireAuth/RedirectIfAuthenticated) depends on
+      // being able to read forcePasswordChange from *this* endpoint right
+      // after login to decide whether to land on /change-password or the
+      // app shell — gating it would strand every fresh admin (bootstrap or
+      // admin-created, both start forced) on the login page with a valid
+      // session the SPA has no way to discover. See RequireSessionOptions's
+      // doc comment in auth.middleware.ts.
+      authApp.get(
+        '/session',
+        { preHandler: [requireSession({ allowPasswordChangeRequired: true })] },
+        async (request, reply) => {
+          const { session, admin } = requireAuthContext(request);
+          const response: SessionInfoResponse = {
+            admin: toAdminSummary(admin),
+            expiresAt: session.expiresAt,
+          };
+          void reply.send(SessionInfoResponseSchema.parse(response));
+        },
+      );
 
       authApp.post(
         '/change-password',

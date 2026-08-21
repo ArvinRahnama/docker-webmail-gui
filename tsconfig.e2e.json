@@ -1,0 +1,24 @@
+{
+  // Typechecks the Playwright harness — playwright.config.ts (repo root,
+  // hence rootDir "." rather than nesting under e2e/) plus every spec in
+  // e2e/. Deliberately its own project rather than folded into an
+  // existing workspace tsconfig: it isn't a workspace (no package.json,
+  // nothing else depends on it), it just needs to be part of the `tsc
+  // --build` graph so `npm run typecheck` (part of `npm run check`) can
+  // catch a broken spec the way Vitest's esbuild-based type-stripping
+  // cannot (AGENT_BRIEF.md §6 — "npm test alone is not evidence").
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "e2e/dist",
+    "rootDir": ".",
+    // Playwright's own test runner transforms TypeScript itself (esbuild,
+    // like Vite/Vitest elsewhere in this repo) rather than running tsc
+    // output directly under Node — see apps/web/tsconfig.json's identical
+    // reasoning, and playwright.config.ts's header comment for why
+    // apps/server can't get away with the same shortcut. tsc's job here
+    // is typecheck-only; nothing ever executes this emitted JS.
+    "moduleResolution": "bundler",
+    "emitDeclarationOnly": true
+  },
+  "include": ["playwright.config.ts", "e2e"]
+}

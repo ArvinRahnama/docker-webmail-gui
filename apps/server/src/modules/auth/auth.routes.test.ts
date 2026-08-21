@@ -392,19 +392,27 @@ describe('POST /api/v1/auth/change-password', () => {
 });
 
 describe('forcePasswordChange gating', () => {
-  it('blocks GET /session but allows csrf-token, change-password and logout', async () => {
+  it('allows GET /session (the SPA reads forcePasswordChange from it to route to /change-password), csrf-token, change-password and logout', async () => {
     const { app } = await setUp({ forcePasswordChange: true });
     const loginResponse = await login(app);
     expect(loginResponse.json().admin.forcePasswordChange).toBe(true);
     const token = sessionCookieFrom(loginResponse)!.value;
 
+    // Was blocked (403 PASSWORD_CHANGE_REQUIRED) until it was discovered
+    // that this stranded every fresh admin — bootstrap or admin-created,
+    // both start forced — with a valid cookie the SPA had no way to
+    // discover: auth-guard.tsx's RequireAuth/RedirectIfAuthenticated read
+    // forcePasswordChange from *this* response to decide whether to route
+    // to /change-password in the first place, so gating it left them
+    // stuck re-showing the login form forever. Caught by
+    // e2e/login.spec.ts, a real browser completing a real first login.
     const sessionAttempt = await app.inject({
       method: 'GET',
       url: '/api/v1/auth/session',
       cookies: { [SESSION_COOKIE_NAME]: token },
     });
-    expect(sessionAttempt.statusCode).toBe(403);
-    expect(sessionAttempt.json().error.code).toBe('PASSWORD_CHANGE_REQUIRED');
+    expect(sessionAttempt.statusCode).toBe(200);
+    expect(sessionAttempt.json().admin.forcePasswordChange).toBe(true);
 
     const csrfAttempt = await app.inject({
       method: 'GET',

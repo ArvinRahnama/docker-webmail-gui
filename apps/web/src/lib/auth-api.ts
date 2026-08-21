@@ -24,7 +24,16 @@ export async function login(credentials: LoginRequest): Promise<LoginResponse> {
   // Validate the outgoing body too — a malformed request is a programmer
   // error worth catching in dev rather than letting the server reject it.
   const body = LoginRequestSchema.parse(credentials);
-  const result = await request('/api/v1/auth/login', LoginResponseSchema, { method: 'POST', body });
+  // skipCsrf: true — there is no session yet to have issued a token, and
+  // `GET /auth/csrf-token` itself requires one (auth.routes.ts), so
+  // fetching it first would 401 before this request is ever sent. The
+  // server agrees: `/login` is the one mutating route with no
+  // `requireCsrf()` preHandler. See RequestOptions.skipCsrf's doc comment.
+  const result = await request('/api/v1/auth/login', LoginResponseSchema, {
+    method: 'POST',
+    body,
+    skipCsrf: true,
+  });
   // A fresh session means the CSRF token tied to the previous one (if any
   // — e.g. an anonymous pre-login token was never issued, but belt and
   // braces) is no longer valid.

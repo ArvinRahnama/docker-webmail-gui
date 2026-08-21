@@ -149,6 +149,18 @@ export interface RequestOptions {
   readonly method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
   readonly body?: unknown;
   readonly signal?: AbortSignal;
+  /**
+   * Skips fetching and attaching a CSRF header even for a state-changing
+   * method. Only `login()` (`auth-api.ts`) sets this: every other mutating
+   * route requires an existing session (SECURITY.md §3.6), but login is
+   * the one request that necessarily has none yet, and `GET
+   * /auth/csrf-token` itself requires a session (`auth.routes.ts`) — so
+   * fetching one before login would 401 before the real request is ever
+   * sent. The server enforces the matching half: `POST /auth/login` is
+   * the one mutating route with no `requireCsrf()` preHandler
+   * (`auth.routes.ts`, `auth.middleware.ts`).
+   */
+  readonly skipCsrf?: boolean;
 }
 
 /**
@@ -166,10 +178,11 @@ export async function request<T>(
 ): Promise<T> {
   const method = options.method ?? 'GET';
   const isStateChanging = STATE_CHANGING_METHODS.has(method);
+  const attachCsrf = isStateChanging && options.skipCsrf !== true;
 
   const headers: Record<string, string> = { accept: 'application/json' };
   if (options.body !== undefined) headers['content-type'] = 'application/json';
-  if (isStateChanging) headers[CSRF_HEADER_NAME] = await getCsrfToken();
+  if (attachCsrf) headers[CSRF_HEADER_NAME] = await getCsrfToken();
 
   // Built with conditional spreads, not `body: x ?? undefined` /
   // `signal: options.signal` — under `exactOptionalPropertyTypes`,
@@ -212,7 +225,7 @@ export async function request<T>(
       );
     }
 
-    if (isStateChanging && envelope.data.error.code === 'FORBIDDEN') {
+    if (attachCsrf && envelope.data.error.code === 'FORBIDDEN') {
       invalidateCsrfToken();
     }
     if (envelope.data.error.code === 'UNAUTHENTICATED') {

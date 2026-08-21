@@ -9,12 +9,17 @@ build/
 out/
 *.tsbuildinfo
 
-# Test / coverage
+# Test / coverage — the Playwright artifact directories are anchored to the
+# repository root (see the "Application runtime state" comment below for
+# why an unanchored rule here is a real risk, not a theoretical one): all
+# three are created by `playwright test` (playwright.config.ts) directly
+# under the repo root, and an unanchored rule would equally match a
+# same-named directory nested anywhere under apps/ or packages/.
 coverage/
 .nyc_output/
-test-results/
-playwright-report/
-blob-report/
+/test-results/
+/playwright-report/
+/blob-report/
 .playwright/
 
 # Environment and secrets — never commit real values

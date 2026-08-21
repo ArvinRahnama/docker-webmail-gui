@@ -165,9 +165,17 @@ export default [
     },
   },
 
-  // apps/server and apps/broker run under Node.js.
+  // apps/server and apps/broker run under Node.js. e2e/ runs under
+  // Playwright's Node-based test runner (it drives a browser; it does not
+  // run inside one — apps/web is the only workspace whose own code runs
+  // in a browser context).
   {
-    files: ['apps/server/**/*.{ts,tsx}', 'apps/broker/**/*.{ts,tsx}', 'packages/*/**/*.{ts,tsx}'],
+    files: [
+      'apps/server/**/*.{ts,tsx}',
+      'apps/broker/**/*.{ts,tsx}',
+      'packages/*/**/*.{ts,tsx}',
+      'e2e/**/*.{ts,tsx}',
+    ],
     languageOptions: {
       globals: {
         ...globals.node,

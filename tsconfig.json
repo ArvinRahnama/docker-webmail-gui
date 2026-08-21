@@ -9,6 +9,7 @@
     { "path": "packages/shared" },
     { "path": "apps/server" },
     { "path": "apps/broker" },
-    { "path": "apps/web" }
+    { "path": "apps/web" },
+    { "path": "tsconfig.e2e.json" }
   ]
 }

@@ -169,6 +169,116 @@ called out explicitly here.
     version performed, since docker-mailserver does not version its
     on-disk state.
 
+- Dashboard, command palette, global search and notifications (M11): the
+  last unbuilt feature milestone, and the point `/` became a real landing
+  route rather than a redirect.
+  - **The dashboard degrades per tile, not per page.** `GET
+    /api/v1/dashboard` composes ten already-shipped subsystems — broker
+    health, TLS, Rspamd/ClamAV/Fail2ban reachability, mail counts, the
+    mail queue, backups, updates and the audit log — each collected in
+    its own `try`/`catch`, so one dead subsystem degrades its own tile to
+    `Unknown` instead of blanking the page or returning a 500. That is
+    the milestone's exit criterion, proven at both levels: forcing the
+    broker, a `DmsDriver` method and a reachable-but-down ClamAV to fail
+    independently in `dashboard.routes.test.ts`, and the rendered
+    degraded state in `dashboard-page.test.tsx`.
+  - **Three tiles were cut rather than faked**, each with the reasoning
+    recorded where the decision lives. No "mail flow (24h)" tile: no real
+    counter exists, since `postqueue -j` is a snapshot and Rspamd's
+    scanned counter is lifetime-cumulative. No per-domain
+    DKIM/SPF/DMARC rollup: the email-auth page had already declined N
+    live DNS lookups on every load for the same domain list. "Docker
+    storage" rather than "disk used/total", because no host-filesystem
+    capability exists anywhere in this codebase — only Docker's own
+    `GET /system/df`. The service-health list carries no fabricated
+    Postfix or Dovecot rows either; neither exposes an independent
+    liveness signal in this stack.
+  - **Notifications are derived from the dashboard's own snapshot**, not
+    from a second, independently-drifting reading of "is TLS okay". The
+    evaluator upserts a notification for every current verdict problem
+    and resolves every condition that stopped appearing. "Dismiss" is a
+    read marker, never a resolve — an admin acknowledging a warning
+    cannot make a certificate stop expiring.
+  - **One command palette serves both `⌘K` and `/` global search.** Its
+    static entries are exhaustive over the app's route table and nothing
+    more: no domain-create, mailbox-disable, container-recreate or
+    update-apply entry exists, because none of those controls exist
+    anywhere else in the app either. A later test makes that
+    exhaustiveness mechanical rather than a comment (M12).
+  - **A follow-up pass closed the four gaps this milestone surfaced.**
+    Rspamd shipped a complete backend in M8 that no UI ever reached — a
+    working feature nobody could use, which is the same failure as a fake
+    control, inverted — and now has a page scoped to exactly the write
+    allowlist `SECURITY.md` §3.13 permits. The mail queue became a real
+    read-only page, with `postqueue -f`/`postsuper` named as a reachable
+    gap rather than half-built. Alias quick-open landed. And
+    `/docker/events` was **removed from the documents rather than built
+    around**: `UX_ARCHITECTURE.md` §5.2 named the page and
+    `FEATURE_MATRIX.md` §1 cited it as a dashboard source, but no
+    `system.events` operation ever existed in the broker's vocabulary.
+    Adding an outbound Docker Engine call to this project's smallest,
+    highest-scrutiny component deserves its own pass; the recent-activity
+    row stays audit-log only, honestly, until then.
+
+- Testing and hardening (M12): the full Playwright suite, `SECURITY.md`
+  Part 5's ten checks made enumerable, and the first time this project
+  ever ran a real browser against its own output.
+  - **Every exhaustive suite is exhaustive by construction, not by
+    diligence.** The command-injection suite maintains a manifest of
+    every command builder and diffs it against the module's real exports,
+    so a builder added later with no coverage fails the suite instead of
+    shipping silently — which immediately surfaced two genuinely
+    uncovered builders. The authorization suite asks the running app for
+    its own route table (parsed from Fastify's `printRoutes`, since there
+    is no structured route-listing API) and fires every mutating route
+    with no session and with no CSRF header. The palette's
+    route-exhaustiveness claim, which had already drifted false once,
+    now reads `App.tsx`'s source and diffs both directions.
+  - **Each new gate was verified to fail before it was trusted to pass.**
+    The authorization suite was checked by stripping both auth hooks from
+    one route and confirming it caught them; the log-redaction suite by
+    interpolating a real password into a log message — the one shape
+    object-path redaction cannot reach — and confirming the leak was
+    quoted back; the palette test by deleting an entry by hand.
+  - **The built SPA had been shipping zero CSS.** `main.tsx` never
+    imported the stylesheet, and nothing else in the module graph reached
+    it, so every build — development and production alike — rendered
+    unstyled HTML. Nothing existing could have caught it: the contrast
+    tests parse the token file as text, and every component and E2E test
+    asserts structure and content, never applied styling. It was found by
+    the first thing in this project that actually renders a page and
+    looks at what loaded. One import; `vite build` now emits a real CSS
+    asset and the two self-hosted fonts.
+  - **Real-browser CSP verification found two live violations.** Zod v4
+    probes `new Function('')` once to select a faster validation path,
+    which trips `script-src` the moment any shared schema is constructed
+    — fixed with a jitless configuration in a dedicated, first-imported
+    module, since import order is load-bearing here. And `sonner` injects
+    its base stylesheet through a runtime `<style>` element with no nonce
+    hook in either its current or previous major version; `style-src-elem`
+    gains `'unsafe-inline'` as the single documented exception in this
+    policy, while `style-src` itself stays at `'self'` precisely so the
+    exception cannot silently widen. Loosening `script-src` to accommodate
+    a toast library would have been the wrong trade in the other
+    direction.
+  - **A real axe-core sweep found three real accessibility violations**
+    that jsdom and static token math could not: the active nav link's
+    text-on-background pairing sat at 4.41:1, just under the AA floor,
+    on a pairing the contrast matrix had never covered despite the app
+    shipping it; a stat tile carried `aria-label` on a bare `div`, which
+    has no role that accepts a name; and a dialog's confirm button was
+    genuinely unreachable in a small viewport.
+  - **The audit also found dead scaffolding and a real advisory.** The
+    web tier declared a Docker socket-path config field that no code in
+    it ever read — removed, with a new suite pinning its absence three
+    independent ways, and an ESLint rule now bans importing a Docker
+    client from anywhere under `apps/server`. `@fastify/static` carried
+    four path-traversal and auth-bypass advisories, one high, at a
+    version that was declared but not yet wired up. And `npm audit` was
+    red entirely from devDependencies that never survive the multi-stage
+    build, so the real gate became a production-only audit wired into
+    `npm run check`, with an informational full-tree check alongside it.
+
 - Packaging and installer (M13): two digest-pinned, multi-stage `node:24-alpine`
   images (`docker/server/Dockerfile`, `docker/broker/Dockerfile`), a hardened
   `docker/compose.yaml`, and `installer/install.sh` / `installer/uninstall.sh`.
@@ -224,11 +334,53 @@ called out explicitly here.
     including the hand-edited-`.env` case. `docs/docker.md` §6 states
     plainly what remains unverified and why.
 
+- Documentation (M14): an operator-facing `docs/` set — an index, the
+  security model, configuration, operations, backups and restore, and
+  troubleshooting — alongside the deployment guide M13 already added.
+  Deliberately separated from the contributor documents at the repository
+  root, which serve a different reader; `docs/README.md` says which is
+  which.
+  - **`docs/security-model.md` states the deal plainly.** Anyone running
+    this is giving a container access to their Docker socket, which is
+    root on the host. It says what the privilege boundary buys (full RCE
+    in the web tier yields the broker's allowlist and nothing more, and
+    *why* — there is no protocol field that can express anything else),
+    what it explicitly does not buy (an admin account here is roughly
+    shell access on the mail container; a broker compromise is a host
+    compromise; backups are unencrypted mail), and which properties are
+    enforced by a failing build or a CI assertion rather than by
+    intention.
+  - **Writing it surfaced a blocking product defect.** `apps/server`
+    reaches docker-mailserver through a `DmsExecPort` that has no
+    concrete implementation — it needs `exec.run` and `file.read`, two
+    broker operations deferred when the vocabulary was defined and never
+    added. In `APP_MODE=production` the driver factory refuses to
+    construct rather than silently serve fake data, so the process exits
+    at startup. That is the compose file's and the installer's own mode,
+    so no production install can currently come up. Reproduced directly
+    by booting the built server. Documented in
+    `docs/troubleshooting.md`, in the README's status banner, in
+    `docs/docker.md` §6, and as a scope note on `FEATURE_MATRIX.md`'s
+    status legend — every mail-dependent row is proven against fixtures
+    and fakes only.
+  - **Three documents named broker operations that do not exist.**
+    `logs.tail` and `mail.account.create` were cited in `README.md`,
+    `ARCHITECTURE.md` and `docs/AGENT_BRIEF.md` as the canonical examples
+    of the web tier's vocabulary, and the architecture diagram showed
+    `POST /ops/mail.account.create`. The real vocabulary is 18 operations
+    and the real route is `POST /v1/ops`. Corrected against
+    `packages/shared/src/broker.ts` rather than against memory.
+  - **The `[Unreleased]` section stopped at M10.** M11, M12 and M13 are
+    now written, in the same voice as the entries around them.
+  - The README's status banner now separates what is proven from what is
+    not, and no longer claims an installation path that works.
+
+
 ### Notes
 
 - No release has been published yet and no image is published to any
-  registry. Installing today means building from a source checkout with
-  `installer/install.sh` (`docs/docker.md`); the production audit is M15.
-  See the project status banner in `README.md`.
+  registry. **The panel does not currently start in production mode** —
+  see M14's entry above and `docs/troubleshooting.md`. The production
+  audit is M15. See the project status banner in `README.md`.
 
 [Unreleased]: https://github.com/ArvinRahnama/docker-webmail-gui/commits/main

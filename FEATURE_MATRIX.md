@@ -8,6 +8,21 @@ This matrix is the project's defence against fake features. Every one of the 34 
 
 ## Status legend
 
+> **What a status here does and does not mean.** Every status below
+> describes an _implemented capability_: the code exists, it is tested,
+> and it does what the row says against the driver it is given. It does
+> **not** mean the capability has been exercised against a live
+> `docker-mailserver`, and right now it cannot be: `apps/server` reaches
+> DMS through a `DmsExecPort` that has no concrete implementation, because
+> the two broker operations it needs (`exec.run`, `file.read`) were
+> deferred when the broker vocabulary was defined and have not been added.
+> A production deployment therefore refuses to start rather than serve
+> fake data. Every mail-dependent row below — mailboxes, aliases, quotas,
+> passwords, DKIM, Sieve, autoresponders, restrictions, storage, queue —
+> is proven against fixtures and fakes only. The Docker-side rows go
+> through the broker's real operations and are not affected by this.
+> See `docs/troubleshooting.md`.
+
 | Status          | Meaning                                                                                                                                            |
 | --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Full**        | Backed end-to-end by a real data source or operation. Ships complete.                                                                              |

@@ -28,7 +28,8 @@ Two further research findings closed off the easy escapes:
 └─────────────────────────────────────────────────────┘
                           │  named operations only, over an
                           │  internal-only network + shared secret
-                          │  e.g. POST /ops/mail.account.create
+                          │  e.g. POST /v1/ops
+                          │       { "operation": "container.restart" }
                           ▼
 ┌─────────────────────────────────────────────────────┐
 │  apps/broker — PRIVILEGED TIER                      │
@@ -41,7 +42,7 @@ Two further research findings closed off the easy escapes:
               Docker daemon → docker-mailserver
 ```
 
-**The invariant:** the web tier cannot _express_ a dangerous Docker call. Not "is prevented from" — **cannot express**. It has no socket and speaks a vocabulary of named intents (`mail.account.create`, `container.restart`, `logs.tail`). There is no field in that protocol that can carry a bind mount, a capability, or a container specification. Full RCE in the web tier yields the broker's allowlist and nothing more.
+**The invariant:** the web tier cannot _express_ a dangerous Docker call. Not "is prevented from" — **cannot express**. It has no socket and speaks a closed vocabulary of named intents (`container.restart`, `container.logs`, `image.prune`, … — 18 in total, enumerated in `packages/shared/src/broker.ts`; mail writes are intended to cross the same way via `exec.run`/`file.read`, which are deferred and not yet built). There is no field in that protocol that can carry a bind mount, a capability, or a container specification. Full RCE in the web tier yields the broker's allowlist and nothing more.
 
 This is privilege separation as used by OpenSSH, not microservices. It is also what the brief's own §50 sketch describes: _Frontend / Backend / Secure Docker Controller_.
 

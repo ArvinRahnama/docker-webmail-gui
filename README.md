@@ -4,7 +4,17 @@ A self-hosted web management panel for [`docker-mailserver`](https://github.com/
 
 > ### ⚠️ Project status: under active development — not yet production-ready
 >
-> Version 0.1.0 is in development. Planning and architecture are complete; implementation is in progress. **There is no tagged release and no published image yet** — installing today means building from a source checkout (see Installation below), and this has not been through the full production audit (`IMPLEMENTATION_PLAN.md` M15). Do not point this at a mail server you care about.
+> Version 0.1.0 is in development. Every feature milestone is built and the panel installs, but it has not been through the production audit (`IMPLEMENTATION_PLAN.md` M15). Do not point this at a mail server you care about.
+>
+> ### 🛑 It does not currently start in production
+>
+> `apps/server` reaches `docker-mailserver` through a driver port that has **no concrete implementation yet** — it needs two broker operations (`exec.run`, `file.read`) that were deliberately deferred when the broker's vocabulary was defined and have not been added since. Rather than silently serve fake data in a deployment configured to be real, the server refuses to start. `APP_MODE=production` is what the compose file sets and what the installer writes, so `installer/install.sh` will build, start, and then fail waiting for health. See [`docs/troubleshooting.md`](docs/troubleshooting.md).
+>
+> Everything below describes a codebase that is built and tested, not a panel you can currently run against your mail server.
+
+> **What is proven.** Over 1,400 unit tests and 55 Playwright end-to-end tests, including a real-browser CSP and accessibility sweep against the built SPA. The packaging exists — multi-stage images, a hardened compose topology, an idempotent installer and uninstaller — and CI is wired to run the full install → healthy → uninstall cycle three times on a real Linux runner, asserting the privilege boundary against live containers.
+>
+> **What is not.** That CI workflow has not yet run, and given the limitation above it would fail at the health check. No tagged release and no published image. The clean-VM cycle has never been run on real hardware, and nothing has ever run against a live `docker-mailserver` — CI stands up a minimal placeholder container so that container resolution and the network-join step exercise something real, which is not the same as exercising mail operations. Nine parsers were written against documented formats rather than captured samples and still await runtime confirmation — see [`FEATURE_MATRIX.md`](FEATURE_MATRIX.md)'s "Deferred to runtime verification" table, and [`docs/troubleshooting.md`](docs/troubleshooting.md) for what you would actually see if one of them is wrong.
 >
 > Progress is tracked in [`IMPLEMENTATION_PLAN.md`](IMPLEMENTATION_PLAN.md) §3.
 
@@ -67,7 +77,7 @@ So it doesn't hold it:
               Docker daemon → docker-mailserver
 ```
 
-The web tier speaks a fixed vocabulary of intents — `mail.account.create`, `container.restart`, `logs.tail`. **There is no field in that protocol that can carry a bind mount, a capability, or a container specification.** Full remote code execution in the web tier yields the broker's allowlist and nothing more.
+The web tier speaks a fixed vocabulary of 18 named intents — `container.restart`, `container.logs`, `image.prune` and so on. **There is no field in that protocol that can carry a bind mount, a capability, or a container specification.** Full remote code execution in the web tier yields the broker's allowlist and nothing more.
 
 This is privilege separation, as used by OpenSSH — not a microservice split.
 
@@ -100,6 +110,12 @@ Found a vulnerability? See [`SECURITY.md`](SECURITY.md) Part 1 — please use th
 - Node.js 24+ _(only to build from source; the released image will not require it)_
 
 ## Installation
+
+> **This will not currently produce a working panel** — the server does
+> not start in production mode (see the status banner above and
+> [`docs/troubleshooting.md`](docs/troubleshooting.md)). The installer
+> itself is complete and idempotent; what it starts is not yet able to
+> come up.
 
 ```sh
 git clone <this repository>

@@ -147,6 +147,18 @@ const rawEnvSchema = z
     DATA_DIR: stringVar('./data'),
     BACKUP_DIR: stringVar('./backups'),
 
+    // Optional. Absolute path to the *built* SPA (`vite build`'s output —
+    // ARCHITECTURE.md §4, §10; `.env.example`'s PORT comment: "serves
+    // both the API and the built SPA"). Unset by default, on purpose:
+    // local development serves the SPA from the Vite dev server instead
+    // (playwright.config.ts's own header explains why that harness stays
+    // on the dev server too), and every existing test boots `buildApp()`
+    // with no static directory at all. Only the production Docker image
+    // sets this (docker/server/Dockerfile, M13) — the one place a built
+    // `apps/web/dist` is actually guaranteed to exist next to the built
+    // server.
+    STATIC_DIR: optionalStringVar(),
+
     // First-administrator bootstrap (M3): no default password ever
     // ships, so the *only* way an initial account comes into existence
     // is via this config-provided credential, applied once at startup
@@ -249,6 +261,8 @@ export interface AppConfig {
 
   readonly dataDir: string;
   readonly backupDir: string;
+  /** Path to the built SPA to serve, or `null` to serve no static files at all (the local-dev default — see `STATIC_DIR`'s schema comment). */
+  readonly staticDir: string | null;
 
   /**
    * First-administrator bootstrap credential (M3). Both fields are
@@ -378,6 +392,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     }),
     dataDir: data.DATA_DIR,
     backupDir: data.BACKUP_DIR,
+    staticDir: data.STATIC_DIR,
     bootstrapAdmin: Object.freeze({
       email: data.BOOTSTRAP_ADMIN_EMAIL,
       password: data.BOOTSTRAP_ADMIN_PASSWORD,

@@ -9,9 +9,15 @@
  * {@link BuildAppOptions}.
  */
 import type { IncomingMessage, Server, ServerResponse } from 'node:http';
-import Fastify, { type FastifyBaseLogger, type FastifyInstance } from 'fastify';
+import Fastify, {
+  type FastifyBaseLogger,
+  type FastifyInstance,
+  type FastifyReply,
+  type FastifyRequest,
+} from 'fastify';
 import fastifyHelmet from '@fastify/helmet';
 import fastifyCookie from '@fastify/cookie';
+import fastifyStatic from '@fastify/static';
 import type { Logger } from 'pino';
 import { APP_VERSION, buildHelmetCspDirectives, HealthResponseSchema } from '@dwg/shared';
 import type { AppConfig } from './platform/config.js';
@@ -206,6 +212,50 @@ function registerRequestIdPropagation(app: FastifyInstance): void {
   });
 }
 
+/** A request path this server owns as an API route (or the health check), never a client-side SPA route — the boundary the SPA-fallback 404 handler below must not cross, or a genuinely wrong API URL would silently render the app shell instead of a JSON 404. */
+function isApiPath(request: FastifyRequest): boolean {
+  return request.url.startsWith('/api/');
+}
+
+/**
+ * Registers `@fastify/static` for the built SPA (`config.staticDir` —
+ * M13, ARCHITECTURE.md §4, §10) when one is configured, and returns the
+ * one `setNotFoundHandler` callback `buildApp` should install either
+ * way. Fastify allows exactly one `setNotFoundHandler` call per instance
+ * — a second call throws "Not found handler already set" — so this
+ * builds a single handler that branches internally rather than layering
+ * a static-only override on top of the plain JSON one, the way two
+ * separate calls would need to.
+ *
+ * `wildcard: false`: `@fastify/static` otherwise registers its own
+ * catch-all `GET /*` route, which would intercept an unmatched request
+ * *before* the not-found handler ever ran — exactly the hook a
+ * client-side route (`/mail/domains`, a browser refresh on any SPA
+ * route) needs to reach, since there is no file on disk at that path to
+ * serve directly. `jsonNotFound` is `buildApp`'s own JSON-envelope 404
+ * handler, called for `/api/*` and non-GET/HEAD requests either way, so
+ * an API 404 looks identical whether or not static serving is on.
+ */
+async function buildNotFoundHandler(
+  app: FastifyInstance,
+  staticDir: string | null,
+  jsonNotFound: (request: FastifyRequest, reply: FastifyReply) => void,
+): Promise<(request: FastifyRequest, reply: FastifyReply) => void> {
+  if (staticDir === null) {
+    return jsonNotFound;
+  }
+
+  await app.register(fastifyStatic, { root: staticDir, wildcard: false });
+
+  return (request, reply) => {
+    if (isApiPath(request) || (request.method !== 'GET' && request.method !== 'HEAD')) {
+      jsonNotFound(request, reply);
+      return;
+    }
+    void reply.sendFile('index.html', staticDir);
+  };
+}
+
 function registerHealthRoute(app: FastifyInstance): void {
   app.get('/api/v1/health', (_request, reply) => {
     const body = HealthResponseSchema.parse({
@@ -265,14 +315,18 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
 
   const errorHandler = createErrorHandler(logger);
   app.setErrorHandler(errorHandler);
-  // Route requests than don't match any registered route through the
+  // Route requests that don't match any registered route through the
   // same uniform envelope, rather than Fastify's own default 404 body —
   // every response under /api/v1 (and every other path) should have one
   // consistent error shape (ARCHITECTURE.md §7.1), not "usually our
-  // envelope, except when the path is simply wrong."
-  app.setNotFoundHandler((request, reply) => {
+  // envelope, except when the path is simply wrong." The actual
+  // `setNotFoundHandler` call happens once, near the end of this
+  // function via `buildNotFoundHandler` — Fastify allows exactly one per
+  // instance, and whether static-SPA serving is on changes what that one
+  // handler does, not whether this JSON shape exists for `/api/*`.
+  const jsonNotFoundHandler = (request: FastifyRequest, reply: FastifyReply) => {
     errorHandler(new AppError('NOT_FOUND', 'That route does not exist.'), request, reply);
-  });
+  };
 
   await registerSecurityHeaders(app, config);
   registerRequestIdPropagation(app);
@@ -439,6 +493,12 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   await registerUpdatesRoutes(app, { db, updatesService, middleware });
   await registerDashboardRoutes(app, { dashboardService, middleware });
   await registerNotificationsRoutes(app, { notificationsService, middleware });
+
+  // The one `setNotFoundHandler` call this instance is allowed — see
+  // `buildNotFoundHandler`'s own doc comment for why static-SPA serving
+  // (or not) has to be decided inside a single handler rather than two
+  // layered `setNotFoundHandler` calls.
+  app.setNotFoundHandler(await buildNotFoundHandler(app, config.staticDir, jsonNotFoundHandler));
 
   return app;
 }

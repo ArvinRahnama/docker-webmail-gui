@@ -26,6 +26,7 @@ describe('loadConfig — defaults', () => {
     expect(config.logLevel).toBe('info');
     expect(config.dataDir).toBe('./data');
     expect(config.backupDir).toBe('./backups');
+    expect(config.staticDir).toBeNull();
     expect(config.broker.url).toBe('http://broker:4000');
     expect(config.broker.port).toBe(4000);
     expect(config.dms.containerName).toBe('mailserver');
@@ -217,5 +218,19 @@ describe('loadConfig — general validation aggregation', () => {
 
   it('rejects a malformed BROKER_URL', () => {
     expect(() => loadConfig({ BROKER_URL: 'not-a-url' })).toThrow(ConfigError);
+  });
+});
+
+describe('loadConfig — STATIC_DIR (M13: serving the built SPA)', () => {
+  it('is null when unset — the local-dev default (Vite dev server serves the SPA instead)', () => {
+    expect(loadConfig({}).staticDir).toBeNull();
+  });
+
+  it('reads a configured value verbatim — the production Docker image sets this to the built apps/web/dist path', () => {
+    expect(loadConfig({ STATIC_DIR: '/app/apps/web/dist' }).staticDir).toBe('/app/apps/web/dist');
+  });
+
+  it('treats an empty string the same as unset, like every other optional path/string setting', () => {
+    expect(loadConfig({ STATIC_DIR: '' }).staticDir).toBeNull();
   });
 });

@@ -278,9 +278,11 @@ verification:**
   itself has nothing to run against today.
 - **A browser session end to end.** CI asserts the SPA is _served_ and
   that API 404s are still API 404s; it does not drive a login through it.
-  The real-browser coverage of the app itself is Playwright's (M12), which
-  runs against the dev-server and static-proxy harnesses, not against this
-  image. Logging in through the packaged container is a manual step.
+  The real-browser coverage of the app itself is Playwright's (M12) —
+  whose security project does now run against a real `apps/server` serving
+  the built SPA from one origin, the same topology this image ships, but
+  as a local process rather than as the container. Logging in through the
+  packaged container is a manual step.
 - **`COOKIE_SECURE=true` over plain HTTP.** The lockout described in §2 is
   browser behaviour, not something this project's code can assert; the
   installer warns about it rather than testing it.

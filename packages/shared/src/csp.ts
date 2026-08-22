@@ -53,7 +53,20 @@ export const CSP_DIRECTIVES: ReadonlyArray<readonly [name: string, values: reado
   ['object-src', ["'none'"]],
 ];
 
-/** The literal `Content-Security-Policy` header value — `directive value1 value2; directive2 …`, semicolon-joined with no trailing separator. */
+/**
+ * The `Content-Security-Policy` header value this project's directive set
+ * describes — `directive value1 value2; directive2 …`, semicolon-joined
+ * with no trailing separator.
+ *
+ * The separator spacing here is SECURITY.md §4.2's, for readability;
+ * `@fastify/helmet` serialises the same directives with no space after
+ * each `;`. Both are valid, the difference carries no CSP semantics, and
+ * `e2e/security/csp.spec.ts` — the one consumer, comparing this against
+ * what a real server actually sent — normalises before comparing for
+ * exactly that reason. See that file's `normalizePolicy` and
+ * `apps/server/src/security/security-headers.security.test.ts`, which
+ * made the same call first.
+ */
 export function buildCspHeaderValue(): string {
   return CSP_DIRECTIVES.map(([name, values]) => `${name} ${values.join(' ')}`).join('; ');
 }

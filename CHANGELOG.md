@@ -202,6 +202,19 @@ called out explicitly here.
     (its own typed confirmation) stops and removes the mail container and
     **never a volume**, under any flag. Every run ends by listing what it
     left on the host, and a second run of anything is a reported no-op.
+  - **M12's security E2E project now runs against the real same-origin
+    server**, retiring `e2e/security/static-proxy-server.mjs` (139 lines of
+    test-only static file server + `/api` proxy) in favour of a plain
+    `apps/server` with `STATIC_DIR` set — the topology the image ships.
+    That harness had to re-implement this project's security-header set in
+    order to attach a real CSP to a document it served itself, which meant
+    the CSP spec's "carries exactly this project's documented policy"
+    assertion was comparing `buildCspHeaderValue()` against a header set
+    from `buildCspHeaderValue()`, and could not have failed. Against the
+    real server it did fail, on Helmet's `;`-without-a-space
+    serialisation; the spec now normalises separator whitespace and
+    compares the policy, matching the call
+    `security-headers.security.test.ts` had already made and documented.
   - **Verified against a real Docker daemon in CI, not on the machine that
     wrote it** (`.github/workflows/installer.yml`): three install →
     healthy → uninstall cycles, the privilege boundary asserted against

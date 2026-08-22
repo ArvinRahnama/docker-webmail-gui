@@ -1,10 +1,12 @@
 /**
  * IMPLEMENTATION_PLAN.md §2.4's accessibility row: "Zero critical/serious
  * violations per route; keyboard-only completion of critical paths."
- * Against `chromium-security`'s real, *built* SPA (`static-proxy-
- * server.mjs`'s own header explains why this harness rather than the
- * main one) — the first time this project has had a real browser to run
- * axe-core against at all.
+ * Against `chromium-security`'s real, *built* SPA — served by a real
+ * `apps/server` with `STATIC_DIR` set, from the same origin as its API,
+ * exactly as the shipped image does (playwright.config.ts's "A third
+ * project" section explains why this project rather than the main one).
+ * The first time this project has had a real browser to run axe-core
+ * against at all.
  *
  * This sweep is the direct reason `main.tsx`'s missing stylesheet import
  * (fixed earlier in M12) had to be found and fixed *before* this file

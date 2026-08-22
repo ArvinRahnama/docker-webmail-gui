@@ -7,11 +7,14 @@
  * breaks anything React/Tailwind v4/shadcn's actual rendered output does
  * — an inline `<style>` tag, an inline event handler, an `eval`, a CDN
  * asset. That needs a real browser applying a real CSP to the real
- * *built* bundle, which is exactly what `chromium-security`
- * (playwright.config.ts) and `static-proxy-server.mjs` exist to provide;
- * see that script's own header for why this can't just reuse the main
- * harness's Vite dev server (its own HMR client is not CSP-clean, for
- * reasons that have nothing to do with this app's code).
+ * *built* bundle, which is exactly what the `chromium-security` project
+ * (playwright.config.ts) exists to provide: a real `apps/server` with
+ * `STATIC_DIR` set, serving the built SPA and its own API from one
+ * origin, so the policy asserted below is the one that server actually
+ * sends — not one a test harness reconstructed. It can't just reuse the
+ * main harness's Vite dev server: HMR's own inline bootstrap and
+ * eval-based sourcemaps are not CSP-clean, for reasons that have nothing
+ * to do with this app's code.
  *
  * Every navigation below listens for the browser's own
  * `securitypolicyviolation` event — fired by the browser itself the
@@ -56,12 +59,41 @@ interface CspViolationLike {
   readonly sourceFile: string;
 }
 
+/**
+ * Collapses separator whitespace so two serialisations of the *same*
+ * policy compare equal, while any difference in directive names, values
+ * or order still fails.
+ *
+ * Needed as of M13, and the reason is worth recording. Until then this
+ * spec ran behind a test-only static+proxy server that set the
+ * `Content-Security-Policy` header *from* `buildCspHeaderValue()`, so the
+ * assertion below compared that function against itself and could never
+ * have failed. The `chromium-security` project now runs against a real
+ * `apps/server` serving the built SPA, so the header is Helmet's own
+ * serialisation — which, as
+ * `apps/server/src/security/security-headers.security.test.ts` already
+ * documents, puts no space after each `;` where SECURITY.md's prose (and
+ * this function) do for readability. That is the only difference, it
+ * carries no CSP semantics, and that file made the same call: check the
+ * policy, not the punctuation. Pinning Helmet's exact spacing here would
+ * instead make an upstream formatting change look like a security
+ * regression.
+ */
+function normalizePolicy(value: string): string {
+  return value
+    .split(';')
+    .map((directive) => directive.trim().replace(/\s+/g, ' '))
+    .filter((directive) => directive.length > 0)
+    .join('; ');
+}
+
 test.describe('CSP header, on the real built app', () => {
   test("the response carries exactly this project's documented policy", async ({ page }) => {
     const response = await page.goto('/login');
     expect(response).not.toBeNull();
     const header = response!.headers()['content-security-policy'];
-    expect(header).toBe(buildCspHeaderValue());
+    expect(header).toBeDefined();
+    expect(normalizePolicy(header!)).toBe(normalizePolicy(buildCspHeaderValue()));
   });
 });
 

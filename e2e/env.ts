@@ -41,23 +41,34 @@ export const SERVER_ORIGIN = `http://127.0.0.1:${SERVER_PORT}`;
 export const WEB_ORIGIN = `http://127.0.0.1:${WEB_PORT}`;
 
 /**
- * A second, fully independent server + single-origin static+proxy pair
- * (`e2e/security/static-proxy-server.mjs`), used only by the
+ * A second, fully independent `apps/server` instance, used only by the
  * `e2e/security/*.spec.ts` specs (CSP-against-the-real-build, and the
  * accessibility sweep — SECURITY.md Part 5 check 7's second half and
- * IMPLEMENTATION_PLAN.md §2.4's accessibility row). Deliberately separate
- * ports, a separate DATA_DIR (`playwright.config.ts`) and a separate
- * process from `SERVER_PORT`/`WEB_PORT` above — those two already share
- * one `FakeBrokerClient`'s process-wide `running` boolean between two
- * specs that must never race it (`playwright.config.ts`'s "Two projects"
- * comment); this pair never touches that state at all, in a different
- * process entirely, so it cannot introduce a third contender for the
- * same race by construction, not by convention.
+ * IMPLEMENTATION_PLAN.md §2.4's accessibility row). Deliberately a
+ * separate port, a separate DATA_DIR (`playwright.config.ts`) and a
+ * separate process from `SERVER_PORT`/`WEB_PORT` above — those two
+ * already share one `FakeBrokerClient`'s process-wide `running` boolean
+ * between two specs that must never race it (`playwright.config.ts`'s
+ * "Two projects" comment); this instance never touches that state at
+ * all, in a different process entirely, so it cannot introduce a third
+ * contender for the same race by construction, not by convention.
+ *
+ * This instance runs with `STATIC_DIR` set, so it serves the *built* SPA
+ * from the same origin as its own API — the production topology
+ * (ARCHITECTURE.md §10, docker/server/Dockerfile), which is why the
+ * browser origin and the API origin below are deliberately one value and
+ * not two. Until M13 wired `@fastify/static` into `apps/server`, this
+ * pair needed a test-only static+proxy server in front
+ * (`e2e/security/static-proxy-server.mjs`, since removed) which had to
+ * re-implement this project's security-header set to attach the real CSP
+ * to a document it was serving itself; the real server now attaches its
+ * own, so the specs assert the header the shipped image actually sends
+ * rather than a duplicate that could drift from it.
  */
 export const SECURITY_SERVER_PORT = 3910;
-export const SECURITY_STATIC_PORT = 3911;
 export const SECURITY_SERVER_ORIGIN = `http://127.0.0.1:${SECURITY_SERVER_PORT}`;
-export const SECURITY_WEB_ORIGIN = `http://127.0.0.1:${SECURITY_STATIC_PORT}`;
+/** The origin `chromium-security`'s browser talks to. Identical to `SECURITY_SERVER_ORIGIN` on purpose — see above: one origin serving both the SPA and the API is the property under test, not an accident of the harness. */
+export const SECURITY_WEB_ORIGIN = SECURITY_SERVER_ORIGIN;
 
 /** `AUTH_STATE_PATH`'s counterpart for the security project — a signed-in, past-forced-change storage state scoped to `SECURITY_WEB_ORIGIN`, produced by `global-setup.ts` the same way. Never shared with `AUTH_STATE_PATH`: a cookie scoped to one origin is simply never sent to the other. */
 export const SECURITY_AUTH_STATE_PATH = fileURLToPath(

@@ -35,25 +35,18 @@
  *    actually executes) is therefore not just the available option here
  *    but the more faithful one regardless.
  *
- * 2. The frontend runs the Vite dev server, not `vite build` + `vite
- *    preview` serving the built SPA. The genuinely production-faithful
- *    setup — the built SPA served by Fastify from the same origin as the
- *    API, which is what `@fastify/static` is a server dependency *for*
- *    (ARCHITECTURE.md §10, `.env.example`'s PORT comment) — is not wired
- *    up in `apps/server/src/app.ts` yet; there is no `@fastify/static`
- *    registration anywhere in that file. That is packaging work (M13),
- *    not something to bolt on inside a test harness. Between the two
- *    options this file's task description actually offered, `vite
- *    preview` was the closer-sounding one but doesn't work either: it has
- *    no equivalent of vite.config.ts's `server.proxy`, so a built SPA
- *    served that way would call `/api/*` with no backend behind it, and
- *    apps/server's CSRF guard (`auth.middleware.ts`'s
- *    `isSameOriginRequest`) requires a genuinely same-origin
- *    `Sec-Fetch-Site`, which only the dev-server proxy (or the
- *    not-yet-built static-serving path) actually produces. So this is the
- *    faithful option available in the current codebase, not a speed
- *    shortcut — see vite.config.ts's own comment on the proxy for the CSRF
- *    reasoning this relies on.
+ * 2. This *first* pair's frontend runs the Vite dev server, not the built
+ *    SPA. That is a deliberate split, not a gap: a strict CSP with no
+ *    `unsafe-inline`/`unsafe-eval` is incompatible with Vite's own HMR
+ *    client, so the security project below runs against the built SPA
+ *    instead (see "A third project", and `e2e/security/csp.spec.ts`'s own
+ *    header). For everything else, the dev server is what a developer
+ *    actually runs, and its `/api` proxy produces the genuinely
+ *    same-origin `Sec-Fetch-Site` apps/server's CSRF guard
+ *    (`auth.middleware.ts`'s `isSameOriginRequest`) requires — see
+ *    vite.config.ts's own comment on the proxy. `vite preview` would not:
+ *    it has no equivalent of `server.proxy`, so a built SPA served that
+ *    way would call `/api/*` with no backend behind it at all.
  *
  * ---------------------------------------------------------------------
  * State isolation
@@ -124,11 +117,21 @@
  * real-build and the accessibility sweep — against an entirely separate
  * origin (`SECURITY_WEB_ORIGIN`) backed by its own server process and
  * `DATA_DIR` (`SECURITY_DATA_DIR` below), never `WEB_ORIGIN`'s Vite dev
- * server. Full reasoning lives with what it's reasoning about:
- * `e2e/security/static-proxy-server.mjs`'s header for why this harness
- * exists at all, `e2e/env.ts`'s doc comment on `SECURITY_SERVER_PORT` for
+ * server. See `e2e/env.ts`'s doc comment on `SECURITY_SERVER_PORT` for
  * why it is a fully separate process rather than a third project sharing
  * the pair above.
+ *
+ * That instance is a plain `apps/server` with `STATIC_DIR` pointed at
+ * `apps/web/dist`: one process serving the built SPA and its own API from
+ * one origin, which is exactly the production topology
+ * (docker/server/Dockerfile's `ENV STATIC_DIR`, ARCHITECTURE.md §10). It
+ * used to need a test-only static+proxy server in front of it, because
+ * `apps/server` could not serve static files at all; that harness had to
+ * re-implement this project's security-header set in order to attach a
+ * real CSP to a document it served itself, so the CSP spec was asserting
+ * a duplicate of the header rather than the header. M13 wired
+ * `@fastify/static` into `apps/server`, so the harness is gone and the
+ * specs now see what the shipped image actually sends.
  */
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -140,7 +143,6 @@ import {
   BOOTSTRAP_ADMIN_PASSWORD,
   SECURITY_SERVER_ORIGIN,
   SECURITY_SERVER_PORT,
-  SECURITY_STATIC_PORT,
   SECURITY_WEB_ORIGIN,
   SERVER_ORIGIN,
   SERVER_PORT,
@@ -248,6 +250,13 @@ export default defineConfig({
     // DATA_DIR, own process) dedicated to `chromium-security`; see
     // `SECURITY_SERVER_PORT`'s doc comment in e2e/env.ts for why this is
     // a separate process rather than reusing the pair above.
+    //
+    // `STATIC_DIR` is the whole difference from the first entry: this one
+    // serves the *built* SPA (`vite build`'s output, produced by
+    // `pretest:e2e`) from its own origin alongside its own API — one
+    // process, one origin, the production topology. It replaces the
+    // test-only static+proxy server this project needed before M13; see
+    // the "A third project" section of this file's header.
     {
       command: 'node apps/server/dist/index.js',
       cwd: ROOT_DIR,
@@ -260,26 +269,10 @@ export default defineConfig({
         HOST: '127.0.0.1',
         PORT: String(SECURITY_SERVER_PORT),
         DATA_DIR: SECURITY_DATA_DIR,
+        STATIC_DIR: join(ROOT_DIR, 'apps/web/dist'),
         COOKIE_SECURE: 'false',
         BOOTSTRAP_ADMIN_EMAIL,
         BOOTSTRAP_ADMIN_PASSWORD,
-      },
-    },
-    // The real, *built* SPA (`vite build`, not the dev server), served
-    // single-origin with `/api` proxied to the instance directly above —
-    // see `e2e/security/static-proxy-server.mjs`'s own header for why
-    // this exists instead of reusing either of the two harnesses above.
-    {
-      command: 'node e2e/security/static-proxy-server.mjs',
-      cwd: ROOT_DIR,
-      url: SECURITY_WEB_ORIGIN,
-      reuseExistingServer: !process.env.CI,
-      timeout: 60_000,
-      env: {
-        ...process.env,
-        PORT: String(SECURITY_STATIC_PORT),
-        DIST_DIR: join(ROOT_DIR, 'apps/web/dist'),
-        API_PROXY_TARGET: SECURITY_SERVER_ORIGIN,
       },
     },
   ],

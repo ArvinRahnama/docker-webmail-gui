@@ -193,7 +193,7 @@ Its threat contribution is proportional to its code. It therefore has **no datab
 
 Set on the app's own responses and tuned against the real application rather than copied:
 
-- **CSP:** `default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; object-src 'none'`. No `unsafe-inline`, no `unsafe-eval`, no CDN — which is also why fonts are self-hosted.
+- **CSP:** `default-src 'self'; script-src 'self'; style-src 'self'; style-src-elem 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; object-src 'none'`. No `unsafe-eval`, no CDN — which is also why fonts are self-hosted. One narrow, deliberate exception: `style-src-elem` alone carries `'unsafe-inline'`, because the toast library (`sonner`) injects its base stylesheet via a runtime `<style>` element with no nonce hook available — confirmed against a real browser enforcing this policy against the real bundle (M12, `e2e/security/csp.spec.ts`), not assumed. `script-src` carries no such exception; a styling library's runtime quirk is not a reason to loosen the directive that actually gates code execution. See `packages/shared/src/csp.ts`'s doc comment for the full reasoning and the alternatives it rules out.
 - `Strict-Transport-Security` (opt-out for plain-HTTP LAN installs, where forcing HSTS would lock an admin out).
 - `X-Content-Type-Options: nosniff` · `Referrer-Policy: no-referrer` · `X-Frame-Options: DENY` (with `frame-ancestors`) · `Permissions-Policy` denying unused features.
 

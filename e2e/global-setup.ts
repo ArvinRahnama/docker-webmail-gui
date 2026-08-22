@@ -25,16 +25,25 @@
  * reachable once the bootstrap admin's own forced change is done, so that
  * step still has to happen here, the one place it's safe to — and
  * completes *its* forced change instead.
+ *
+ * M12 adds a second, structurally identical run of the same dance against
+ * `SECURITY_WEB_ORIGIN` (`buildSignedInStorageState` below), producing
+ * `SECURITY_AUTH_STATE_PATH` for `e2e/security/*.spec.ts` — a distinct
+ * server process and origin (playwright.config.ts's "second, independent
+ * server pair" section), so it needs its own bootstrap-admin dance and
+ * its own shared second admin, never `AUTH_STATE_PATH`'s.
  */
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
-import { request } from '@playwright/test';
+import { type APIRequestContext, request } from '@playwright/test';
 import { changePassword, createAdmin, fetchCsrfToken, login } from './api-helpers.js';
 import {
   AUTH_STATE_PATH,
   BOOTSTRAP_ADMIN_EMAIL,
   BOOTSTRAP_ADMIN_PASSWORD,
   NEW_ADMIN_PASSWORD,
+  SECURITY_AUTH_STATE_PATH,
+  SECURITY_WEB_ORIGIN,
   WEB_ORIGIN,
 } from './env.js';
 
@@ -43,12 +52,19 @@ const SHARED_ADMIN_EMAIL = 'e2e-shared@example.test';
 const SHARED_ADMIN_TEMP_PASSWORD = 'a-temporary-battery-staple';
 const SHARED_ADMIN_PASSWORD = 'a-settled-battery-staple';
 
-export default async function globalSetup(): Promise<void> {
-  // Routed through the Vite dev-server proxy (WEB_ORIGIN), not straight to
-  // the server (SERVER_ORIGIN) — the resulting cookie must be scoped to
+/**
+ * The bootstrap-admin-forced-change, create-a-second-admin, switch-and-
+ * complete-its-forced-change dance, against whichever origin `baseURL`
+ * names — factored out so `AUTH_STATE_PATH` and `SECURITY_AUTH_STATE_PATH`
+ * are produced by one function instead of two copies that could drift.
+ */
+async function buildSignedInStorageState(baseURL: string, outPath: string): Promise<void> {
+  // Routed through the app's own origin (a dev-server proxy for
+  // WEB_ORIGIN, the static+proxy harness for SECURITY_WEB_ORIGIN), not
+  // straight to either server — the resulting cookie must be scoped to
   // the same origin every spec's `page` actually navigates to, or no
   // browser would ever send it back.
-  const api = await request.newContext({ baseURL: WEB_ORIGIN });
+  const api: APIRequestContext = await request.newContext({ baseURL });
 
   try {
     // 1. The bootstrap admin's own mandatory first-login change — a
@@ -75,9 +91,14 @@ export default async function globalSetup(): Promise<void> {
 
     // Now a clean, non-forced session — exactly what a spec loading this
     // storage state should land on the app shell with.
-    mkdirSync(dirname(AUTH_STATE_PATH), { recursive: true });
-    await api.storageState({ path: AUTH_STATE_PATH });
+    mkdirSync(dirname(outPath), { recursive: true });
+    await api.storageState({ path: outPath });
   } finally {
     await api.dispose();
   }
+}
+
+export default async function globalSetup(): Promise<void> {
+  await buildSignedInStorageState(WEB_ORIGIN, AUTH_STATE_PATH);
+  await buildSignedInStorageState(SECURITY_WEB_ORIGIN, SECURITY_AUTH_STATE_PATH);
 }

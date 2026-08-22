@@ -1,10 +1,10 @@
 /**
  * SECURITY.md Part 5 check 7, first half: "Security headers present."
  * (Second half — "the CSP not broken by the real app" — needs a real
- * browser against the real built SPA, which apps/server does not serve
- * yet (M13). That half lives in `e2e/security/csp.spec.ts`, tuned
- * against the Playwright harness once it exists — see that file's own
- * header for the current state of that half of this check.)
+ * browser against the real built SPA. That half lives in
+ * `e2e/security/csp.spec.ts`, against the `chromium-security` Playwright
+ * harness — see that file's own header. Running it against a real
+ * browser is exactly what found `style-src-elem`'s one exception below.)
  *
  * `app.test.ts` already has one baseline assertion for this ("sets the
  * documented baseline security headers") using loose `toContain` checks.
@@ -26,11 +26,19 @@ function testLogger() {
   return createLogger({ level: 'silent' });
 }
 
-/** Every directive SECURITY.md §4.2 documents, as `[name, value]` pairs — order-independent, since CSP directive order carries no meaning. */
+/**
+ * Every directive SECURITY.md §4.2 documents, as `[name, value]` pairs —
+ * order-independent, since CSP directive order carries no meaning.
+ * `style-src-elem` is the one directive carrying `'unsafe-inline'` (see
+ * `packages/shared/src/csp.ts`'s doc comment for the full reasoning);
+ * every other directive here is asserted `unsafe-inline`-free by name
+ * below, not just by omission from this list.
+ */
 const EXPECTED_CSP_DIRECTIVES: ReadonlyArray<readonly [string, string]> = [
   ['default-src', "'self'"],
   ['script-src', "'self'"],
   ['style-src', "'self'"],
+  ['style-src-elem', "'self' 'unsafe-inline'"],
   ['img-src', "'self' data:"],
   ['font-src', "'self'"],
   ['connect-src', "'self'"],
@@ -39,6 +47,11 @@ const EXPECTED_CSP_DIRECTIVES: ReadonlyArray<readonly [string, string]> = [
   ['form-action', "'self'"],
   ['object-src', "'none'"],
 ];
+
+/** Every directive that must stay `unsafe-inline`-free — everything except `style-src-elem`, checked by name so a future directive added to this policy is covered by default rather than needing to be remembered. */
+const DIRECTIVES_REQUIRING_NO_UNSAFE_INLINE = EXPECTED_CSP_DIRECTIVES.map(([name]) => name).filter(
+  (name) => name !== 'style-src-elem',
+);
 
 function parseCsp(header: string): ReadonlyMap<string, string> {
   const map = new Map<string, string>();
@@ -52,7 +65,7 @@ function parseCsp(header: string): ReadonlyMap<string, string> {
 }
 
 describe('security headers — every SECURITY.md §4.2 directive, on a real response', () => {
-  it('CSP carries exactly the documented directive set, no more and no less, with no unsafe-inline/unsafe-eval/CDN anywhere', async () => {
+  it('CSP carries exactly the documented directive set, no more and no less', async () => {
     const app = await buildApp({ config: loadConfig({}), logger: testLogger() });
     try {
       const response = await app.inject({ method: 'GET', url: '/api/v1/health' });
@@ -64,11 +77,25 @@ describe('security headers — every SECURITY.md §4.2 directive, on a real resp
         expect(directives.get(name)).toBe(value);
       }
       expect(directives.size).toBe(EXPECTED_CSP_DIRECTIVES.length);
+    } finally {
+      await app.close();
+    }
+  });
 
-      const raw = header as string;
-      expect(raw).not.toContain('unsafe-inline');
-      expect(raw).not.toContain('unsafe-eval');
-      expect(raw).not.toMatch(/https?:\/\//); // no CDN/external origin anywhere in the policy
+  it('unsafe-eval and CDN/external origins are absent everywhere, and unsafe-inline is scoped to style-src-elem alone', async () => {
+    const app = await buildApp({ config: loadConfig({}), logger: testLogger() });
+    try {
+      const response = await app.inject({ method: 'GET', url: '/api/v1/health' });
+      const header = response.headers['content-security-policy'] as string;
+      const directives = parseCsp(header);
+
+      expect(header).not.toContain('unsafe-eval');
+      expect(header).not.toMatch(/https?:\/\//); // no CDN/external origin anywhere in the policy
+
+      for (const name of DIRECTIVES_REQUIRING_NO_UNSAFE_INLINE) {
+        expect(directives.get(name) ?? '').not.toContain('unsafe-inline');
+      }
+      expect(directives.get('style-src-elem')).toContain('unsafe-inline');
     } finally {
       await app.close();
     }

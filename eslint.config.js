@@ -203,7 +203,7 @@ export default [
       'apps/server/**/*.{ts,tsx}',
       'apps/broker/**/*.{ts,tsx}',
       'packages/*/**/*.{ts,tsx}',
-      'e2e/**/*.{ts,tsx}',
+      'e2e/**/*.{ts,tsx,mjs}',
     ],
     languageOptions: {
       globals: {

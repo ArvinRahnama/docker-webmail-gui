@@ -115,6 +115,20 @@
  * `chromium-serial` and that project capped at one worker, Playwright can
  * never schedule them at the same instant, however many workers the
  * default project (or a future CI worker-count bump) uses.
+ *
+ * ---------------------------------------------------------------------
+ * A third project, and a second, independent server pair (M12)
+ * ---------------------------------------------------------------------
+ *
+ * `chromium-security` runs `e2e/security/*.spec.ts` — CSP-against-the-
+ * real-build and the accessibility sweep — against an entirely separate
+ * origin (`SECURITY_WEB_ORIGIN`) backed by its own server process and
+ * `DATA_DIR` (`SECURITY_DATA_DIR` below), never `WEB_ORIGIN`'s Vite dev
+ * server. Full reasoning lives with what it's reasoning about:
+ * `e2e/security/static-proxy-server.mjs`'s header for why this harness
+ * exists at all, `e2e/env.ts`'s doc comment on `SECURITY_SERVER_PORT` for
+ * why it is a fully separate process rather than a third project sharing
+ * the pair above.
  */
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -124,6 +138,10 @@ import { defineConfig, devices } from '@playwright/test';
 import {
   BOOTSTRAP_ADMIN_EMAIL,
   BOOTSTRAP_ADMIN_PASSWORD,
+  SECURITY_SERVER_ORIGIN,
+  SECURITY_SERVER_PORT,
+  SECURITY_STATIC_PORT,
+  SECURITY_WEB_ORIGIN,
   SERVER_ORIGIN,
   SERVER_PORT,
   WEB_ORIGIN,
@@ -133,6 +151,7 @@ import {
 const ROOT_DIR = fileURLToPath(new URL('.', import.meta.url));
 
 const DATA_DIR = mkdtempSync(join(tmpdir(), 'dwg-e2e-data-'));
+const SECURITY_DATA_DIR = mkdtempSync(join(tmpdir(), 'dwg-e2e-security-data-'));
 
 export default defineConfig({
   testDir: './e2e',
@@ -158,7 +177,11 @@ export default defineConfig({
     {
       name: 'chromium',
       use: { ...devices['Desktop Chrome'] },
-      testIgnore: [/restart-container\.spec\.ts$/, /backup-and-restore\.spec\.ts$/],
+      testIgnore: [
+        /restart-container\.spec\.ts$/,
+        /backup-and-restore\.spec\.ts$/,
+        /security\/.*\.spec\.ts$/,
+      ],
     },
     {
       name: 'chromium-serial',
@@ -169,11 +192,29 @@ export default defineConfig({
       fullyParallel: false,
       workers: 1,
     },
+    {
+      // M12 — SECURITY.md Part 5 check 7's second half and the
+      // accessibility sweep, both against `SECURITY_WEB_ORIGIN`'s
+      // static+proxy harness (see e2e/env.ts's doc comment) rather than
+      // `WEB_ORIGIN`'s Vite dev server.
+      name: 'chromium-security',
+      use: { ...devices['Desktop Chrome'], baseURL: SECURITY_WEB_ORIGIN },
+      testMatch: [/security\/.*\.spec\.ts$/],
+    },
   ],
 
   webServer: [
     {
-      command: 'npm run build --workspace apps/server && node apps/server/dist/index.js',
+      // No build step here (or on any entry below that runs a built
+      // artifact) — `npm run test:e2e`'s `pretest:e2e` hook builds
+      // packages/shared, apps/server and apps/web exactly once, up
+      // front. Necessary as soon as a second entry needed the *same*
+      // apps/server build (below): two `tsc --build` invocations racing
+      // against the one dist/ directory intermittently crashed with
+      // `Cannot find module '.../dist/index.js'`, caught while adding
+      // that second entry. Running `npx playwright test` directly,
+      // bypassing `npm run test:e2e`, now requires a prior manual build.
+      command: 'node apps/server/dist/index.js',
       cwd: ROOT_DIR,
       url: `${SERVER_ORIGIN}/api/v1/health`,
       reuseExistingServer: !process.env.CI,
@@ -201,6 +242,44 @@ export default defineConfig({
       env: {
         ...process.env,
         DWG_API_PROXY_TARGET: SERVER_ORIGIN,
+      },
+    },
+    // M12 — a second, independent server instance (own port, own
+    // DATA_DIR, own process) dedicated to `chromium-security`; see
+    // `SECURITY_SERVER_PORT`'s doc comment in e2e/env.ts for why this is
+    // a separate process rather than reusing the pair above.
+    {
+      command: 'node apps/server/dist/index.js',
+      cwd: ROOT_DIR,
+      url: `${SECURITY_SERVER_ORIGIN}/api/v1/health`,
+      reuseExistingServer: !process.env.CI,
+      timeout: 60_000,
+      env: {
+        ...process.env,
+        APP_MODE: 'development',
+        HOST: '127.0.0.1',
+        PORT: String(SECURITY_SERVER_PORT),
+        DATA_DIR: SECURITY_DATA_DIR,
+        COOKIE_SECURE: 'false',
+        BOOTSTRAP_ADMIN_EMAIL,
+        BOOTSTRAP_ADMIN_PASSWORD,
+      },
+    },
+    // The real, *built* SPA (`vite build`, not the dev server), served
+    // single-origin with `/api` proxied to the instance directly above —
+    // see `e2e/security/static-proxy-server.mjs`'s own header for why
+    // this exists instead of reusing either of the two harnesses above.
+    {
+      command: 'node e2e/security/static-proxy-server.mjs',
+      cwd: ROOT_DIR,
+      url: SECURITY_WEB_ORIGIN,
+      reuseExistingServer: !process.env.CI,
+      timeout: 60_000,
+      env: {
+        ...process.env,
+        PORT: String(SECURITY_STATIC_PORT),
+        DIST_DIR: join(ROOT_DIR, 'apps/web/dist'),
+        API_PROXY_TARGET: SECURITY_SERVER_ORIGIN,
       },
     },
   ],

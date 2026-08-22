@@ -83,11 +83,13 @@ jobs:
       - name: Install Playwright browsers
         run: npx playwright install --with-deps chromium
 
-      # Builds the real server (webServer's command in playwright.config.ts)
-      # and drives it with the fake Docker/DMS/DNS/TLS/Rspamd/registry
-      # drivers — no Docker daemon, no live docker-mailserver, no outbound
-      # network call. `playwright test` itself fails (non-zero exit) if
-      # e2e/ ever matches zero spec files, so a regression that deleted or
+      # `npm run test:e2e`'s `pretest:e2e` hook builds packages/shared,
+      # apps/server and apps/web once, up front (playwright.config.ts's
+      # webServer entries just run the results) — every server this run
+      # drives with the fake Docker/DMS/DNS/TLS/Rspamd/registry drivers,
+      # no Docker daemon, no live docker-mailserver, no outbound network
+      # call. `playwright test` itself fails (non-zero exit) if e2e/ ever
+      # matches zero spec files, so a regression that deleted or
       # misconfigured the suite fails this job rather than passing silently.
       - name: Run E2E tests
         run: npm run test:e2e

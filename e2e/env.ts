@@ -40,6 +40,30 @@ export const WEB_PORT = 3901;
 export const SERVER_ORIGIN = `http://127.0.0.1:${SERVER_PORT}`;
 export const WEB_ORIGIN = `http://127.0.0.1:${WEB_PORT}`;
 
+/**
+ * A second, fully independent server + single-origin static+proxy pair
+ * (`e2e/security/static-proxy-server.mjs`), used only by the
+ * `e2e/security/*.spec.ts` specs (CSP-against-the-real-build, and the
+ * accessibility sweep — SECURITY.md Part 5 check 7's second half and
+ * IMPLEMENTATION_PLAN.md §2.4's accessibility row). Deliberately separate
+ * ports, a separate DATA_DIR (`playwright.config.ts`) and a separate
+ * process from `SERVER_PORT`/`WEB_PORT` above — those two already share
+ * one `FakeBrokerClient`'s process-wide `running` boolean between two
+ * specs that must never race it (`playwright.config.ts`'s "Two projects"
+ * comment); this pair never touches that state at all, in a different
+ * process entirely, so it cannot introduce a third contender for the
+ * same race by construction, not by convention.
+ */
+export const SECURITY_SERVER_PORT = 3910;
+export const SECURITY_STATIC_PORT = 3911;
+export const SECURITY_SERVER_ORIGIN = `http://127.0.0.1:${SECURITY_SERVER_PORT}`;
+export const SECURITY_WEB_ORIGIN = `http://127.0.0.1:${SECURITY_STATIC_PORT}`;
+
+/** `AUTH_STATE_PATH`'s counterpart for the security project — a signed-in, past-forced-change storage state scoped to `SECURITY_WEB_ORIGIN`, produced by `global-setup.ts` the same way. Never shared with `AUTH_STATE_PATH`: a cookie scoped to one origin is simply never sent to the other. */
+export const SECURITY_AUTH_STATE_PATH = fileURLToPath(
+  new URL('./.auth/security-admin-state.json', import.meta.url),
+);
+
 // ---------------------------------------------------------------------------
 // Shared authenticated state (Round B)
 // ---------------------------------------------------------------------------

@@ -7,7 +7,7 @@
   "description": "Privileged Docker broker. Tiny, rarely changes, holds the Docker socket. Allowlists operations and target containers; never accepts a container spec from the web tier — see ARCHITECTURE.md §2 and §6.",
   "main": "./dist/index.js",
   "scripts": {
-    "dev": "node --watch src/index.ts",
+    "dev": "node --watch --experimental-transform-types --experimental-loader=../../scripts/ts-dev-loader.mjs src/index.ts",
     "build": "tsc --build",
     "start": "node dist/index.js",
     "test": "vitest run"

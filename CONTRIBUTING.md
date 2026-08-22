@@ -30,8 +30,15 @@ npm run dev
 `npm install` sets up all four workspaces (`apps/server`, `apps/broker`,
 `apps/web`, `packages/shared`) in one pass — this is an npm-workspaces
 monorepo, so there is one lockfile and one install at the repo root, never a
-per-package one. `npm run dev` runs each workspace's own `dev` script
-concurrently.
+per-package one. `npm run dev` builds `packages/shared` once, then runs
+`apps/broker`, `apps/server` and `apps/web`'s own `dev` scripts concurrently
+(plain `npm run <script> --workspaces` runs workspaces one at a time, which
+never gets past the first one for a long-running dev server, so the root
+script backgrounds each with `&` and `wait`s on all three — this needs a
+POSIX shell, i.e. Linux, macOS, or WSL on Windows, not a native `cmd.exe`).
+`apps/server` and `apps/broker` run straight from TypeScript source via
+`scripts/ts-dev-loader.mjs` (see its header comment) plus Node's own
+`--experimental-transform-types` — no build step, no extra dependency.
 
 Useful scripts, all run from the repo root (see `package.json`):
 

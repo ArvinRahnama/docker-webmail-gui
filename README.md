@@ -4,7 +4,7 @@ A self-hosted web management panel for [`docker-mailserver`](https://github.com/
 
 > ### ⚠️ Project status: under active development — not yet production-ready
 >
-> Version 0.1.0 is in development. Planning and architecture are complete; implementation is in progress. **There is no release yet, and no installation path is supported.** Do not point this at a mail server you care about.
+> Version 0.1.0 is in development. Planning and architecture are complete; implementation is in progress. **There is no tagged release and no published image yet** — installing today means building from a source checkout (see Installation below), and this has not been through the full production audit (`IMPLEMENTATION_PLAN.md` M15). Do not point this at a mail server you care about.
 >
 > Progress is tracked in [`IMPLEMENTATION_PLAN.md`](IMPLEMENTATION_PLAN.md) §3.
 
@@ -101,7 +101,24 @@ Found a vulnerability? See [`SECURITY.md`](SECURITY.md) Part 1 — please use th
 
 ## Installation
 
-**Not yet available.** Installer and production images arrive in milestone M13. When they do, both a scripted install and a manual Compose path will be documented, and the scripted path will use checksum verification rather than piping a remote script straight into a shell.
+```sh
+git clone <this repository>
+cd docker-webmail-gui
+./installer/install.sh
+```
+
+Idempotent — re-running it upgrades an existing install in place without
+touching data or regenerating secrets. Prints a one-time bootstrap admin
+credential on a fresh install only. Requires a Linux host with Docker
+Engine and the Compose v2 plugin; a running `docker-mailserver` container
+is not required to install (mail-dependent features report `Unknown` until
+one is found), but is what makes the panel useful. Full detail, including
+hardening, uninstall, and — honestly — what is and isn't verified where,
+lives in [`docs/docker.md`](docs/docker.md). No pre-built images are
+published yet, so this is a source build (Docker builds it; Node.js on the
+host is not required for this path). A published-image install and a
+checksum-verified remote-script path both remain future work — see that
+file's own §2 and §6.
 
 ## Configuration
 
@@ -128,7 +145,7 @@ See [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
 ## Testing
 
-Unit and fake-driver integration tests run anywhere. Integration tests against a real Docker daemon and a live `docker-mailserver` container, plus Playwright end-to-end tests, run in CI on Linux. Test fixtures are **captured from real output, never invented** — a fabricated fixture would reintroduce the fake-feature problem one layer below the UI.
+Unit and fake-driver integration tests run anywhere. Playwright end-to-end tests (fake-driver-backed, including a real-browser CSP and accessibility sweep — M12) run in CI on Linux, as does a real install → verify → uninstall cycle against a real Docker daemon (M13, `docs/docker.md` §6). Integration tests against a live `docker-mailserver` container are not yet part of CI — `docs/docker.md` §6 says exactly what is and isn't verified where, rather than leaving it implied. Test fixtures are **captured from real output, never invented** — a fabricated fixture would reintroduce the fake-feature problem one layer below the UI.
 
 ## Contributing
 

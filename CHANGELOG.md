@@ -169,9 +169,53 @@ called out explicitly here.
     version performed, since docker-mailserver does not version its
     on-disk state.
 
+- Packaging and installer (M13): two digest-pinned, multi-stage `node:24-alpine`
+  images (`docker/server/Dockerfile`, `docker/broker/Dockerfile`), a hardened
+  `docker/compose.yaml`, and `installer/install.sh` / `installer/uninstall.sh`.
+  - **The compose file is where the privilege boundary stops being
+    TypeScript and becomes topology.** `broker` holds `/var/run/docker.sock`,
+    publishes nothing, and sits alone on an `internal: true` network with no
+    route to or from the internet; `server` publishes the panel and has no
+    socket on any path. Both run as a non-root fixed-uid user with a
+    read-only root filesystem, `cap_drop: ALL`, `no-new-privileges`, a
+    bounded `pids_limit`, resource limits and bounded log rotation. The
+    broker reaches the socket through the host's own docker-group GID,
+    detected by the installer, never baked into an image.
+  - **Each image asserts the other tier is absent, at build time.** `npm ci`
+    resolves every workspace into one hoisted tree and `npm prune
+    --omit=dev` keeps all of it, so the web-tier image would otherwise ship
+    `dockerode` and the broker image would ship React and `@node-rs/argon2`.
+    Each Dockerfile drops the other tier's workspace before pruning and then
+    fails the build if the dependency reappears — as does a step that strips
+    the compiled unit tests `tsc --build` emits beside every module.
+  - **The installer is idempotent in the sense that actually fails.** Every
+    setting resolves as environment → existing `.env` → default, so a
+    re-install preserves hand-edited settings (and keys the installer does
+    not manage) rather than silently resetting them to defaults; no existing
+    secret is ever regenerated. It also verifies the privilege boundary on
+    the operator's own host after starting the stack, and refuses to report
+    success if the socket landed on the wrong side of it.
+  - **The uninstaller leaves nothing behind by accident.** The default
+    removes containers and networks only; `--purge` (typed confirmation)
+    also removes this project's own volumes and the generated `.env`;
+    `--remove-images` removes the built images; `--remove-mail-server`
+    (its own typed confirmation) stops and removes the mail container and
+    **never a volume**, under any flag. Every run ends by listing what it
+    left on the host, and a second run of anything is a reported no-op.
+  - **Verified against a real Docker daemon in CI, not on the machine that
+    wrote it** (`.github/workflows/installer.yml`): three install →
+    healthy → uninstall cycles, the privilege boundary asserted against
+    live containers, the same-origin SPA topology asserted against the
+    shipped image (including that an unmatched `/api/*` path still returns
+    the JSON envelope and not the app shell), and idempotency asserted
+    including the hand-edited-`.env` case. `docs/docker.md` §6 states
+    plainly what remains unverified and why.
+
 ### Notes
 
-- No release has been published yet and no installation path is supported.
+- No release has been published yet and no image is published to any
+  registry. Installing today means building from a source checkout with
+  `installer/install.sh` (`docs/docker.md`); the production audit is M15.
   See the project status banner in `README.md`.
 
 [Unreleased]: https://github.com/ArvinRahnama/docker-webmail-gui/commits/main

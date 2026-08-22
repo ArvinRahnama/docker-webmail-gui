@@ -1,11 +1,12 @@
-# Wired up ahead of schedule. Milestone M13 ("Packaging + installer" — see
-# IMPLEMENTATION_PLAN.md §3) is what actually adds the multi-stage Dockerfiles
-# under docker/ (see ARCHITECTURE.md's repository layout). No Dockerfile exists
-# in this repository yet, so this workflow must not fail the build: the
-# discovery step below simply finds nothing, the build matrix is empty, and the
-# job succeeds as a no-op. Once M13 lands a Dockerfile anywhere under docker/,
-# this workflow picks it up automatically. It never pushes an image
-# (push: false) — this is a build-only smoke test, not a release pipeline.
+# Wired up ahead of schedule, before M13 ("Packaging + installer" — see
+# IMPLEMENTATION_PLAN.md §3) landed the multi-stage Dockerfiles this
+# discovers: docker/server/Dockerfile and docker/broker/Dockerfile. Auto-
+# discovery (rather than a hardcoded matrix) means a Dockerfile added
+# anywhere else under docker/ later is picked up with no edit to this
+# file. It never pushes an image (push: false) — a fast build-only smoke
+# test, not a release pipeline. `installer.yml` is the heavier, slower
+# workflow: the actual install -> healthy -> uninstall cycle, twice,
+# against these same two images.
 
 name: Docker
 

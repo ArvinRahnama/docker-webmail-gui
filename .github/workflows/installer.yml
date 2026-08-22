@@ -1,0 +1,351 @@
+# M13's exit criterion, run for real: "Clean-VM install -> healthy ->
+# uninstall, twice (idempotency)" (IMPLEMENTATION_PLAN.md §3). The
+# machine this workflow was authored on has no reachable Docker daemon at
+# all (confirmed directly: the socket exists but the session's user has no
+# permission to use it) — this workflow is deliberately where that
+# verification actually happens, on a real Linux runner with real Docker,
+# rather than being simulated or merely asserted. See docs/docker.md §6
+# for the one-page version of the same point, including what is still
+# *not* covered here.
+#
+# Beyond "does it come up healthy", this asserts three things that are
+# otherwise only claims:
+#
+#   1. The privilege boundary is real in the running containers, not just
+#      in the compose file's intent — the broker holds the socket and
+#      publishes no ports; the server has no Docker socket on any path
+#      and no Docker client library on disk.
+#   2. The same-origin topology M13's `@fastify/static` change introduced
+#      actually works in the shipped image: the SPA is served, a
+#      client-side route still returns the app shell, and an unmatched
+#      `/api/*` path still returns the JSON error envelope rather than
+#      that shell.
+#   3. Re-running the installer is genuinely non-destructive — including
+#      to settings an operator changed by hand after installing, which is
+#      the failure mode a byte-comparison of an untouched `.env` would
+#      never notice.
+
+name: Installer
+
+on:
+  workflow_dispatch: {}
+  push:
+    branches:
+      - main
+    paths:
+      - 'docker/**'
+      - 'installer/**'
+      - 'apps/**'
+      - 'packages/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/installer.yml'
+  pull_request:
+    paths:
+      - 'docker/**'
+      - 'installer/**'
+      - 'apps/**'
+      - 'packages/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/installer.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: installer-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  COMPOSE: docker compose -f docker/compose.yaml --env-file .env
+
+jobs:
+  install-verify-uninstall:
+    name: Install, verify, uninstall (twice)
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Confirm this runner actually has Docker (the whole point of running here)
+        run: |
+          docker version
+          docker compose version
+
+      # A minimal stand-in for docker-mailserver — present *before* the
+      # first install, so install.sh's best-effort network-join runs for
+      # real on every cycle below, not just as an untested code path.
+      # docker-webmail-gui does not deploy docker-mailserver itself
+      # (DMS_CONTAINER_NAME/LABEL, .env.example: "the broker resolves the
+      # mail container's identity itself... from configuration") — this
+      # container only needs to *exist*, named correctly, on some
+      # network, for the broker's name-based resolution
+      # (container-resolver.ts) and install.sh's network-join step to
+      # have something real to find. It is not a real mail server, and
+      # nothing here claims it exercises real DMS integration (Rspamd
+      # reachability, mailbox operations against a live DMS) — that
+      # remains a documented manual/future verification step (see
+      # docs/docker.md §6).
+      - name: Start a placeholder "mailserver" container
+        run: |
+          docker network create dms-placeholder-net
+          docker run -d --name mailserver --network dms-placeholder-net --label com.docker-webmail-gui.role=mail alpine:3.20 sleep infinity
+
+      - name: shellcheck installer/*.sh
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq shellcheck
+          shellcheck --shell=sh installer/install.sh installer/uninstall.sh
+
+      - name: Validate docker/compose.yaml (static config check, no daemon needed)
+        run: |
+          COOKIE_SECRET=placeholder BROKER_SHARED_SECRET=placeholder DOCKER_GID=999 \
+            docker compose -f docker/compose.yaml config >/dev/null
+
+      # The uninstaller has to work with no .env at all — that is the
+      # state `--purge` itself leaves behind, and Compose interpolates
+      # docker/compose.yaml's `${VAR:?...}` required variables even for
+      # `down`. Checked statically here, before anything has been
+      # installed, so a regression shows up as its own failing step rather
+      # than as a confusing teardown failure at the end of a long job.
+      - name: Teardown must not need .env (uninstall.sh's no-.env path)
+        run: |
+          test ! -f .env
+          ./installer/uninstall.sh
+
+      # -----------------------------------------------------------------
+      # Cycle 1 — fresh install, full verification, non-destructive
+      # re-install, default (data-preserving) uninstall.
+      # -----------------------------------------------------------------
+      - name: 'Cycle 1: install'
+        run: ./installer/install.sh
+
+      - name: 'Cycle 1: verify health'
+        run: curl -fsS http://127.0.0.1:3000/api/v1/health | tee /dev/stderr | grep -q '"status":"ok"'
+
+      - name: 'Cycle 1: verify the SPA is served from the same origin as the API'
+        run: |
+          set -eu
+
+          echo "--- GET / must return the built SPA shell ---"
+          curl -fsS http://127.0.0.1:3000/ -o /tmp/index.html
+          grep -q '<div id="root">' /tmp/index.html
+          echo "confirmed: app shell served."
+
+          echo "--- the shell's hashed asset must actually be fetchable ---"
+          ASSET=$(grep -o '/assets/[A-Za-z0-9._-]*\.js' /tmp/index.html | head -n1)
+          test -n "${ASSET}"
+          curl -fsS "http://127.0.0.1:3000${ASSET}" -o /dev/null
+          echo "confirmed: ${ASSET} served."
+
+          echo "--- a client-side route must fall back to the shell, not 404 ---"
+          curl -fsS http://127.0.0.1:3000/mail/domains | grep -q '<div id="root">'
+          echo "confirmed: SPA fallback works for a browser refresh on a client route."
+
+          echo "--- an unmatched /api/ path must still be a JSON 404, never the shell ---"
+          CODE=$(curl -s -o /tmp/api404.json -w '%{http_code}' http://127.0.0.1:3000/api/v1/definitely-not-a-route)
+          cat /tmp/api404.json
+          [ "${CODE}" = "404" ] || { echo "FAIL: expected 404, got ${CODE}"; exit 1; }
+          grep -q '"NOT_FOUND"' /tmp/api404.json
+          # `! grep -q`, never `grep -qv`: -v inverts the *line* match, so it
+          # succeeds as soon as any single line differs, which is not the
+          # question being asked here.
+          ! grep -q '<div id="root">' /tmp/api404.json
+          echo "confirmed: the SPA fallback does not swallow API 404s."
+
+      - name: 'Cycle 1: verify the privilege boundary is real, not just described'
+        run: |
+          set -eu
+          SERVER_CID=$(${COMPOSE} ps -q server)
+          BROKER_CID=$(${COMPOSE} ps -q broker)
+
+          # Every mount destination, not one hardcoded path: the claim is
+          # that the web tier has no Docker socket *anywhere* in its
+          # filesystem, and checking only /var/run/docker.sock would leave
+          # the claim broader than the check.
+          echo "--- server: no Docker socket on any mount path ---"
+          SERVER_MOUNTS=$(docker inspect --format '{{range .Mounts}}{{.Source}}:{{.Destination}} {{end}}' "${SERVER_CID}")
+          echo "server mounts: ${SERVER_MOUNTS}"
+          case "${SERVER_MOUNTS}" in
+            *docker.sock*) echo "FAIL: the server container has a Docker socket mounted"; exit 1 ;;
+          esac
+          docker exec "${SERVER_CID}" sh -c '! test -S /var/run/docker.sock'
+          echo "confirmed absent."
+
+          echo "--- server: no Docker client library in its runtime node_modules ---"
+          docker exec "${SERVER_CID}" sh -c '! test -e node_modules/dockerode && ! test -e node_modules/docker-modem'
+          echo "confirmed absent."
+
+          echo "--- broker: must have the Docker socket ---"
+          docker exec "${BROKER_CID}" test -S /var/run/docker.sock
+
+          echo "--- broker: must publish no ports to the host ---"
+          BROKER_PORTS=$(docker inspect --format '{{json .NetworkSettings.Ports}}' "${BROKER_CID}")
+          echo "broker NetworkSettings.Ports: ${BROKER_PORTS}"
+          case "${BROKER_PORTS}" in
+            *HostPort*) echo "FAIL: broker has a published host port"; exit 1 ;;
+          esac
+
+          echo "--- broker: must not be on the frontend network ---"
+          BROKER_NETS=$(docker inspect --format '{{range $n,$c := .NetworkSettings.Networks}}{{$n}} {{end}}' "${BROKER_CID}")
+          echo "broker networks: ${BROKER_NETS}"
+          case " ${BROKER_NETS} " in
+            *" dwg-frontend "*) echo "FAIL: broker is on the frontend network"; exit 1 ;;
+          esac
+
+          echo "--- broker network itself: must be internal (no route to/from the internet) ---"
+          docker network inspect dwg-broker --format '{{.Internal}}' | grep -qx true
+
+          echo "--- both containers: non-root, read-only rootfs, all capabilities dropped, no-new-privileges, bounded PIDs ---"
+          for cid in "${SERVER_CID}" "${BROKER_CID}"; do
+            docker inspect --format '{{.Config.User}}:{{.HostConfig.ReadonlyRootfs}}:{{.HostConfig.CapDrop}}:{{.HostConfig.SecurityOpt}}:{{.HostConfig.PidsLimit}}' "${cid}"
+            [ "$(docker inspect --format '{{.HostConfig.ReadonlyRootfs}}' "${cid}")" = "true" ]
+            docker inspect --format '{{.HostConfig.CapDrop}}' "${cid}" | grep -qi "\[ALL\]"
+            docker inspect --format '{{.HostConfig.SecurityOpt}}' "${cid}" | grep -qi "no-new-privileges"
+            [ "$(docker inspect --format '{{.HostConfig.PidsLimit}}' "${cid}")" -gt 0 ]
+            USER_ID=$(docker exec "${cid}" id -u)
+            [ "${USER_ID}" != "0" ] || { echo "FAIL: ${cid} is running as root"; exit 1; }
+          done
+          echo "All privilege-boundary assertions passed."
+
+      - name: 'Cycle 1: install again (idempotency — secrets must not change)'
+        run: |
+          set -eu
+          cp .env /tmp/env-before-reinstall
+          ./installer/install.sh
+          if ! diff -q /tmp/env-before-reinstall .env >/dev/null; then
+            echo "FAIL: re-running install.sh changed .env — secrets are not supposed to regenerate on an existing install"
+            diff /tmp/env-before-reinstall .env || true
+            exit 1
+          fi
+          echo "confirmed: .env unchanged across a second install run."
+
+      # An untouched .env surviving a re-install proves less than it
+      # looks: it is also what a script that rewrote every key back to its
+      # *default* would produce. This edits the file the way docs/docker.md
+      # tells an operator to, including a key install.sh does not manage at
+      # all, and then re-installs.
+      - name: 'Cycle 1: install again after hand-editing .env (operator settings must survive)'
+        run: |
+          set -eu
+          sed -i 's/^COOKIE_SECURE=.*/COOKIE_SECURE=false/' .env
+          sed -i 's/^LOG_LEVEL=.*/LOG_LEVEL=debug/' .env
+          sed -i 's/^RSPAMD_PASSWORD=.*/RSPAMD_PASSWORD=an-operator-chosen-value/' .env
+          sed -i 's/^ENABLE_EXEC_CONSOLE=.*/ENABLE_EXEC_CONSOLE=true/' .env
+          printf 'SOME_UNMANAGED_KEY=kept\n' >> .env
+          ./installer/install.sh
+          for expected in 'COOKIE_SECURE=false' 'LOG_LEVEL=debug' \
+                          'RSPAMD_PASSWORD=an-operator-chosen-value' \
+                          'ENABLE_EXEC_CONSOLE=true' 'SOME_UNMANAGED_KEY=kept'; do
+            grep -qx "${expected}" .env || { echo "FAIL: re-installing lost ${expected}"; cat .env; exit 1; }
+          done
+          echo "confirmed: hand-edited settings, including an unmanaged key, survived the upgrade."
+          # Put the security-relevant ones back before the rest of the run.
+          sed -i 's/^COOKIE_SECURE=.*/COOKIE_SECURE=true/' .env
+          sed -i 's/^ENABLE_EXEC_CONSOLE=.*/ENABLE_EXEC_CONSOLE=false/' .env
+          sed -i '/^SOME_UNMANAGED_KEY=/d' .env
+          ./installer/install.sh
+
+      - name: 'Cycle 1: verify health again after the idempotent re-installs'
+        run: curl -fsS http://127.0.0.1:3000/api/v1/health | grep -q '"status":"ok"'
+
+      - name: 'Cycle 1: uninstall (default — GUI only, own data and mail server untouched)'
+        run: ./installer/uninstall.sh
+
+      - name: 'Cycle 1: verify containers and networks are gone, own data volumes are not'
+        run: |
+          set -eu
+          [ -z "$(${COMPOSE} ps -q)" ]
+          docker network inspect dwg-frontend >/dev/null 2>&1 && { echo "FAIL: dwg-frontend still exists"; exit 1; }
+          docker volume inspect dwg-server-data >/dev/null
+          docker volume inspect dwg-server-backups >/dev/null
+          test -f .env
+          docker inspect mailserver >/dev/null
+          echo "confirmed: GUI torn down; own data volumes, .env and the mail server container all survived, as documented."
+
+      - name: 'Cycle 1: uninstall again (idempotency — a second run is a safe no-op, not an error)'
+        run: ./installer/uninstall.sh
+
+      # -----------------------------------------------------------------
+      # Cycle 2 — a full second install -> healthy -> uninstall pass, this
+      # time exercising --purge, --remove-images and --remove-mail-server
+      # for real. The install here is an *upgrade* (cycle 1 deliberately
+      # left .env and the data volumes behind), which is the other half of
+      # the idempotency claim: an uninstall/reinstall round trip recovers
+      # the same install rather than producing a new one.
+      # -----------------------------------------------------------------
+      - name: 'Cycle 2: install (recovers the install cycle 1 left behind)'
+        run: |
+          set -eu
+          cp .env /tmp/env-before-cycle2
+          ./installer/install.sh
+          diff -q /tmp/env-before-cycle2 .env
+          echo "confirmed: the reinstall recovered the previous install's identity, byte for byte."
+
+      - name: 'Cycle 2: verify health'
+        run: curl -fsS http://127.0.0.1:3000/api/v1/health | grep -q '"status":"ok"'
+
+      - name: 'Cycle 2: uninstall --purge --remove-images --remove-mail-server'
+        env:
+          DWG_CONFIRM_PURGE: 'yes'
+          DWG_CONFIRM_REMOVE_MAIL: 'yes'
+        run: ./installer/uninstall.sh --purge --remove-images --remove-mail-server
+
+      - name: 'Cycle 2: verify everything is actually gone this time'
+        run: |
+          set -eu
+          docker volume inspect dwg-server-data >/dev/null 2>&1 && { echo "FAIL: dwg-server-data survived --purge"; exit 1; }
+          docker volume inspect dwg-server-backups >/dev/null 2>&1 && { echo "FAIL: dwg-server-backups survived --purge"; exit 1; }
+          docker inspect mailserver >/dev/null 2>&1 && { echo "FAIL: mailserver container survived --remove-mail-server"; exit 1; }
+          docker image inspect docker-webmail-gui-server:local >/dev/null 2>&1 && { echo "FAIL: the server image survived --remove-images"; exit 1; }
+          docker image inspect docker-webmail-gui-broker:local >/dev/null 2>&1 && { echo "FAIL: the broker image survived --remove-images"; exit 1; }
+          [ ! -f .env ] || { echo "FAIL: .env survived --purge"; exit 1; }
+          echo "--- and the placeholder mail server's network and volumes were never this script's to touch ---"
+          docker network inspect dms-placeholder-net >/dev/null
+          echo "confirmed: --purge, --remove-images and --remove-mail-server each did exactly what they claim, and no more."
+
+      - name: 'Cycle 2: uninstall again after a full purge (no .env left to read)'
+        env:
+          DWG_CONFIRM_PURGE: 'yes'
+          DWG_CONFIRM_REMOVE_MAIL: 'yes'
+        run: ./installer/uninstall.sh --purge --remove-images --remove-mail-server
+
+      # -----------------------------------------------------------------
+      # Cycle 3 — the state a genuinely clean VM starts in is now the
+      # state cycle 2 left behind, so this is the closest thing this
+      # workflow has to a second *clean-VM* install: no .env, no volumes,
+      # no images, no mail server. It must produce a fresh install with a
+      # new bootstrap credential, not an upgrade of something that is gone.
+      # -----------------------------------------------------------------
+      - name: 'Cycle 3: install onto the purged host (must be fresh, not an upgrade)'
+        run: |
+          set -eu
+          # pipefail matters here: without it the pipeline's status is tee's,
+          # so a failed install would be reported as a passing step.
+          set -o pipefail
+          ./installer/install.sh | tee /tmp/install3.log
+          grep -q 'First-time login' /tmp/install3.log
+          ! grep -q 'Existing installation found' /tmp/install3.log
+          echo "confirmed: a post-purge install is a genuinely fresh one."
+
+      - name: 'Cycle 3: verify health'
+        run: curl -fsS http://127.0.0.1:3000/api/v1/health | grep -q '"status":"ok"'
+
+      - name: 'Cycle 3: uninstall --purge'
+        env:
+          DWG_CONFIRM_PURGE: 'yes'
+        run: ./installer/uninstall.sh --purge
+
+      - name: Dump container logs on failure
+        if: failure()
+        run: |
+          if [ -f .env ]; then
+            ${COMPOSE} logs --no-color || true
+          else
+            COOKIE_SECRET=x BROKER_SHARED_SECRET=x DOCKER_GID=0 \
+              docker compose -f docker/compose.yaml logs --no-color || true
+          fi
+          docker ps -a || true
+          docker volume ls || true

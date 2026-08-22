@@ -35,6 +35,25 @@
  *    without an explicit `-y` or `-n` in it.
  */
 import {
+  type ClamdVerb,
+  type DmsAliasAddRequest,
+  type DmsAliasDeleteRequest,
+  type DmsClamdControlRequest,
+  type DmsDkimGenerateRequest,
+  type DmsEmailAddRequest,
+  type DmsEmailDeleteRequest,
+  type DmsEmailRestrictRequest,
+  type DmsEmailUpdateRequest,
+  type DmsFail2banIpRequest,
+  type DmsParams,
+  type DmsQuotaDeleteRequest,
+  type DmsQuotaGetRequest,
+  type DmsQuotaSetRequest,
+  type DmsSieveActivateRequest,
+  type DmsSieveDeactivateRequest,
+  type DmsSieveGetRequest,
+  type DmsSieveListRequest,
+  type DmsSievePutRequest,
   validateAddressForArgv,
   validateDkimKeysize,
   validateDkimSelector,
@@ -43,7 +62,7 @@ import {
   validatePassword,
   validateQuota,
   validateSieveScriptName,
-} from './validators.js';
+} from '@dwg/shared';
 
 export interface DmsCommand {
   readonly argv: readonly string[];
@@ -74,10 +93,7 @@ function passwordStdin(password: string): string {
 // email
 // ---------------------------------------------------------------------------
 
-export interface AddMailboxParams {
-  readonly email: string;
-  readonly password: string;
-}
+export type AddMailboxParams = DmsParams<DmsEmailAddRequest>;
 
 /** `setup email add <EMAIL>` — password via stdin, never argv (★3). */
 export function buildEmailAddCommand(params: AddMailboxParams): CommandResult {
@@ -89,10 +105,7 @@ export function buildEmailAddCommand(params: AddMailboxParams): CommandResult {
   return ok(['setup', 'email', 'add', params.email], passwordStdin(params.password));
 }
 
-export interface UpdateMailboxPasswordParams {
-  readonly email: string;
-  readonly password: string;
-}
+export type UpdateMailboxPasswordParams = DmsParams<DmsEmailUpdateRequest>;
 
 /** `setup email update <EMAIL>` — password via stdin, never argv (★3). */
 export function buildEmailUpdateCommand(params: UpdateMailboxPasswordParams): CommandResult {
@@ -111,12 +124,9 @@ export function buildEmailUpdateCommand(params: UpdateMailboxPasswordParams): Co
  * call this function (★4: with no flag, `setup email del` prompts
  * interactively and would hang a non-interactive exec).
  */
-export type MailDataChoice = 'delete' | 'keep';
+// MailDataChoice is `@dwg/shared`'s enum, shared with the API edge.
 
-export interface DeleteMailboxParams {
-  readonly emails: readonly string[];
-  readonly mailData: MailDataChoice;
-}
+export type DeleteMailboxParams = DmsParams<DmsEmailDeleteRequest>;
 
 /**
  * `setup email del [-y|-n] <EMAIL> [<EMAIL>...]` — the flag is always
@@ -151,15 +161,10 @@ export function buildEmailDeleteCommand(params: DeleteMailboxParams): CommandRes
   return ok(['setup', 'email', 'del', flag, ...params.emails]);
 }
 
-export type RestrictAction = 'add' | 'del' | 'list';
-export type RestrictScope = 'send' | 'receive';
+// RestrictAction/RestrictScope are `@dwg/shared`'s closed enums.
 
-export interface RestrictMailboxParams {
-  readonly action: RestrictAction;
-  readonly scope: RestrictScope;
-  /** Required for `add`/`del`; optional for `list` (lists every restricted address for the scope). */
-  readonly email?: string;
-}
+/** `email` is required for `add`/`del` and absent for `list` — enforced by the builder below, since the schema cannot express "required unless action is list" without a discriminated union per action. */
+export type RestrictMailboxParams = DmsParams<DmsEmailRestrictRequest>;
 
 /** `setup email restrict <add|del|list> <send|receive> [<EMAIL>]` (FEATURE_MATRIX.md §3 — "Restrict sending / receiving", never called "Disable"). */
 export function buildEmailRestrictCommand(params: RestrictMailboxParams): CommandResult {
@@ -191,10 +196,7 @@ export function buildEmailListCommand(): CommandResult {
 // alias
 // ---------------------------------------------------------------------------
 
-export interface AddAliasParams {
-  readonly alias: string;
-  readonly recipient: string;
-}
+export type AddAliasParams = DmsParams<DmsAliasAddRequest>;
 
 /** `setup alias add <EMAIL> <RECIPIENT>` — `alias` may be a catch-all (`@domain`); `recipient` may not (FEATURE_MATRIX.md §4, §5). */
 export function buildAliasAddCommand(params: AddAliasParams): CommandResult {
@@ -206,10 +208,7 @@ export function buildAliasAddCommand(params: AddAliasParams): CommandResult {
   return ok(['setup', 'alias', 'add', params.alias, params.recipient]);
 }
 
-export interface DeleteAliasParams {
-  readonly alias: string;
-  readonly recipient: string;
-}
+export type DeleteAliasParams = DmsParams<DmsAliasDeleteRequest>;
 
 /** `setup alias del <EMAIL> <RECIPIENT>` — removes one recipient (or the whole alias if it was the last one). */
 export function buildAliasDeleteCommand(params: DeleteAliasParams): CommandResult {
@@ -230,10 +229,7 @@ export function buildAliasListCommand(): CommandResult {
 // quota
 // ---------------------------------------------------------------------------
 
-export interface SetQuotaParams {
-  readonly email: string;
-  readonly quota: string;
-}
+export type SetQuotaParams = DmsParams<DmsQuotaSetRequest>;
 
 /**
  * `setup quota set <EMAIL> <QUOTA>`. Upstream's `<QUOTA>` argument is
@@ -251,9 +247,7 @@ export function buildQuotaSetCommand(params: SetQuotaParams): CommandResult {
   return ok(['setup', 'quota', 'set', params.email, params.quota]);
 }
 
-export interface DeleteQuotaParams {
-  readonly email: string;
-}
+export type DeleteQuotaParams = DmsParams<DmsQuotaDeleteRequest>;
 
 /** `setup quota del <EMAIL>` — removes the quota entry (mailbox becomes unlimited). */
 export function buildQuotaDeleteCommand(params: DeleteQuotaParams): CommandResult {
@@ -267,9 +261,7 @@ export function buildQuotaDeleteCommand(params: DeleteQuotaParams): CommandResul
 // doveadm (a read, not a `setup` mutation — see the module comment)
 // ---------------------------------------------------------------------------
 
-export interface DoveadmQuotaGetParams {
-  readonly email: string;
-}
+export type DoveadmQuotaGetParams = DmsParams<DmsQuotaGetRequest>;
 
 /** `doveadm -f json quota get -u <EMAIL>` — live usage, FEATURE_MATRIX.md §7; `quota-usage.ts` parses the result. */
 export function buildDoveadmQuotaGetCommand(params: DoveadmQuotaGetParams): CommandResult {
@@ -283,11 +275,7 @@ export function buildDoveadmQuotaGetCommand(params: DoveadmQuotaGetParams): Comm
 // config dkim
 // ---------------------------------------------------------------------------
 
-export interface ConfigDkimParams {
-  readonly keysize?: number;
-  readonly selector?: string;
-  readonly domains?: readonly string[];
-}
+export type ConfigDkimParams = DmsParams<DmsDkimGenerateRequest>;
 
 /** `setup config dkim [keysize N] [selector NAME] [domain LIST]` (★7). Every argument is optional individually; each is validated when present. */
 export function buildConfigDkimCommand(params: ConfigDkimParams = {}): CommandResult {
@@ -329,9 +317,7 @@ export function buildFail2banListCommand(): CommandResult {
   return ok(['setup', 'fail2ban']);
 }
 
-export interface Fail2banIpParams {
-  readonly ip: string;
-}
+export type Fail2banIpParams = DmsParams<DmsFail2banIpRequest>;
 
 /** `setup fail2ban ban <IP>`. */
 export function buildFail2banBanCommand(params: Fail2banIpParams): CommandResult {
@@ -374,7 +360,7 @@ export function buildFail2banStatusCommand(): CommandResult {
  */
 const CLAMD_SOCKET_PATH = '/var/run/clamav/clamd.ctl';
 
-export type ClamdVerb = 'PING' | 'VERSION' | 'STATS';
+// ClamdVerb is `@dwg/shared`'s closed enum — imported above, not redeclared.
 
 /**
  * Sends one clamd control-socket command and reads the reply, via `socat`
@@ -422,20 +408,11 @@ export function buildClamavLogTailCommand(): CommandResult {
 // "`doveadm`, not `setup`" allowance as `buildDoveadmQuotaGetCommand`.
 // ---------------------------------------------------------------------------
 
-export interface SieveUserParams {
-  readonly user: string;
-}
+export type SieveUserParams = DmsParams<DmsSieveListRequest>;
 
-export interface SieveScriptParams {
-  readonly user: string;
-  readonly name: string;
-}
+export type SieveScriptParams = DmsParams<DmsSieveGetRequest>;
 
-export interface SievePutParams {
-  readonly user: string;
-  readonly name: string;
-  readonly content: string;
-}
+export type SievePutParams = DmsParams<DmsSievePutRequest>;
 
 /** `doveadm -f json sieve list -u <user>` — every stored script name plus which one is active. */
 export function buildSieveListCommand(params: SieveUserParams): CommandResult {
@@ -448,9 +425,9 @@ export function buildSieveListCommand(params: SieveUserParams): CommandResult {
 export function buildSieveGetCommand(params: SieveScriptParams): CommandResult {
   const userError = validateAddressForArgv(params.user);
   if (userError) return err(userError);
-  const nameError = validateSieveScriptName(params.name);
+  const nameError = validateSieveScriptName(params.script);
   if (nameError) return err(nameError);
-  return ok(['doveadm', 'sieve', 'get', '-u', params.user, params.name]);
+  return ok(['doveadm', 'sieve', 'get', '-u', params.user, params.script]);
 }
 
 /**
@@ -465,18 +442,18 @@ export function buildSieveGetCommand(params: SieveScriptParams): CommandResult {
 export function buildSievePutCommand(params: SievePutParams): CommandResult {
   const userError = validateAddressForArgv(params.user);
   if (userError) return err(userError);
-  const nameError = validateSieveScriptName(params.name);
+  const nameError = validateSieveScriptName(params.script);
   if (nameError) return err(nameError);
-  return ok(['doveadm', 'sieve', 'put', '-u', params.user, params.name], params.content);
+  return ok(['doveadm', 'sieve', 'put', '-u', params.user, params.script], params.content);
 }
 
 /** `doveadm sieve activate -u <user> <name>` — makes `name` the one script Dovecot executes at delivery time for `user`. */
 export function buildSieveActivateCommand(params: SieveScriptParams): CommandResult {
   const userError = validateAddressForArgv(params.user);
   if (userError) return err(userError);
-  const nameError = validateSieveScriptName(params.name);
+  const nameError = validateSieveScriptName(params.script);
   if (nameError) return err(nameError);
-  return ok(['doveadm', 'sieve', 'activate', '-u', params.user, params.name]);
+  return ok(['doveadm', 'sieve', 'activate', '-u', params.user, params.script]);
 }
 
 /** `doveadm sieve deactivate -u <user>` — takes no script name; deactivates whichever script is currently active, leaving every stored script's content untouched. */

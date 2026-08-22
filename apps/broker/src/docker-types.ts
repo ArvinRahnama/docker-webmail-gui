@@ -35,6 +35,18 @@ export interface RawContainerMount {
   readonly destination: string;
 }
 
+/**
+ * `stdin`, when present, is written to the exec's standard input and the
+ * stream is then closed. This is the only channel a password or a Sieve
+ * script body ever travels over: an argv element is visible in `ps` to
+ * anything else inside the container, which is precisely why
+ * docker-mailserver's own `setup email add` reads its password from a
+ * prompt rather than a flag (`docs/research/01-docker-mailserver.md` ★3).
+ */
+export interface RawExecOptions {
+  readonly stdin?: string;
+}
+
 export interface RawContainerInspect {
   readonly id: string;
   /** Leading `/` already stripped. */
@@ -253,7 +265,11 @@ export interface DockerApi {
    * wrapped in a shell) and must never set `Privileged`
    * (docs/research/02-docker-api-security.md §C.1, §A.4).
    */
-  execContainer(id: string, argv: readonly string[]): Promise<RawExecResult>;
+  execContainer(
+    id: string,
+    argv: readonly string[],
+    options?: RawExecOptions,
+  ): Promise<RawExecResult>;
   /**
    * Streams a `tar` of one absolute path inside the container, untouched —
    * exactly Docker's own `GET /containers/{id}/archive?path=…` response

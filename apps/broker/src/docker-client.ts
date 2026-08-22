@@ -371,8 +371,9 @@ export function createRealDockerApi(socketPath: string): DockerApi {
       await docker.getContainer(id).putArchive(tarStream, { path });
     },
 
-    async execContainer(id, argv): Promise<RawExecResult> {
+    async execContainer(id, argv, options): Promise<RawExecResult> {
       const container = docker.getContainer(id);
+      const stdin = options?.stdin;
       const exec = await container.exec({
         // Spread into a fresh mutable array: `argv` arrives as
         // `readonly string[]` (docker-types.ts), `ExecCreateOptions.Cmd`
@@ -380,13 +381,33 @@ export function createRealDockerApi(socketPath: string): DockerApi {
         Cmd: [...argv],
         AttachStdout: true,
         AttachStderr: true,
+        // Only attached when there is something to write. An exec with
+        // stdin attached and never closed would hang the command waiting
+        // for input that is not coming — the exact failure mode
+        // `setup email del` has without an explicit -y/-n.
+        ...(stdin === undefined ? {} : { AttachStdin: true }),
         // Never a PTY: keeps the stream in the documented multiplexed
         // format (§A.2) `stream-demux.ts` already decodes, and none of
         // this broker's fixed diagnostic commands are interactive.
         Tty: false,
         // `Privileged` deliberately omitted — never set (§A.4, §C.1).
       });
-      const stream = await exec.start({ Detach: false, Tty: false });
+      const stream = await exec.start(
+        stdin === undefined
+          ? { Detach: false, Tty: false }
+          : // `hijack` upgrades the connection to a bidirectional stream,
+            // which is what makes the socket writable at all; without it
+            // dockerode returns a read-only response stream.
+            { Detach: false, Tty: false, hijack: true, stdin: true },
+      );
+      if (stdin !== undefined) {
+        // Written before frames are collected, and ended immediately: the
+        // command is waiting on EOF, and `collectExecFrames` below waits
+        // on the stream's own end, so a stdin left open would deadlock the
+        // two against each other.
+        stream.write(stdin);
+        stream.end();
+      }
       const frames = await collectExecFrames(stream);
       const inspection = await exec.inspect();
       return {

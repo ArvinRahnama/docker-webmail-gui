@@ -35,8 +35,8 @@
  *    `commands.test.ts`'s sweep was last extended.
  */
 import { describe, expect, it } from 'vitest';
-import * as commands from '../drivers/dms/commands.js';
-import type { CommandResult } from '../drivers/dms/commands.js';
+import * as commands from './commands.js';
+import type { CommandResult } from './commands.js';
 
 const INJECTION_PAYLOADS = ['; rm -rf /', '$(id)', '`id`', 'a\nb', '-leadinghyphen'] as const;
 
@@ -147,21 +147,21 @@ describe('sieve command builders — injection', () => {
 
     it(`buildSieveGetCommand rejects/inerts "${payload}" as the user`, () => {
       expectRejectedOrInert(
-        commands.buildSieveGetCommand({ user: payload, name: 'ok-script' }),
+        commands.buildSieveGetCommand({ user: payload, script: 'ok-script' }),
         payload,
       );
     });
 
     it(`buildSieveGetCommand rejects/inerts "${payload}" as the script name`, () => {
       expectRejectedOrInert(
-        commands.buildSieveGetCommand({ user: 'admin@example.com', name: payload }),
+        commands.buildSieveGetCommand({ user: 'admin@example.com', script: payload }),
         payload,
       );
     });
 
     it(`buildSievePutCommand rejects/inerts "${payload}" as the user`, () => {
       expectRejectedOrInert(
-        commands.buildSievePutCommand({ user: payload, name: 'ok-script', content: 'keep;' }),
+        commands.buildSievePutCommand({ user: payload, script: 'ok-script', content: 'keep;' }),
         payload,
       );
     });
@@ -170,7 +170,7 @@ describe('sieve command builders — injection', () => {
       expectRejectedOrInert(
         commands.buildSievePutCommand({
           user: 'admin@example.com',
-          name: payload,
+          script: payload,
           content: 'keep;',
         }),
         payload,
@@ -179,14 +179,14 @@ describe('sieve command builders — injection', () => {
 
     it(`buildSieveActivateCommand rejects/inerts "${payload}" as the user`, () => {
       expectRejectedOrInert(
-        commands.buildSieveActivateCommand({ user: payload, name: 'ok-script' }),
+        commands.buildSieveActivateCommand({ user: payload, script: 'ok-script' }),
         payload,
       );
     });
 
     it(`buildSieveActivateCommand rejects/inerts "${payload}" as the script name`, () => {
       expectRejectedOrInert(
-        commands.buildSieveActivateCommand({ user: 'admin@example.com', name: payload }),
+        commands.buildSieveActivateCommand({ user: 'admin@example.com', script: payload }),
         payload,
       );
     });
@@ -205,7 +205,7 @@ describe('sieve command builders — injection', () => {
     for (const payload of INJECTION_PAYLOADS) {
       const result = commands.buildSievePutCommand({
         user: 'admin@example.com',
-        name: 'ok-script',
+        script: 'ok-script',
         content: payload,
       });
       expect(result.ok).toBe(true);

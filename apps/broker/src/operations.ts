@@ -26,6 +26,8 @@
  */
 import type { Logger } from 'pino';
 import {
+  DMS_COMMAND_OPERATIONS,
+  type DmsCommandOperation,
   LOGS_TAIL_DEFAULT,
   computeProtectedVolumeNames,
   type BrokerRequest,
@@ -57,11 +59,22 @@ import {
 import { demuxDockerStream } from './stream-demux.js';
 import { computeContainerStats } from './stats.js';
 import { BrokerError } from './errors.js';
+import {
+  handleDmsCommand,
+  handleDmsDkimRecordRead,
+  handleDmsEnvRead,
+  handleDmsFileRead,
+} from './dms/handlers.js';
 
 export interface OperationDeps {
   readonly docker: DockerApi;
   readonly dms: DmsIdentity;
   readonly logger: Logger;
+}
+
+/** Narrows an operation name to the DMS command set, so the dispatch below can hand the whole group to one handler without losing type safety at the call site. */
+function isDmsCommandOperation(operation: string): operation is DmsCommandOperation {
+  return (DMS_COMMAND_OPERATIONS as readonly string[]).includes(operation);
 }
 
 /** Exported for `archive-routes.ts`, which needs the exact same "resolve the managed container or refuse" behaviour for the two streaming archive routes — those live outside the `/v1/ops` JSON dispatch this file otherwise owns, but must fail closed identically. */
@@ -416,12 +429,31 @@ export async function handleOperation(body: BrokerRequest, deps: OperationDeps):
       return handleLogsFile(body, deps);
     case 'console.exec':
       return handleConsoleExec(body, deps);
+    // M16 — the docker-mailserver vocabulary (`dms/handlers.ts`). The
+    // three state reads are named individually; every command operation
+    // shares one handler, because the thing that differs between them is
+    // which broker-owned builder produces the argv, and that mapping is a
+    // table in `dms/handlers.ts` rather than 26 cases here.
+    case 'dms.file.read':
+      return handleDmsFileRead(body, deps);
+    case 'dms.env.read':
+      return handleDmsEnvRead(deps);
+    case 'dms.dkim.record.read':
+      return handleDmsDkimRecordRead(body, deps);
     default: {
+      if (isDmsCommandOperation(body.operation)) {
+        return handleDmsCommand(
+          body as Extract<BrokerRequest, { operation: DmsCommandOperation }>,
+          deps,
+        );
+      }
       // Exhaustiveness guard, not a passthrough — see the file header.
-      const exhaustive: never = body;
+      // Exhaustiveness still holds: every non-DMS-command operation is a
+      // `case` above, and the guard directly above returns for the DMS
+      // command set, so anything reaching here is genuinely unhandled.
       throw new BrokerError(
         'VALIDATION_FAILED',
-        `Unhandled operation: ${JSON.stringify(exhaustive)}`,
+        `Unhandled operation: ${JSON.stringify(body.operation)}`,
       );
     }
   }

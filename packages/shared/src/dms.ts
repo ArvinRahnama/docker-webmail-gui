@@ -459,3 +459,33 @@ export const DMS_RESPONSE_SCHEMAS = {
     DMS_COMMAND_OPERATIONS.map((operation) => [operation, DmsExecResponseSchema]),
   ) as Record<DmsCommandOperation, typeof DmsExecResponseSchema>),
 } satisfies Record<DmsOperation, z.ZodTypeAny>;
+
+// ---------------------------------------------------------------------------
+// Inferred request types. One source for the broker's argv builders (which
+// receive a parsed body) and the web tier's driver params (which are the
+// same fields minus the discriminator) — so a schema change is a compile
+// error on both sides rather than a silent divergence.
+// ---------------------------------------------------------------------------
+
+export type DmsFileReadRequest = z.infer<typeof DmsFileReadRequestSchema>;
+export type DmsDkimRecordReadRequest = z.infer<typeof DmsDkimRecordReadRequestSchema>;
+export type DmsEmailAddRequest = z.infer<typeof DmsEmailAddRequestSchema>;
+export type DmsEmailUpdateRequest = z.infer<typeof DmsEmailUpdateRequestSchema>;
+export type DmsEmailDeleteRequest = z.infer<typeof DmsEmailDeleteRequestSchema>;
+export type DmsEmailRestrictRequest = z.infer<typeof DmsEmailRestrictRequestSchema>;
+export type DmsAliasAddRequest = z.infer<typeof DmsAliasAddRequestSchema>;
+export type DmsAliasDeleteRequest = z.infer<typeof DmsAliasDeleteRequestSchema>;
+export type DmsQuotaSetRequest = z.infer<typeof DmsQuotaSetRequestSchema>;
+export type DmsQuotaDeleteRequest = z.infer<typeof DmsQuotaDeleteRequestSchema>;
+export type DmsQuotaGetRequest = z.infer<typeof DmsQuotaGetRequestSchema>;
+export type DmsDkimGenerateRequest = z.infer<typeof DmsDkimGenerateRequestSchema>;
+export type DmsFail2banIpRequest = z.infer<typeof DmsFail2banBanRequestSchema>;
+export type DmsClamdControlRequest = z.infer<typeof DmsClamdControlRequestSchema>;
+export type DmsSieveListRequest = z.infer<typeof DmsSieveListRequestSchema>;
+export type DmsSieveGetRequest = z.infer<typeof DmsSieveGetRequestSchema>;
+export type DmsSievePutRequest = z.infer<typeof DmsSievePutRequestSchema>;
+export type DmsSieveActivateRequest = z.infer<typeof DmsSieveActivateRequestSchema>;
+export type DmsSieveDeactivateRequest = z.infer<typeof DmsSieveDeactivateRequestSchema>;
+
+/** The driver-facing shape of an operation body: the same validated fields, without the discriminator the transport needs. */
+export type DmsParams<T extends { operation: string }> = Omit<T, 'operation'>;

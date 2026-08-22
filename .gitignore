@@ -47,6 +47,10 @@ secrets/
 *.db-shm
 /backups/
 
+# Playwright's saved sign-in state (e2e/global-setup.ts writes this fresh on
+# every run) — a live, if synthetic and throwaway, session cookie.
+/e2e/.auth/
+
 # Logs
 logs/
 *.log

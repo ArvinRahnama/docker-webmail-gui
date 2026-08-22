@@ -68,6 +68,18 @@
  * BOOTSTRAP_ADMIN_PASSWORD, exactly as an operator would (`.env.example`),
  * never by seeding a hand-written admin row (AGENT_BRIEF.md working
  * agreement #8's spirit, if not its letter — see e2e/env.ts).
+ *
+ * ---------------------------------------------------------------------
+ * Shared authenticated state (Round B)
+ * ---------------------------------------------------------------------
+ *
+ * `globalSetup` (e2e/global-setup.ts) runs once, after both servers above
+ * are healthy, and produces one signed-in browser storage state that
+ * create-mailbox/create-alias/change-mailbox-password specs load via
+ * `test.use({ storageState: AUTH_STATE_PATH })` — so each starts on the
+ * app shell rather than repeating login.spec.ts's own login+forced-
+ * password-change flow. logout.spec.ts deliberately opts out and signs
+ * itself in; see AUTH_STATE_PATH's doc comment in e2e/env.ts for why.
  */
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -89,6 +101,7 @@ const DATA_DIR = mkdtempSync(join(tmpdir(), 'dwg-e2e-data-'));
 
 export default defineConfig({
   testDir: './e2e',
+  globalSetup: './e2e/global-setup.ts',
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,

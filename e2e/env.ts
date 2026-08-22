@@ -13,6 +13,7 @@
  * the same role `EMAIL`/`PASSWORD` play in
  * `apps/server/src/modules/auth/auth.routes.test.ts`.
  */
+import { fileURLToPath } from 'node:url';
 
 /** Only ever sent to a throwaway server bound to 127.0.0.1 for the lifetime of one test run — see DATA_DIR in playwright.config.ts. */
 export const BOOTSTRAP_ADMIN_EMAIL = 'e2e-admin@example.test';
@@ -38,3 +39,43 @@ export const SERVER_PORT = 3900;
 export const WEB_PORT = 3901;
 export const SERVER_ORIGIN = `http://127.0.0.1:${SERVER_PORT}`;
 export const WEB_ORIGIN = `http://127.0.0.1:${WEB_PORT}`;
+
+// ---------------------------------------------------------------------------
+// Shared authenticated state (Round B)
+// ---------------------------------------------------------------------------
+
+/**
+ * Where `global-setup.ts` writes a signed-in browser storage state (the
+ * session cookie, post first-login password change) for specs that need to
+ * start already authenticated — create-mailbox, create-alias and
+ * change-mailbox-password all just need *some* logged-in admin, not to
+ * re-prove login itself (`login.spec.ts` already does that). A fixed path,
+ * not a per-run `mkdtemp` one: `global-setup.ts` (one process) writes it and
+ * every spec file (each its own worker process) reads the same path back —
+ * a `mkdtemp` directory computed independently in each process would give
+ * each of them a *different* path. Regenerated at the start of every run
+ * (global-setup.ts runs once, before any test, and always overwrites it), so
+ * reusing the path across runs never reuses stale state. Gitignored
+ * (`/e2e/.auth/`) — it holds a live, if synthetic, session cookie.
+ *
+ * `logout.spec.ts` deliberately does NOT use this: it logs itself in, so
+ * that revoking its session by logging out can never race a *different*
+ * spec still relying on this same shared cookie in a parallel worker.
+ */
+export const AUTH_STATE_PATH = fileURLToPath(new URL('./.auth/admin-state.json', import.meta.url));
+
+/**
+ * Test-only mail addresses. Namespaced under a distinct `.test` domain
+ * (RFC 2606 — reserved, never a real registrable TLD) with per-spec local
+ * parts, so no spec can ever collide with another spec's data or with the
+ * fixture accounts `FakeDmsDriver` seeds itself
+ * (`admin@example.com`, `user1@example.com`, `sales@example.com`,
+ * `info@otherdomain.tld`, `user1@domainone.tld` —
+ * `apps/server/src/drivers/dms/fixtures/postfix-accounts.ts`). One shared
+ * `FakeDmsDriver` instance backs the whole run (`buildApp` builds it once
+ * per server process), so every spec's writes land in the same in-memory
+ * state as every other spec's — distinct addresses are what keeps them from
+ * interfering with each other under parallel execution, not test isolation
+ * the harness provides for free.
+ */
+export const E2E_MAIL_DOMAIN = 'dwg-e2e.test';

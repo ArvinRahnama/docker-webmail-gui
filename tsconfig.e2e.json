@@ -20,5 +20,6 @@
     "moduleResolution": "bundler",
     "emitDeclarationOnly": true
   },
-  "include": ["playwright.config.ts", "e2e"]
+  "include": ["playwright.config.ts", "e2e"],
+  "references": [{ "path": "./packages/shared" }]
 }

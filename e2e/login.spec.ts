@@ -25,9 +25,27 @@
  * layering its own (possibly non-uniform) copy on top of it, and the one
  * thing no unit test can see — a real browser completing the real
  * first-login flow (sign in, mandatory password change, app shell).
+ *
+ * The forced-change test drives a *throwaway* admin
+ * (`createThrowawayAdmin`, api-helpers.ts) rather than the bootstrap one
+ * (BOOTSTRAP_ADMIN_EMAIL/PASSWORD) — global-setup.ts is the one place that
+ * consumes the bootstrap admin's own one-time forced change (its header
+ * comment explains why two consumers of one one-time gate would collide).
+ * That's a difference in whose account is under test, not in what's being
+ * tested: forcePasswordChange gates identically for every admin regardless
+ * of how it came to exist, bootstrap-created or admin-created
+ * (`auth.middleware.ts`'s `requireSession`, `auth-guard.tsx`'s
+ * `RequireAuth`), and the bootstrap mechanism itself — env vars in,
+ * exactly one admin out — is exercised for real by global-setup.ts on
+ * every run (it fails the whole suite loudly if that breaks) and unit
+ * tested directly in `apps/server/src/modules/auth/bootstrap.test.ts`.
  */
+import { randomUUID } from 'node:crypto';
 import { expect, test } from '@playwright/test';
-import { BOOTSTRAP_ADMIN_EMAIL, BOOTSTRAP_ADMIN_PASSWORD, NEW_ADMIN_PASSWORD } from './env.js';
+import { createThrowawayAdmin } from './api-helpers.js';
+import { BOOTSTRAP_ADMIN_EMAIL, NEW_ADMIN_PASSWORD } from './env.js';
+
+const THROWAWAY_ADMIN_TEMP_PASSWORD = 'a-throwaway-battery-staple';
 
 // The server's own copy (`apps/server/src/modules/auth/auth.routes.ts`'s
 // `/login` handler) — login-page.tsx renders it verbatim rather than
@@ -40,22 +58,28 @@ test.describe('login', () => {
   test('signs in, completes the mandatory first-login password change, and reaches the app shell', async ({
     page,
   }) => {
+    // A fresh email per run (not per retry-safe by itself, but randomUUID()
+    // makes a same-email CONFLICT on retry a non-issue too): this admin
+    // exists solely to be logged into once, right here.
+    const email = `e2e-forced-change-${randomUUID()}@example.test`;
+    await createThrowawayAdmin(email, THROWAWAY_ADMIN_TEMP_PASSWORD);
+
     await page.goto('/login');
     await expect(page.getByRole('heading', { name: 'Docker Webmail GUI' })).toBeVisible();
 
-    await page.getByLabel('Email', { exact: true }).fill(BOOTSTRAP_ADMIN_EMAIL);
-    await page.getByLabel('Password', { exact: true }).fill(BOOTSTRAP_ADMIN_PASSWORD);
+    await page.getByLabel('Email', { exact: true }).fill(email);
+    await page.getByLabel('Password', { exact: true }).fill(THROWAWAY_ADMIN_TEMP_PASSWORD);
     await page.getByRole('button', { name: 'Sign in' }).click();
 
-    // bootstrapFirstAdmin (apps/server/src/modules/auth/bootstrap.ts) sets
-    // forcePasswordChange unconditionally, so a *correct* first login
-    // lands on /change-password, not the app shell directly
-    // (auth-guard.tsx's RequireAuth) — this is the real behaviour, not a
-    // detour around it.
+    // Every admin-created account starts forcePasswordChange: true
+    // (admins.routes.ts), the same as the bootstrap admin
+    // (bootstrap.ts) — so a *correct* first login lands on
+    // /change-password, not the app shell directly (auth-guard.tsx's
+    // RequireAuth). This is the real behaviour, not a detour around it.
     await expect(page).toHaveURL(/\/change-password$/);
     await expect(page.getByRole('heading', { name: 'Change your password' })).toBeVisible();
 
-    await page.getByLabel('Current password', { exact: true }).fill(BOOTSTRAP_ADMIN_PASSWORD);
+    await page.getByLabel('Current password', { exact: true }).fill(THROWAWAY_ADMIN_TEMP_PASSWORD);
     await page.getByLabel('New password', { exact: true }).fill(NEW_ADMIN_PASSWORD);
     await page.getByLabel('Confirm new password', { exact: true }).fill(NEW_ADMIN_PASSWORD);
     await page.getByRole('button', { name: 'Change password' }).click();
@@ -66,7 +90,7 @@ test.describe('login', () => {
     // real authenticated session, not merely a route match.
     await expect(page).toHaveURL(/\/mail\/domains$/);
     await expect(page.getByRole('navigation', { name: 'Mail' })).toBeVisible();
-    await expect(page.getByText(BOOTSTRAP_ADMIN_EMAIL)).toBeVisible();
+    await expect(page.getByText(email)).toBeVisible();
     await expect(page.getByRole('button', { name: 'Sign out' })).toBeVisible();
   });
 

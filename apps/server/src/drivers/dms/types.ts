@@ -31,6 +31,7 @@ import type { QuotaUsageResult } from './quota-usage.js';
 import type { DkimZoneRecord } from './dkim-record.js';
 import type { Fail2banListResult } from './fail2ban-parser.js';
 import type { SieveScriptSummary } from './sieve-list-parser.js';
+import type { MailQueueEntry } from './parsers/postqueue.js';
 import type {
   AddAliasParams,
   AddMailboxParams,
@@ -110,6 +111,8 @@ export interface DmsDriver {
   sieveList(user: string): Promise<readonly SieveScriptSummary[]>;
   /** `doveadm sieve get -u <user> <name>` — a script's current source. */
   sieveGet(user: string, name: string): Promise<string>;
+  /** `postqueue -j` (M11 — dashboard's "Mail queue" tile, FEATURE_MATRIX.md §1) — every queued message this call could parse, grouping is the caller's job (`parsers/postqueue.ts`'s own doc comment quotes the research doc on why). */
+  getMailQueue(): Promise<ParseResult<MailQueueEntry>>;
 
   // Writes — invoke `setup` via commands.ts builders (Rule 1's other half).
   addMailbox(params: AddMailboxParams): Promise<void>;

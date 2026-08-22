@@ -84,11 +84,14 @@ test.describe('login', () => {
     await page.getByLabel('Confirm new password', { exact: true }).fill(NEW_ADMIN_PASSWORD);
     await page.getByRole('button', { name: 'Change password' }).click();
 
-    // "/" redirects to /mail/domains (App.tsx) inside AppLayout — the app
-    // shell proper. Assert its chrome, not just the URL: nav landmarks,
-    // the signed-in admin's own email, and sign-out — proof this is a
-    // real authenticated session, not merely a route match.
-    await expect(page).toHaveURL(/\/mail\/domains$/);
+    // "/" is the dashboard (M11 — App.tsx no longer redirects it to
+    // /mail/domains) inside AppLayout — the app shell proper. Assert its
+    // chrome, not just the URL: nav landmarks, the signed-in admin's own
+    // email, sign-out, and the dashboard's own heading — proof this is a
+    // real authenticated session landing on the real page, not merely a
+    // route match.
+    await expect(page).toHaveURL(/\/$/);
+    await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible();
     await expect(page.getByRole('navigation', { name: 'Mail' })).toBeVisible();
     await expect(page.getByText(email)).toBeVisible();
     await expect(page.getByRole('button', { name: 'Sign out' })).toBeVisible();

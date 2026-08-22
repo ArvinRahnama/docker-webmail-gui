@@ -149,6 +149,44 @@ function assertNoSecretLikeKeys(details: AuditDetails): void {
   }
 }
 
+/** One row read back from `audit_log` (M11 — the dashboard's "recent activity" row, UX_ARCHITECTURE.md §6.1 Row 4). Deliberately narrower than {@link AuditEvent}: no `ip`/`userAgent`/`details` — those stay on the audit trail itself, not on a summary feed a dashboard renders to whichever admin happens to load it. */
+export interface AuditEventSummary {
+  readonly id: string;
+  readonly occurredAt: string;
+  readonly actorLabel: string;
+  readonly action: AuditAction;
+  readonly target: string | null;
+  readonly result: AuditResult;
+}
+
+interface AuditLogRow {
+  readonly id: string;
+  readonly occurred_at: string;
+  readonly actor_label: string;
+  readonly action: string;
+  readonly target: string | null;
+  readonly result: string;
+}
+
+/** The most recent `limit` audit events, newest first — a plain read against the append-only log (§7.6), no write path of its own. */
+export function listRecentAuditEvents(db: Database, limit: number): readonly AuditEventSummary[] {
+  const rows = db.all<AuditLogRow>(
+    `SELECT id, occurred_at, actor_label, action, target, result
+       FROM audit_log
+      ORDER BY occurred_at DESC
+      LIMIT ?`,
+    [limit],
+  );
+  return rows.map((row) => ({
+    id: row.id,
+    occurredAt: row.occurred_at,
+    actorLabel: row.actor_label,
+    action: row.action as AuditAction,
+    target: row.target,
+    result: row.result as AuditResult,
+  }));
+}
+
 /** Appends one row to `audit_log`. There is no corresponding update/delete export — see the module comment. */
 export function recordAuditEvent(db: Database, event: AuditEvent): void {
   const details: AuditDetails = {

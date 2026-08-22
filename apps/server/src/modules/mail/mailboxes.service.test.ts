@@ -64,6 +64,7 @@ function stubDriver(overrides: Partial<DmsDriver> & { capabilities?: DmsCapabili
     clamavLogTail: overrides.clamavLogTail ?? notImplemented('clamavLogTail'),
     sieveList: overrides.sieveList ?? notImplemented('sieveList'),
     sieveGet: overrides.sieveGet ?? notImplemented('sieveGet'),
+    getMailQueue: overrides.getMailQueue ?? notImplemented('getMailQueue'),
     addMailbox: overrides.addMailbox ?? notImplemented('addMailbox'),
     updateMailboxPassword:
       overrides.updateMailboxPassword ?? notImplemented('updateMailboxPassword'),

@@ -21,3 +21,5 @@ export * from './docker.js';
 export * from './jobs.js';
 export * from './backups.js';
 export * from './config-editor.js';
+export * from './dashboard.js';
+export * from './notifications.js';

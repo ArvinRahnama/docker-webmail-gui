@@ -91,6 +91,12 @@ import { registerConfigRoutes } from './modules/config/config.routes.js';
 import { createRegistryClient, type RegistryClientPort } from './drivers/registry/index.js';
 import { UpdatesService } from './modules/updates/updates.service.js';
 import { registerUpdatesRoutes } from './modules/updates/updates.routes.js';
+import { DashboardService } from './modules/dashboard/dashboard.service.js';
+import { registerDashboardRoutes } from './modules/dashboard/dashboard.routes.js';
+import { NotificationsRepository } from './modules/notifications/notifications.repository.js';
+import { NotificationsService } from './modules/notifications/notifications.service.js';
+import { registerNotificationsRoutes } from './modules/notifications/notifications.routes.js';
+import { startNotificationsEvaluator } from './modules/notifications/notifications-evaluator.js';
 
 export interface BuildAppOptions {
   readonly config: AppConfig;
@@ -150,6 +156,8 @@ export interface BuildAppOptions {
   readonly jobRunner?: JobRunner;
   /** Same override rationale as `brokerClient` — tests that need a specific registry answer (an update available, a mismatched digest, an unreachable registry) pass a hand-built stub instead of the default {@link createRegistryClient} selection (real in production, fixture-backed `FakeRegistryClient` otherwise). */
   readonly registryClient?: RegistryClientPort;
+  /** Same override rationale as `rspamdSampleIntervalMs` — the default is long enough never to fire during a test's lifetime. */
+  readonly notificationsEvaluateIntervalMs?: number;
 }
 
 const REQUEST_ID_HEADER = 'request-id';
@@ -378,6 +386,35 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   const registryClient = options.registryClient ?? createRegistryClient(config, logger);
   const updatesService = new UpdatesService(brokerClient, registryClient, backupsRepository);
 
+  // M11 — dashboard, command palette, global search, notifications
+  // (IMPLEMENTATION_PLAN.md §3). `DashboardService` composes every
+  // service constructed above; it is deliberately built last, after all
+  // of them exist, and is itself the one thing `NotificationsService`'s
+  // evaluator is built on — see that module's own header for why there is
+  // no second reading of "is TLS okay" anywhere in this file.
+  const dashboardService = new DashboardService(
+    dmsDriver,
+    healthService,
+    monitoringService,
+    tlsService,
+    rspamdService,
+    clamavService,
+    fail2banService,
+    backupsRepository,
+    updatesService,
+    db,
+  );
+
+  const notificationsRepository = new NotificationsRepository(db);
+  const notificationsService = new NotificationsService(notificationsRepository);
+  const notificationsEvaluator = startNotificationsEvaluator(
+    { repository: notificationsRepository, dashboardService, logger },
+    options.notificationsEvaluateIntervalMs,
+  );
+  app.addHook('onClose', () => {
+    notificationsEvaluator.stop();
+  });
+
   registerHealthRoute(app);
   await registerAuthRoutes(app, { authService, config, middleware });
   await registerAdminsRoutes(app, { db, admins, middleware });
@@ -406,6 +443,8 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   await registerBackupsRoutes(app, { db, backupsService, middleware });
   await registerConfigRoutes(app, { db, configService, middleware });
   await registerUpdatesRoutes(app, { db, updatesService, middleware });
+  await registerDashboardRoutes(app, { dashboardService, middleware });
+  await registerNotificationsRoutes(app, { notificationsService, middleware });
 
   return app;
 }

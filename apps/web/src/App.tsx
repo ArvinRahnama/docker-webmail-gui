@@ -8,6 +8,7 @@ import { SessionBootstrap } from '@/auth/session-bootstrap';
 import { LoginPage } from '@/auth/login-page';
 import { ChangePasswordPage } from '@/auth/change-password-page';
 import { AppLayout } from '@/layout/app-layout';
+import { DashboardPage } from '@/dashboard/dashboard-page';
 import { DomainsListPage } from '@/mail/domains-list-page';
 import { DomainDetailPage } from '@/mail/domain-detail-page';
 import { MailboxesListPage } from '@/mail/mailboxes-list-page';
@@ -44,6 +45,10 @@ import { ConfigPage } from '@/maintenance/config-page';
  * forced to change their password lands on a standalone page rather than
  * the full app chrome, so the only route out is the one that unblocks
  * them.
+ *
+ * `/` is the dashboard (M11 — IMPLEMENTATION_PLAN.md §3), not a redirect
+ * to `/mail/domains` anymore: the dashboard is the real landing route now
+ * that it exists, matching UX_ARCHITECTURE.md §5.2's recommended tree.
  */
 export default function App() {
   return (
@@ -60,7 +65,7 @@ export default function App() {
               <Route path="/change-password" element={<ChangePasswordPage />} />
 
               <Route element={<AppLayout />}>
-                <Route path="/" element={<Navigate to="/mail/domains" replace />} />
+                <Route path="/" element={<DashboardPage />} />
                 <Route path="/mail/domains" element={<DomainsListPage />} />
                 <Route path="/mail/domains/:domain" element={<DomainDetailPage />} />
                 <Route path="/mail/mailboxes" element={<MailboxesListPage />} />

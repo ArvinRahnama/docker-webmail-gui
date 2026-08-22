@@ -1,20 +1,22 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
-import { LogOut, Mail } from 'lucide-react';
+import { LayoutDashboard, LogOut, Mail } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useLogoutMutation, useSessionQuery } from '@/auth/use-session';
+import { CommandPalette } from '@/command-palette/command-palette';
+import { NotificationBell } from '@/notifications/notification-bell';
 import { cn } from '@/lib/cn';
 
 /**
- * Minimal authenticated app shell: a top nav bar for the mail-management
- * section this milestone ships, plus the session's admin identity and
- * sign-out. **Not** UX_ARCHITECTURE.md §5.3's full app shell (collapsible
- * 248px sidebar, command palette, job tray, global status strip) — that
- * shell spans every section of the product (Security, Docker, Monitoring,
- * Configuration, Maintenance, Administration), none of which exist yet.
- * Building a full sidebar whose other eight nav groups all 404 would be
- * worse than a small, honest nav scoped to what this milestone actually
- * ships. Replacing this with the real shell is tracked as follow-up work,
- * not silently done here.
+ * Authenticated app shell: a top nav bar for every section this product
+ * ships, plus the session's admin identity, sign-out, and — as of M11 —
+ * the three real topbar pieces UX_ARCHITECTURE.md §5.3 calls for that did
+ * not exist until now: the command palette (`⌘K`, doubling as global
+ * search), and the notifications bell. **Still not** §5.3's full app
+ * shell in one other respect: a collapsible 248px sidebar rather than
+ * this flat top nav, and no job tray or global status strip yet — a
+ * visual restructure independent of M11's actual scope (dashboard,
+ * palette, search, notifications), tracked as follow-up work rather than
+ * silently done here.
  */
 const MAIL_NAV_ITEMS = [
   { to: '/mail/domains', label: 'Domains' },
@@ -78,6 +80,24 @@ export function AppLayout() {
             <Mail className="size-5 text-accent" aria-hidden="true" />
             <span>Docker Webmail GUI</span>
           </div>
+
+          <NavLink
+            to="/"
+            end
+            className={({ isActive }) =>
+              cn(
+                'flex items-center gap-1.5 rounded-sm px-3 py-1.5 text-body-sm font-medium transition-colors duration-fast',
+                isActive
+                  ? 'bg-accent-subtle-bg text-accent'
+                  : 'text-text-secondary hover:bg-bg-inset hover:text-text-primary',
+              )
+            }
+          >
+            <LayoutDashboard className="size-3.5" aria-hidden="true" />
+            Dashboard
+          </NavLink>
+
+          <div className="h-5 w-px bg-border-default" aria-hidden="true" />
 
           <nav aria-label="Mail" className="flex items-center gap-1">
             {MAIL_NAV_ITEMS.map((item) => (
@@ -162,6 +182,8 @@ export function AppLayout() {
           </nav>
 
           <div className="ml-auto flex items-center gap-3">
+            <CommandPalette />
+            <NotificationBell />
             {session.data ? (
               <span className="text-body-sm text-text-secondary">{session.data.admin.email}</span>
             ) : null}

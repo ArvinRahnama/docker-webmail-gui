@@ -4,7 +4,9 @@
  * app's components (and Radix's primitives underneath them) touch:
  * `matchMedia` (theme/reduced-motion detection), `ResizeObserver` and
  * `PointerEvent` capture methods (Radix's Dialog/DropdownMenu/Tooltip use
- * pointer capture for outside-click/hover handling). Without these, tests
+ * pointer capture for outside-click/hover handling), and `scrollIntoView`
+ * (`cmdk`'s `Command` scrolls the selected item into view on every
+ * selection change — M11's `command-palette.tsx`). Without these, tests
  * that merely *render* a component using them throw, unrelated to
  * whatever the test actually wants to assert.
  */
@@ -71,6 +73,10 @@ if (typeof window !== 'undefined') {
 
   if (typeof window.scrollTo !== 'function') {
     window.scrollTo = () => {};
+  }
+
+  if (typeof Element.prototype.scrollIntoView !== 'function') {
+    Element.prototype.scrollIntoView = () => {};
   }
 
   // jsdom ships no `EventSource`, so a page that subscribes to a job stream

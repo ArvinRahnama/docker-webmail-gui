@@ -34,7 +34,8 @@ test.describe('logout', () => {
     await page.getByLabel('New password', { exact: true }).fill(NEW_ADMIN_PASSWORD);
     await page.getByLabel('Confirm new password', { exact: true }).fill(NEW_ADMIN_PASSWORD);
     await page.getByRole('button', { name: 'Change password' }).click();
-    await expect(page).toHaveURL(/\/mail\/domains$/);
+    // "/" is the dashboard (M11) — no longer a redirect to /mail/domains.
+    await expect(page).toHaveURL(/\/$/);
 
     await page.getByRole('button', { name: 'Sign out' }).click();
     await expect(page).toHaveURL(/\/login$/);

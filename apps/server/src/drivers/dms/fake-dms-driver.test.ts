@@ -376,4 +376,17 @@ describe('FakeDmsDriver — restrict, DKIM and fail2ban', () => {
     expect(typeof status).toBe('string');
     expect(status).toContain('203.0.113.5');
   });
+
+  it('getMailQueue returns the fixture queue, parsed with no issues', async () => {
+    const driver = new FakeDmsDriver();
+    const result = await driver.getMailQueue();
+    expect(result.issues).toEqual([]);
+    expect(result.entries.length).toBeGreaterThan(0);
+    // FIXTURE_POSTQUEUE_JSON deliberately spans more than one queue name
+    // (postqueue.ts's own doc comment) — assert that directly rather than
+    // just "non-empty", so a fixture regression to a single-queue list
+    // would fail this test.
+    const queueNames = new Set(result.entries.map((entry) => entry.queueName));
+    expect(queueNames.size).toBeGreaterThan(1);
+  });
 });

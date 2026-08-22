@@ -59,6 +59,7 @@ import {
   FIXTURE_POSTFIX_RECEIVE_ACCESS_CF,
   FIXTURE_POSTFIX_SEND_ACCESS_CF,
   FIXTURE_POSTFIX_VIRTUAL_CF,
+  FIXTURE_POSTQUEUE_JSON,
 } from './fixtures/index.js';
 import type { ParseResult } from './parsers/parse-result.js';
 import { parseDovecotQuotas, type DovecotQuotaEntry } from './parsers/dovecot-quotas.js';
@@ -69,6 +70,7 @@ import {
   parsePostfixAccess,
   type PostfixAccessEntry,
 } from './parsers/postfix-access.js';
+import { parsePostqueueJson, type MailQueueEntry } from './parsers/postqueue.js';
 import { parseQuotaToBytes, type QuotaUsageResult } from './quota-usage.js';
 import type { Fail2banListResult } from './fail2ban-parser.js';
 import type { SieveScriptSummary } from './sieve-list-parser.js';
@@ -531,5 +533,10 @@ export class FakeDmsDriver implements DmsDriver {
     for (const [name, state] of scripts) {
       scripts.set(name, { ...state, active: false });
     }
+  }
+
+  /** Static fixture, parsed fresh each call — same "no real backing store to mutate" shape as `volumeRemove` on `FakeBrokerClient` (nothing here ever enqueues or delivers a message). */
+  async getMailQueue(): Promise<ParseResult<MailQueueEntry>> {
+    return parsePostqueueJson(FIXTURE_POSTQUEUE_JSON);
   }
 }

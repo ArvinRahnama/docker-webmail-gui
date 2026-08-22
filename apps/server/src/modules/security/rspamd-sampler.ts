@@ -17,7 +17,7 @@ import { parseRspamdStat } from '../../drivers/rspamd/index.js';
 import type { DmsDriver } from '../../drivers/dms/index.js';
 import type { Database } from '../../platform/db.js';
 import { generateId } from '../../platform/errors.js';
-import type { RspamdTrendResponse } from '@dwg/shared';
+import type { DashboardSpamBlockedTile, RspamdTrendResponse } from '@dwg/shared';
 
 export const RSPAMD_SPAM_METRIC = 'rspamd.spam_count';
 export const RSPAMD_SCANNED_METRIC = 'rspamd.scanned';
@@ -114,4 +114,32 @@ export function getRspamdTrend(
     .map((row) => ({ sampledAt: row.sampled_at, value: row.value }));
 
   return { collecting: false, windowHours, points };
+}
+
+/**
+ * Spam blocked in the trailing `windowHours` (M11 — dashboard Row 2's
+ * "Spam blocked (24h)" tile, UX_ARCHITECTURE.md §6.1). Rspamd's own
+ * `spam_count` from `/stat` is a lifetime counter with no window of its
+ * own — the only honest way to get a 24h figure out of it is a **delta**
+ * between periodic samples, so this reuses {@link getRspamdTrend}'s exact
+ * "collecting" gate (same table, same metric, same 24h-span requirement)
+ * rather than declaring a second one that could disagree with the trend
+ * tile about whether there is "enough" data yet.
+ */
+export function getSpamBlocked24h(
+  db: Database,
+  windowHours: number = 24,
+): DashboardSpamBlockedTile {
+  const trend = getRspamdTrend(db, windowHours);
+  if (trend.collecting || trend.points.length === 0) {
+    return { collecting: true, windowHours, count: null };
+  }
+  const first = trend.points[0] as { sampledAt: string; value: number };
+  const last = trend.points[trend.points.length - 1] as { sampledAt: string; value: number };
+  // A counter reset (Rspamd process restart) would make this negative —
+  // report 0 rather than a nonsensical negative "blocked" count; the
+  // trend chart itself still shows the raw series for anyone who needs to
+  // see the reset.
+  const delta = Math.max(0, last.value - first.value);
+  return { collecting: false, windowHours, count: delta };
 }

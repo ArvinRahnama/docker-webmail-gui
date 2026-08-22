@@ -23,6 +23,7 @@ import {
   buildFail2banStatusCommand,
   buildFail2banUnbanCommand,
   buildFreshclamCommand,
+  buildPostqueueJsonCommand,
   buildQuotaDeleteCommand,
   buildQuotaSetCommand,
   buildSieveActivateCommand,
@@ -59,6 +60,7 @@ import { parsePostfixAccounts, type PostfixAccountEntry } from './parsers/postfi
 import { parsePostfixVirtual, type PostfixVirtualEntry } from './parsers/postfix-virtual.js';
 import { parsePostfixAccess, type PostfixAccessEntry } from './parsers/postfix-access.js';
 import { parseDoveadmQuotaGet, type QuotaUsageResult } from './quota-usage.js';
+import { parsePostqueueJson, type MailQueueEntry } from './parsers/postqueue.js';
 import type { ClamavReadResult, DkimRecordReadResult, DmsDriver } from './types.js';
 
 const RESTRICT_SCOPE_FILE_NAME = {
@@ -275,5 +277,10 @@ export class RealDmsDriver implements DmsDriver {
 
   async sieveDeactivate(params: SieveUserParams): Promise<void> {
     await this.run(buildSieveDeactivateCommand(params));
+  }
+
+  async getMailQueue(): Promise<ParseResult<MailQueueEntry>> {
+    const stdout = await this.runRead(buildPostqueueJsonCommand());
+    return parsePostqueueJson(stdout);
   }
 }

@@ -6,6 +6,7 @@ import { FakeDmsDriver } from '../../drivers/dms/index.js';
 import { FakeRspamdClient } from '../../drivers/rspamd/index.js';
 import {
   getRspamdTrend,
+  getSpamBlocked24h,
   RSPAMD_SCANNED_METRIC,
   RSPAMD_SPAM_METRIC,
   sampleRspamdStatOnce,
@@ -149,5 +150,79 @@ describe('getRspamdTrend', () => {
     const trend = getRspamdTrend(db);
     expect(trend.collecting).toBe(true);
     expect(trend.points).toEqual([]);
+  });
+});
+
+describe('getSpamBlocked24h', () => {
+  it('reports collecting:true, count:null before getRspamdTrend would too — same gate, never a second opinion', () => {
+    const db = freshDb();
+    db.run(
+      'INSERT INTO metric_samples (id, sampled_at, metric, value, tags) VALUES (?, ?, ?, ?, ?)',
+      ['ms_1', new Date().toISOString(), RSPAMD_SPAM_METRIC, 5, null],
+    );
+
+    const tile = getSpamBlocked24h(db);
+    expect(tile).toEqual({ collecting: true, windowHours: 24, count: null });
+  });
+
+  it('reports the delta between the oldest and newest sample inside the window once collecting', () => {
+    const db = freshDb();
+    const now = Date.now();
+    // Spans well past 24h so getRspamdTrend's own gate opens; all three
+    // fall inside the (default 24h) window this function itself uses to
+    // pick first/last, so the delta is 40 - 10 = 30.
+    const samples: ReadonlyArray<[hoursAgo: number, value: number]> = [
+      [23, 10],
+      [12, 25],
+      [0, 40],
+    ];
+    for (const [hoursAgo, value] of samples) {
+      db.run(
+        'INSERT INTO metric_samples (id, sampled_at, metric, value, tags) VALUES (?, ?, ?, ?, ?)',
+        [
+          `ms_${hoursAgo}`,
+          new Date(now - hoursAgo * 3_600_000).toISOString(),
+          RSPAMD_SPAM_METRIC,
+          value,
+          null,
+        ],
+      );
+    }
+    // One more sample outside the 24h window (but old enough to satisfy
+    // getRspamdTrend's "spans at least 24h" collecting gate).
+    db.run(
+      'INSERT INTO metric_samples (id, sampled_at, metric, value, tags) VALUES (?, ?, ?, ?, ?)',
+      ['ms_old', new Date(now - 48 * 3_600_000).toISOString(), RSPAMD_SPAM_METRIC, 999, null],
+    );
+
+    const tile = getSpamBlocked24h(db);
+    expect(tile).toEqual({ collecting: false, windowHours: 24, count: 30 });
+  });
+
+  it('never reports a negative count across a counter reset (Rspamd restart) — floors at zero', () => {
+    const db = freshDb();
+    const now = Date.now();
+    const samples: ReadonlyArray<[hoursAgo: number, value: number]> = [
+      [23, 100],
+      [1, 5], // the counter reset partway through the window
+    ];
+    for (const [hoursAgo, value] of samples) {
+      db.run(
+        'INSERT INTO metric_samples (id, sampled_at, metric, value, tags) VALUES (?, ?, ?, ?, ?)',
+        [
+          `ms_${hoursAgo}`,
+          new Date(now - hoursAgo * 3_600_000).toISOString(),
+          RSPAMD_SPAM_METRIC,
+          value,
+          null,
+        ],
+      );
+    }
+    db.run(
+      'INSERT INTO metric_samples (id, sampled_at, metric, value, tags) VALUES (?, ?, ?, ?, ?)',
+      ['ms_old', new Date(now - 48 * 3_600_000).toISOString(), RSPAMD_SPAM_METRIC, 999, null],
+    );
+
+    expect(getSpamBlocked24h(db).count).toBe(0);
   });
 });

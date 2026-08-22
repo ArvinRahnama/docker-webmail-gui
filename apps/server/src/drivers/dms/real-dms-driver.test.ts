@@ -157,6 +157,36 @@ describe('RealDmsDriver — reads parse files via the exec port, never invoke se
 
     await expect(driver.fail2banList()).rejects.toBeInstanceOf(DmsCommandExecutionError);
   });
+
+  it('getMailQueue runs "postqueue -j" and parses JSON-Lines stdout', async () => {
+    const port = new RecordingExecPort();
+    port.nextExecResult = {
+      stdout: JSON.stringify({
+        queue_name: 'deferred',
+        queue_id: 'abc123',
+        arrival_time: 1,
+        message_size: 10,
+        sender: 'a@example.com',
+        recipients: [{ address: 'b@example.com' }],
+      }),
+      stderr: '',
+      exitCode: 0,
+    };
+    const driver = new RealDmsDriver(port);
+
+    const result = await driver.getMailQueue();
+    expect(result.entries).toHaveLength(1);
+    expect(result.entries[0]?.queueName).toBe('deferred');
+    expect(port.execCalls[0]?.argv).toEqual(['postqueue', '-j']);
+  });
+
+  it('getMailQueue surfaces a non-zero exit as DmsCommandExecutionError', async () => {
+    const port = new RecordingExecPort();
+    port.nextExecResult = { stdout: '', stderr: 'postqueue: not found', exitCode: 127 };
+    const driver = new RealDmsDriver(port);
+
+    await expect(driver.getMailQueue()).rejects.toBeInstanceOf(DmsCommandExecutionError);
+  });
 });
 
 describe('RealDmsDriver — writes validate before ever calling exec', () => {

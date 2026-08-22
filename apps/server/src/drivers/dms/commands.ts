@@ -485,3 +485,15 @@ export function buildSieveDeactivateCommand(params: SieveUserParams): CommandRes
   if (userError) return err(userError);
   return ok(['doveadm', 'sieve', 'deactivate', '-u', params.user]);
 }
+
+// ---------------------------------------------------------------------------
+// postqueue (M11 — dashboard's "Mail queue" tile, FEATURE_MATRIX.md §1) —
+// another fixed, DMS-bundled binary invoked read-only, the same
+// "`doveadm`, not `setup`" allowance `buildDoveadmQuotaGetCommand`
+// documents at the top of this file.
+// ---------------------------------------------------------------------------
+
+/** `postqueue -j` — JSON Lines, one object per queued message (`docs/research/03-mail-stack-components.md` §3). No arguments, so nothing to validate. */
+export function buildPostqueueJsonCommand(): CommandResult {
+  return ok(['postqueue', '-j']);
+}

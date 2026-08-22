@@ -1,0 +1,37 @@
+# Build context for docker/server/Dockerfile and docker/broker/Dockerfile
+# (both built with `-f docker/<tier>/Dockerfile .` from the repo root —
+# see either file's own header). Keeping this list correct matters for
+# more than build speed: `.env`/`.env.*` below is what stops a real
+# secret from ever landing in an image layer.
+
+.git
+.github
+
+node_modules
+**/node_modules
+**/dist
+**/build
+**/coverage
+**/*.tsbuildinfo
+
+# Local, developer- or install-produced state — never baked into an
+# image; the real equivalents are volumes at container runtime
+# (docker/compose.yaml).
+data
+backups
+e2e/.auth
+e2e/dist
+test-results
+playwright-report
+graphify-out
+
+# Secrets. `.env.example` (no real values, tracked in git) is the only
+# env file that should ever reach a build context.
+.env
+.env.*
+!.env.example
+
+installer/*.log
+*.log
+
+.DS_Store

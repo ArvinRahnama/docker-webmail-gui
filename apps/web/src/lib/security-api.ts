@@ -15,6 +15,12 @@ import {
   GenerateDkimRequestSchema,
   PropagationReportSchema,
   PutSieveScriptRequestSchema,
+  RspamdLearnRequestSchema,
+  RspamdStatusResponseSchema,
+  RspamdTrendResponseSchema,
+  RspamdWriteResponseSchema,
+  SetRspamdActionThresholdRequestSchema,
+  SetRspamdSymbolScoreRequestSchema,
   SieveScriptDetailResponseSchema,
   SieveScriptListResponseSchema,
   SieveWriteResponseSchema,
@@ -30,6 +36,8 @@ import {
   type GenerateDkimRequest,
   type PropagationRecordType,
   type PropagationReport,
+  type RspamdStatusResponse,
+  type RspamdTrendResponse,
   type SieveScriptDetailResponse,
   type SieveScriptSummary,
   type TlsStatusResponse,
@@ -215,4 +223,51 @@ export async function updateAutoresponder(
     { method: 'PUT', body },
   );
   return status;
+}
+
+// ---------------------------------------------------------------------------
+// Rspamd (FEATURE_MATRIX.md §13-15) — status/trend are reads; the four
+// write endpoints below are the entire allowlist SECURITY.md §3.13
+// permits. No function here, and no schema behind it, accepts a raw
+// Rspamd config document.
+// ---------------------------------------------------------------------------
+
+export async function fetchRspamdStatus(): Promise<RspamdStatusResponse> {
+  return request('/api/v1/security/rspamd', RspamdStatusResponseSchema, { method: 'GET' });
+}
+
+export async function fetchRspamdTrend(): Promise<RspamdTrendResponse> {
+  return request('/api/v1/security/rspamd/trend', RspamdTrendResponseSchema, { method: 'GET' });
+}
+
+export async function setRspamdActionThreshold(action: string, score: number): Promise<void> {
+  const body = SetRspamdActionThresholdRequestSchema.parse({ action, score });
+  await request('/api/v1/security/rspamd/actions', RspamdWriteResponseSchema, {
+    method: 'POST',
+    body,
+  });
+}
+
+export async function setRspamdSymbolScore(symbol: string, score: number): Promise<void> {
+  const body = SetRspamdSymbolScoreRequestSchema.parse({ symbol, score });
+  await request('/api/v1/security/rspamd/symbols', RspamdWriteResponseSchema, {
+    method: 'POST',
+    body,
+  });
+}
+
+export async function learnRspamdSpam(message: string): Promise<void> {
+  const body = RspamdLearnRequestSchema.parse({ message });
+  await request('/api/v1/security/rspamd/learn-spam', RspamdWriteResponseSchema, {
+    method: 'POST',
+    body,
+  });
+}
+
+export async function learnRspamdHam(message: string): Promise<void> {
+  const body = RspamdLearnRequestSchema.parse({ message });
+  await request('/api/v1/security/rspamd/learn-ham', RspamdWriteResponseSchema, {
+    method: 'POST',
+    body,
+  });
 }

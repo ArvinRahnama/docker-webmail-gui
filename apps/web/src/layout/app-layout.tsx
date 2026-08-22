@@ -23,6 +23,7 @@ const MAIL_NAV_ITEMS = [
   { to: '/mail/mailboxes', label: 'Mailboxes' },
   { to: '/mail/aliases', label: 'Aliases' },
   { to: '/mail/storage', label: 'Storage' },
+  { to: '/mail/queue', label: 'Queue' },
 ] as const;
 
 // M8 — security surface (FEATURE_MATRIX.md §10-§18). Grows alongside
@@ -31,6 +32,7 @@ const MAIL_NAV_ITEMS = [
 const SECURITY_NAV_ITEMS = [
   { to: '/security/email-auth', label: 'Email Auth' },
   { to: '/security/tls', label: 'TLS' },
+  { to: '/security/rspamd', label: 'Rspamd' },
   { to: '/security/clamav', label: 'ClamAV' },
   { to: '/security/fail2ban', label: 'Fail2ban' },
   { to: '/security/sieve', label: 'Sieve' },

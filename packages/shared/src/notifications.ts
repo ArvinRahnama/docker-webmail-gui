@@ -33,7 +33,7 @@ export const NotificationSchema = z.object({
   createdAt: z.string(),
   readAt: z.string().nullable(),
   resolvedAt: z.string().nullable(),
-  /** App-relative path to the page that explains or fixes this, or `null` — same convention as `DashboardSignal.link` (`dashboard.ts`), because some sources (e.g. Rspamd — no page exists yet, see `dashboard.ts`'s header) genuinely have nowhere to point to yet. */
+  /** App-relative path to the page that explains or fixes this, or `null` — same convention as `DashboardSignal.link` (`dashboard.ts`), for a source that genuinely has nowhere to point to (`apps/server/src/modules/notifications/notification-sources.ts` is the closed map deciding this). */
   link: z.string().nullable(),
 });
 export type Notification = z.infer<typeof NotificationSchema>;

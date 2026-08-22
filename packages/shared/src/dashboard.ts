@@ -50,7 +50,7 @@ export const DashboardSignalSchema = z.object({
   label: z.string(),
   state: HealthCheckStateSchema,
   message: z.string().nullable(),
-  /** App-relative path to the page that explains or fixes this, or `null` when this project has nowhere more specific to send the admin than the dashboard itself already is (see this file's header on the Rspamd gap). */
+  /** App-relative path to the page that explains or fixes this, or `null` when this project genuinely has nowhere more specific to send the admin than the dashboard itself already is. */
   link: z.string().nullable(),
   checkedAt: z.string(),
 });

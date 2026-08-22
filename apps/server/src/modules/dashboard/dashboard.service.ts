@@ -139,7 +139,7 @@ export class DashboardService {
     ];
   }
 
-  /** `null` when Rspamd is not enabled on this deployment — omitted, not forced into one of the four states (AGENT_BRIEF.md §1). `link: null` — no `/security/rspamd` page exists yet in this app; see `dashboard.ts`'s header. */
+  /** `null` when Rspamd is not enabled on this deployment — omitted, not forced into one of the four states (AGENT_BRIEF.md §1). `link: '/security/rspamd'` — a real page as of the M11 gap-closing pass (`security/rspamd-page.tsx`). */
   private async collectRspamdSignal(): Promise<DashboardSignal | null> {
     try {
       const status = await this.rspamdService.getStatus();
@@ -149,7 +149,7 @@ export class DashboardService {
         label: 'Rspamd',
         state: status.reachable ? 'healthy' : 'critical',
         message: status.reachable ? null : (status.error ?? 'Rspamd is unreachable.'),
-        link: null,
+        link: '/security/rspamd',
         checkedAt: nowIso(),
       };
     } catch (err) {
@@ -158,7 +158,7 @@ export class DashboardService {
         label: 'Rspamd',
         state: 'unknown',
         message: messageOf(err),
-        link: null,
+        link: '/security/rspamd',
         checkedAt: nowIso(),
       };
     }

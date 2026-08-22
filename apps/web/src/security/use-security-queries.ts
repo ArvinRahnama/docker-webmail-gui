@@ -19,11 +19,17 @@ import {
   fetchDnsPropagation,
   fetchEmailAuthReport,
   fetchFail2banStatus,
+  fetchRspamdStatus,
+  fetchRspamdTrend,
   fetchSieveScript,
   fetchSieveScripts,
   fetchTlsStatus,
   generateDkim,
+  learnRspamdHam,
+  learnRspamdSpam,
   putSieveScript,
+  setRspamdActionThreshold,
+  setRspamdSymbolScore,
   triggerClamavUpdate,
   unbanFail2banIp,
   updateAutoresponder,
@@ -146,6 +152,65 @@ export function useUnbanIpMutation() {
     mutationFn: unbanFail2banIp,
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: fail2banStatusKey });
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Rspamd (FEATURE_MATRIX.md §13-15). The four mutations below are the
+// entire write allowlist SECURITY.md §3.13 permits — no hook here, and no
+// endpoint behind it, accepts a raw Rspamd config document.
+// ---------------------------------------------------------------------------
+
+export const rspamdStatusKey = ['security', 'rspamd'] as const;
+export const rspamdTrendKey = ['security', 'rspamd', 'trend'] as const;
+
+export function useRspamdStatusQuery() {
+  return useQuery({ queryKey: rspamdStatusKey, queryFn: fetchRspamdStatus });
+}
+
+export function useRspamdTrendQuery() {
+  return useQuery({ queryKey: rspamdTrendKey, queryFn: fetchRspamdTrend });
+}
+
+export function useSetRspamdActionThresholdMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ action, score }: { action: string; score: number }) =>
+      setRspamdActionThreshold(action, score),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: rspamdStatusKey });
+    },
+  });
+}
+
+export function useSetRspamdSymbolScoreMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ symbol, score }: { symbol: string; score: number }) =>
+      setRspamdSymbolScore(symbol, score),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: rspamdStatusKey });
+    },
+  });
+}
+
+export function useLearnRspamdSpamMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: learnRspamdSpam,
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: rspamdStatusKey });
+    },
+  });
+}
+
+export function useLearnRspamdHamMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: learnRspamdHam,
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: rspamdStatusKey });
     },
   });
 }

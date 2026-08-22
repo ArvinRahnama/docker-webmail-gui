@@ -40,10 +40,19 @@ describe('NotificationsService.list', () => {
     expect(unreadCount).toBe(1);
   });
 
-  it('maps a source with no real page yet to a null link, never a placeholder', () => {
+  it('maps a dedupe key with no entry in NOTIFICATION_SOURCES to a null link, never a placeholder', () => {
+    // Every real source today has a real page (`notification-sources.ts`)
+    // — this exercises `linkForDedupeKey`'s fallback for a key outside
+    // that closed map, the same honest "nowhere to point yet" case a
+    // future source without a page would hit.
     const { repository, service } = setUp();
     repository.upsertActive(
-      { dedupeKey: 'rspamd', severity: 'critical', title: 'Rspamd unreachable', body: null },
+      {
+        dedupeKey: 'not-a-known-source',
+        severity: 'critical',
+        title: 'Something unreachable',
+        body: null,
+      },
       '2026-08-22T09:00:00.000Z',
     );
 

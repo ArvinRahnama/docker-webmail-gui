@@ -30,6 +30,7 @@ import {
   fetchMailCapabilities,
   fetchMailboxDetail,
   fetchMailboxes,
+  fetchMailQueue,
   fetchQuotaReport,
   restrictMailbox,
   setMailboxQuota,
@@ -236,4 +237,14 @@ export function useDeleteAliasMutation() {
  */
 export function useQuotaReportQuery(enabled = true) {
   return useQuery({ queryKey: quotasKey, queryFn: fetchQuotaReport, enabled });
+}
+
+// ---------------------------------------------------------------------------
+// Mail queue (M11 gap-closing pass — UX_ARCHITECTURE.md §5.2). Read-only.
+// ---------------------------------------------------------------------------
+
+export const mailQueueKey = ['mail', 'queue'] as const;
+
+export function useMailQueueQuery() {
+  return useQuery({ queryKey: mailQueueKey, queryFn: fetchMailQueue });
 }

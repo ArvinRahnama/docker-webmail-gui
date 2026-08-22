@@ -21,6 +21,7 @@ import {
   DomainDetailResponseSchema,
   DomainListResponseSchema,
   MailCapabilitiesResponseSchema,
+  MailQueueListResponseSchema,
   MailboxDetailResponseSchema,
   MailboxListResponseSchema,
   QuotaListResponseSchema,
@@ -43,6 +44,7 @@ import {
   type DomainDetailResponse,
   type DomainListResponse,
   type MailCapabilitiesResponse,
+  type MailQueueListResponse,
   type MailboxDetailResponse,
   type MailboxListResponse,
   type MailboxRestrictScope,
@@ -235,4 +237,14 @@ export async function deleteAlias(id: string): Promise<void> {
 
 export async function fetchQuotaReport(): Promise<QuotaListResponse> {
   return request('/api/v1/quotas', QuotaListResponseSchema, { method: 'GET' });
+}
+
+// ---------------------------------------------------------------------------
+// Mail queue (M11 gap-closing pass — UX_ARCHITECTURE.md §5.2). Read-only;
+// see `@dwg/shared`'s `mail.ts` for why flush/hold/delete have no
+// request schema here.
+// ---------------------------------------------------------------------------
+
+export async function fetchMailQueue(): Promise<MailQueueListResponse> {
+  return request('/api/v1/mail/queue', MailQueueListResponseSchema, { method: 'GET' });
 }

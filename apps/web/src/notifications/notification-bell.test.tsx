@@ -91,16 +91,19 @@ describe('NotificationBell', () => {
     await waitFor(() => expect(markNotificationRead).toHaveBeenCalledWith('ntf_1'));
   });
 
-  it("a notification with no real link to point to (dashboard.ts's own Rspamd gap) renders without becoming a broken link", async () => {
+  it('a notification with no real link to point to renders without becoming a broken link', async () => {
+    // Every real source today has a real page (notification-sources.ts)
+    // — this exercises the generic null-link fallback a future source
+    // without one would hit, not a claim any specific source lacks one.
     vi.mocked(fetchNotifications).mockResolvedValue(
-      makeList([makeNotification({ id: 'ntf_2', title: 'Rspamd unreachable', link: null })]),
+      makeList([makeNotification({ id: 'ntf_2', title: 'Something unreachable', link: null })]),
     );
     const user = userEvent.setup();
     renderBell();
 
     await user.click(await screen.findByRole('button', { name: 'Notifications, 1 unread' }));
-    expect(await screen.findByText('Rspamd unreachable')).toBeInTheDocument();
-    expect(screen.queryByRole('link', { name: /Rspamd unreachable/ })).not.toBeInTheDocument();
+    expect(await screen.findByText('Something unreachable')).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /Something unreachable/ })).not.toBeInTheDocument();
   });
 
   it('Mark all read calls the real API and the dropdown drops the Dismiss affordance once nothing is unread', async () => {

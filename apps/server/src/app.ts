@@ -36,6 +36,8 @@ import { AliasesService } from './modules/mail/aliases.service.js';
 import { registerAliasesRoutes } from './modules/mail/aliases.routes.js';
 import { QuotasService } from './modules/mail/quotas.service.js';
 import { registerQuotasRoutes } from './modules/mail/quotas.routes.js';
+import { QueueService } from './modules/mail/queue.service.js';
+import { registerQueueRoutes } from './modules/mail/queue.routes.js';
 import {
   createDnsLookupPort,
   createDnsLookupPortFactory,
@@ -298,6 +300,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   const mailboxesService = new MailboxesService(dmsDriver);
   const aliasesService = new AliasesService(dmsDriver);
   const quotasService = new QuotasService(dmsDriver);
+  const queueService = new QueueService(dmsDriver);
 
   // M8 — DNS diagnostics (FEATURE_MATRIX.md §10). Mirrors the DMS driver
   // wiring above: one resolver (plus its per-address factory for
@@ -423,6 +426,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   await registerMailboxesRoutes(app, { db, mailboxesService, middleware });
   await registerAliasesRoutes(app, { db, aliasesService, middleware });
   await registerQuotasRoutes(app, { quotasService, middleware });
+  await registerQueueRoutes(app, { queueService, middleware });
   await registerDnsRoutes(app, { dnsService, middleware });
   await registerDkimRoutes(app, { db, dkimService, middleware });
   await registerTlsRoutes(app, { tlsService, middleware });

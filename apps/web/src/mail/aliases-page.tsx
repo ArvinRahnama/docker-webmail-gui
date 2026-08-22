@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import { Plus, Trash2 } from 'lucide-react';
 import type { AliasSummary, AliasType } from '@dwg/shared';
@@ -203,7 +204,15 @@ function AliasFormDialog({ open, onOpenChange, existing }: AliasFormDialogProps)
 export function AliasesPage() {
   const capabilities = useMailCapabilitiesQuery();
   const domainsQuery = useDomainsQuery();
-  const [search, setSearch] = useState('');
+  // Seeded from ?search= when present (M11's command palette links here
+  // this way — aliases have no per-item detail route to deep-link to, so
+  // landing on this list pre-filtered to the match is the honest
+  // equivalent of the mailbox/domain quick-opens' own detail-page jump).
+  // Read once, at mount, deliberately: this is a landing filter, not a
+  // two-way URL-synced state — editing the search box here never rewrites
+  // the address bar, matching every other filter on this page.
+  const [searchParams] = useSearchParams();
+  const [search, setSearch] = useState(() => searchParams.get('search') ?? '');
   const [domainFilter, setDomainFilter] = useState('');
   const [typeFilter, setTypeFilter] = useState<AliasType | ''>('');
   const [createOpen, setCreateOpen] = useState(false);

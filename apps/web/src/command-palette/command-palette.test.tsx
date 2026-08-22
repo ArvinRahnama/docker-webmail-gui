@@ -4,12 +4,13 @@ import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router-dom';
 import { CommandPalette } from './command-palette';
-import { fetchDomains, fetchMailboxes } from '@/lib/mail-api';
+import { fetchAliases, fetchDomains, fetchMailboxes } from '@/lib/mail-api';
 
 vi.mock('@/lib/mail-api', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/mail-api')>()),
   fetchDomains: vi.fn(),
   fetchMailboxes: vi.fn(),
+  fetchAliases: vi.fn(),
 }));
 
 const navigateMock = vi.fn();
@@ -32,6 +33,7 @@ beforeEach(() => {
     total: 0,
     unparseableLines: 0,
   });
+  vi.mocked(fetchAliases).mockResolvedValue({ aliases: [], unparseableLines: 0 });
 });
 
 function renderPalette() {
@@ -135,5 +137,33 @@ describe('CommandPalette — live entity search reuses the real list endpoints',
     const mailboxResult = await screen.findByText('alice@example.com');
     await user.click(mailboxResult);
     expect(navigateMock).toHaveBeenCalledWith('/mail/mailboxes/alice%40example.com');
+  });
+
+  it('finds a real alias and navigates to the aliases list pre-filtered to it — aliases have no per-item detail route to jump to instead', async () => {
+    vi.mocked(fetchAliases).mockResolvedValue({
+      aliases: [
+        {
+          id: 'sales@example.com',
+          address: 'sales@example.com',
+          isCatchAll: false,
+          domain: 'example.com',
+          recipients: ['bob@example.com'],
+          type: 'internal',
+        },
+      ],
+      unparseableLines: 0,
+    });
+    const user = userEvent.setup();
+    renderPalette();
+
+    await user.click(screen.getByRole('button', { name: /Search/ }));
+    await user.type(screen.getByPlaceholderText('Search or jump to…'), 'sales');
+
+    await waitFor(() =>
+      expect(fetchAliases).toHaveBeenCalledWith(expect.objectContaining({ search: 'sales' })),
+    );
+    const aliasResult = await screen.findByText('sales@example.com');
+    await user.click(aliasResult);
+    expect(navigateMock).toHaveBeenCalledWith('/mail/aliases?search=sales%40example.com');
   });
 });

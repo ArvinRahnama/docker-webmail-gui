@@ -14,14 +14,19 @@
  *    list is exhaustive over that file's route table, not a superset of
  *    it. No entry points at a domain create, a mailbox disable, a
  *    container recreate, or an update-apply that performs anything.
- *  - Live entity search covers domains and mailboxes only — both genuine
- *    `GET` reads this app already ships (`fetchDomains`/`fetchMailboxes`,
- *    the same calls the Domains/Mailboxes list pages themselves use).
- *    Alias quick-open is deliberately not included yet: it would be the
- *    same shape of addition, just not built in this pass — a real,
- *    reachable gap, not a silent omission.
+ *  - Live entity search covers domains, mailboxes and aliases — three
+ *    genuine `GET` reads this app already ships (`fetchDomains`/
+ *    `fetchMailboxes`/`fetchAliases`, the same calls the Domains/
+ *    Mailboxes/Aliases list pages themselves use).
  *  - Selecting any result only ever navigates. Nothing in this file calls
  *    a mutation.
+ *  - Aliases have no per-item detail route (`AliasesPage` is a single
+ *    list+inline-edit page — `App.tsx` has no `/mail/aliases/:id`), unlike
+ *    mailboxes/domains, so selecting an alias result navigates to
+ *    `/mail/aliases?search=<address>` instead of a detail page that does
+ *    not exist. `AliasesPage` reads that query param once, at mount, to
+ *    seed its own local search box — a small, honest landing filter, not
+ *    a fabricated deep link.
  */
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -39,7 +44,7 @@ import {
   CommandList,
 } from '@/components/ui/command';
 import { useDomainsQuery } from '@/mail/use-mail-queries';
-import { fetchMailboxes } from '@/lib/mail-api';
+import { fetchAliases, fetchMailboxes } from '@/lib/mail-api';
 
 interface NavEntry {
   readonly to: string;
@@ -61,6 +66,7 @@ const NAV_GROUPS: readonly NavGroup[] = [
       { to: '/mail/mailboxes', label: 'Mailboxes' },
       { to: '/mail/aliases', label: 'Aliases' },
       { to: '/mail/storage', label: 'Storage' },
+      { to: '/mail/queue', label: 'Queue' },
     ],
   },
   {
@@ -68,6 +74,7 @@ const NAV_GROUPS: readonly NavGroup[] = [
     items: [
       { to: '/security/email-auth', label: 'Email Authentication' },
       { to: '/security/tls', label: 'TLS' },
+      { to: '/security/rspamd', label: 'Rspamd' },
       { to: '/security/clamav', label: 'ClamAV' },
       { to: '/security/fail2ban', label: 'Fail2ban' },
       { to: '/security/sieve', label: 'Sieve' },
@@ -160,6 +167,18 @@ export function CommandPalette() {
   });
   const matchedMailboxes = mailboxSearch.data?.mailboxes ?? [];
 
+  // Aliases have no `pageSize` on their list endpoint (`AliasListParams`
+  // — domain/search/type filters only), so the top
+  // `MAX_RESULTS_PER_GROUP` matches are taken client-side instead of
+  // asking the server to cap the result set the way mailboxes' `pageSize`
+  // does.
+  const aliasSearch = useQuery({
+    queryKey: ['command-palette', 'aliases', needle],
+    queryFn: () => fetchAliases({ search: needle }),
+    enabled: open && needle.length > 0,
+  });
+  const matchedAliases = (aliasSearch.data?.aliases ?? []).slice(0, MAX_RESULTS_PER_GROUP);
+
   const matchedNavGroups = useMemo(
     () =>
       NAV_GROUPS.map((group) => ({
@@ -173,7 +192,10 @@ export function CommandPalette() {
   );
 
   const hasAnyResult =
-    matchedDomains.length > 0 || matchedMailboxes.length > 0 || matchedNavGroups.length > 0;
+    matchedDomains.length > 0 ||
+    matchedMailboxes.length > 0 ||
+    matchedAliases.length > 0 ||
+    matchedNavGroups.length > 0;
 
   function go(path: string) {
     setOpen(false);
@@ -240,6 +262,22 @@ export function CommandPalette() {
                       onSelect={() => go(`/mail/mailboxes/${encodeURIComponent(mailbox.email)}`)}
                     >
                       {mailbox.email}
+                    </CommandItem>
+                  ))}
+                </CommandGroup>
+              ) : null}
+
+              {matchedAliases.length > 0 ? (
+                <CommandGroup heading="Aliases">
+                  {matchedAliases.map((alias) => (
+                    <CommandItem
+                      key={alias.id}
+                      value={`alias-${alias.id}`}
+                      onSelect={() =>
+                        go(`/mail/aliases?search=${encodeURIComponent(alias.address)}`)
+                      }
+                    >
+                      {alias.address}
                     </CommandItem>
                   ))}
                 </CommandGroup>

@@ -9,10 +9,11 @@
  * could invent a new dedupe key at runtime from admin-influenced input;
  * every key here is one this module's own author has explicitly seen.
  *
- * `link` mirrors `DashboardSignal.link`'s convention exactly: `null` means
- * this project genuinely has nowhere more specific to send an admin yet
- * (Rspamd — see `dashboard.ts`'s header on the missing `/security/rspamd`
- * page), never a placeholder or a guess.
+ * `link` mirrors `DashboardSignal.link`'s convention exactly: `null` would
+ * mean this project genuinely has nowhere more specific to send an admin
+ * — nothing below is `null` today (every source has a real page as of the
+ * M11 gap-closing pass), but a future source without one keeps that
+ * option honest rather than inventing a placeholder.
  */
 import type { NotificationSeverity } from '@dwg/shared';
 
@@ -37,7 +38,7 @@ export const NOTIFICATION_SOURCES: Readonly<Record<string, NotificationSource>> 
   broker: { severity: 'critical', link: '/docker/health' },
   'managed-container': { severity: 'critical', link: '/docker/health' },
   'docker-daemon': { severity: 'warning', link: '/docker/health' },
-  rspamd: { severity: 'critical', link: null },
+  rspamd: { severity: 'critical', link: '/security/rspamd' },
   clamav: { severity: 'critical', link: '/security/clamav' },
   fail2ban: { severity: 'critical', link: '/security/fail2ban' },
   'tls-cert-expiring': { severity: 'warning', link: '/security/tls' },

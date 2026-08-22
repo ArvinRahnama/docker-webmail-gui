@@ -323,3 +323,46 @@ export const QuotaListResponseSchema = z.object({
   entries: z.array(QuotaReportEntrySchema),
 });
 export type QuotaListResponse = z.infer<typeof QuotaListResponseSchema>;
+
+// ---------------------------------------------------------------------------
+// Mail queue (FEATURE_MATRIX.md §1; M11 gap-closing pass — `/mail/queue`,
+// UX_ARCHITECTURE.md §5.2's "Mail > Queue... a stuck queue is a top-three
+// real incident and postqueue -j gives us genuine per-message data").
+// **Read-only.** `postqueue -f` (force delivery) and `postsuper`
+// (requeue/hold/release/delete) are real, documented Postfix operations
+// this project has not wired up — a named, reachable gap
+// (`UX_ARCHITECTURE.md` §5.2), not something this schema pretends to
+// support. No request schema exists here for any of them.
+// ---------------------------------------------------------------------------
+
+export const MAIL_QUEUE_NAMES = ['incoming', 'active', 'deferred', 'hold'] as const;
+export type MailQueueName = (typeof MAIL_QUEUE_NAMES)[number];
+export const MailQueueNameSchema = z.enum(MAIL_QUEUE_NAMES);
+
+/**
+ * Deliberately narrow — `queueId`/`arrivalTime`/`messageSizeBytes`/
+ * `sender`/`recipientCount` only, matching exactly what
+ * `drivers/dms/parsers/postqueue.ts` extracts server-side. The full
+ * per-recipient detail (`recipients[].address`/`delay_reason`) belongs to
+ * a queue *management* view with its own confirmation tiers, not this
+ * read-only report.
+ */
+export const MailQueueEntrySchema = z.object({
+  queueName: MailQueueNameSchema,
+  queueId: z.string(),
+  /** Seconds since epoch, `postqueue -j`'s own unit. */
+  arrivalTime: z.number(),
+  messageSizeBytes: z.number().nonnegative(),
+  sender: z.string(),
+  recipientCount: z.number().nonnegative(),
+});
+export type MailQueueEntry = z.infer<typeof MailQueueEntrySchema>;
+
+export const MailQueueListResponseSchema = z.object({
+  entries: z.array(MailQueueEntrySchema),
+  /** Every {@link MAIL_QUEUE_NAMES} key always present, zero-filled — see `drivers/dms/parsers/postqueue.ts`'s `countByQueueName`, which computes this server-side. */
+  byQueue: z.record(MailQueueNameSchema, z.number().nonnegative()),
+  /** Lines `postqueue -j` emitted that could not be parsed — surfaced so this report can say "N loaded, M unreadable" instead of silently under-counting, the same discipline as every other `ParseResult`-backed DMS read. */
+  unparseableLines: z.number().nonnegative(),
+});
+export type MailQueueListResponse = z.infer<typeof MailQueueListResponseSchema>;

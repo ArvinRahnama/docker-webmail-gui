@@ -15,10 +15,12 @@ import { MailboxesListPage } from '@/mail/mailboxes-list-page';
 import { MailboxDetailPage } from '@/mail/mailbox-detail-page';
 import { AliasesPage } from '@/mail/aliases-page';
 import { StoragePage } from '@/mail/storage-page';
+import { QueuePage } from '@/mail/queue-page';
 import { EmailAuthListPage } from '@/security/email-auth-list-page';
 import { EmailAuthDetailPage } from '@/security/email-auth-detail-page';
 import { TlsPage } from '@/security/tls-page';
 import { ClamavPage } from '@/security/clamav-page';
+import { RspamdPage } from '@/security/rspamd-page';
 import { Fail2banPage } from '@/security/fail2ban-page';
 import { SieveHomePage } from '@/security/sieve-home-page';
 import { SieveScriptsPage } from '@/security/sieve-scripts-page';
@@ -72,9 +74,11 @@ export default function App() {
                 <Route path="/mail/mailboxes/:address" element={<MailboxDetailPage />} />
                 <Route path="/mail/aliases" element={<AliasesPage />} />
                 <Route path="/mail/storage" element={<StoragePage />} />
+                <Route path="/mail/queue" element={<QueuePage />} />
                 <Route path="/security/email-auth" element={<EmailAuthListPage />} />
                 <Route path="/security/email-auth/:domain" element={<EmailAuthDetailPage />} />
                 <Route path="/security/tls" element={<TlsPage />} />
+                <Route path="/security/rspamd" element={<RspamdPage />} />
                 <Route path="/security/clamav" element={<ClamavPage />} />
                 <Route path="/security/fail2ban" element={<Fail2banPage />} />
                 <Route path="/security/sieve" element={<SieveHomePage />} />

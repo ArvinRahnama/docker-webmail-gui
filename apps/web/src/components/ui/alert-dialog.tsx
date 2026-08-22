@@ -29,7 +29,16 @@ export const AlertDialogContent = forwardRef<
     <AlertDialogPrimitive.Content
       ref={ref}
       className={cn(
-        'dwg-modal-content fixed left-1/2 top-1/2 z-50 grid w-full max-w-lg -translate-x-1/2 -translate-y-1/2 gap-4 rounded-lg border border-border-default bg-bg-surface p-6 shadow-md',
+        // max-h-[85vh]/overflow-y-auto: found via M12's E2E suite — a
+        // dialog with enough content (the restore confirmation's warning
+        // text, backup-gate checkbox, type-to-confirm input and footer
+        // together) can exceed a real, ordinary browser viewport with no
+        // way to reach the rest, since this element is `fixed` and
+        // centered rather than page-flow content a browser could
+        // scroll to. Every caller gets a scrollable dialog once its own
+        // content is tall enough to need one; nothing changes for a
+        // dialog that already fits.
+        'dwg-modal-content fixed left-1/2 top-1/2 z-50 grid max-h-[85vh] w-full max-w-lg -translate-x-1/2 -translate-y-1/2 gap-4 overflow-y-auto rounded-lg border border-border-default bg-bg-surface p-6 shadow-md',
         className,
       )}
       {...props}

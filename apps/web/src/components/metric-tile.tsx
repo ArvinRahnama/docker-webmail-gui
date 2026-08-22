@@ -51,8 +51,14 @@ export function MetricTile({
       {/* The numeric value is also expressed as one accessible string on
           this element — §7: "Value in aria-label, not just visual" — so a
           screen reader gets the whole reading in one stop rather than
-          piecing together the number, unit and trend arrow separately. */}
-      <div aria-label={accessibleValue}>
+          piecing together the number, unit and trend arrow separately.
+          `role="group"` is required, not decorative: a bare <div> has no
+          role that accepts an accessible name, so `aria-label` alone here
+          is invalid ARIA (axe's aria-prohibited-attr, found in M12's
+          first real-browser accessibility sweep) and screen readers are
+          not obliged to expose it at all without a role that supports
+          naming. */}
+      <div role="group" aria-label={accessibleValue}>
         {unknown ? (
           <UnknownValue />
         ) : (

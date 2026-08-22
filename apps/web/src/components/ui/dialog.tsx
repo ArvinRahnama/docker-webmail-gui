@@ -30,7 +30,14 @@ export const DialogContent = forwardRef<
     <DialogPrimitive.Content
       ref={ref}
       className={cn(
-        'dwg-modal-content fixed left-1/2 top-1/2 z-50 grid w-full max-w-lg -translate-x-1/2 -translate-y-1/2 gap-4 rounded-lg border border-border-default bg-bg-surface p-6 shadow-md',
+        // See alert-dialog.tsx's identical addition for why: a `fixed`,
+        // centered dialog with no height cap can exceed a real viewport
+        // with no way to scroll to the rest of it. The command palette
+        // (command-palette.tsx) overrides `overflow-hidden` itself — its
+        // own `CommandList` owns internal scrolling — and `cn()`'s
+        // tailwind-merge resolves that override correctly since it is
+        // passed after this base string.
+        'dwg-modal-content fixed left-1/2 top-1/2 z-50 grid max-h-[85vh] w-full max-w-lg -translate-x-1/2 -translate-y-1/2 gap-4 overflow-y-auto rounded-lg border border-border-default bg-bg-surface p-6 shadow-md',
         className,
       )}
       {...props}

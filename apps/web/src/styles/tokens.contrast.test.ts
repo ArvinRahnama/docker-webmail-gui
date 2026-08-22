@@ -164,6 +164,21 @@ for (const theme of THEMES) {
   // pairing and one that genuinely ships (Button's default variant).
   pairings.push({ theme, fg: 'accent-fg', bg: 'accent', minRatio: 4.5, tier: 'interactive fg/bg' });
 
+  // Accent text on its own subtle background — the active nav link
+  // (app-layout.tsx), badge.tsx's accent variant, sieve-scripts-page.tsx.
+  // Added in M12 after a real-browser axe sweep
+  // (e2e/security/accessibility.spec.ts) found this exact pairing
+  // failing in light mode at the token values then in tokens.css — this
+  // suite's own pairing list had never included it. Same tier as the one
+  // above: real foreground on its real paired background, >=4.5:1.
+  pairings.push({
+    theme,
+    fg: 'accent',
+    bg: 'accent-subtle-bg',
+    minRatio: 4.5,
+    tier: 'interactive fg/bg',
+  });
+
   // Borders and focus ring: >=3.0:1 against every adjacent surface a card,
   // input or popover can actually sit on. --border-subtle is intentionally
   // excluded — see tokens.css's file header.

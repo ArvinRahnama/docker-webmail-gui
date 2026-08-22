@@ -71,12 +71,22 @@
   --text-muted: oklch(0.555 0.011 265); /* corrected from 0.578 — see file header */
   --text-disabled: oklch(0.7 0.008 265);
 
-  /* Accent (§3.2) */
-  --accent: oklch(0.545 0.175 258);
+  /* Accent (§3.2). L corrected from 0.545 — M12's real-browser axe sweep
+     (e2e/security/accessibility.spec.ts) found --accent as text on
+     --accent-subtle-bg (the active nav link, badges, sieve-scripts-page)
+     at 4.44:1, short of the 4.5:1 tier tokens.contrast.test.ts enforces
+     for this exact pairing — see that file's own "accent text on its own
+     subtle background" pairing, added alongside this fix. 0.52 clears it
+     (4.95:1) and leaves --accent-fg-on-accent (the primary button label)
+     with more margin too (5.48:1, up from 4.92:1), so both tiers improve
+     from the same change. --focus-ring moves with it — the two have
+     always shared one value, and letting only one change would silently
+     un-match a focus ring from the accent color it is meant to echo. */
+  --accent: oklch(0.52 0.175 258);
   --accent-hover: oklch(0.495 0.18 258);
   --accent-fg: oklch(0.99 0 0);
   --accent-subtle-bg: oklch(0.955 0.03 258);
-  --focus-ring: oklch(0.545 0.175 258);
+  --focus-ring: oklch(0.52 0.175 258);
 
   /* Status palette (§3.3) — six states, fg on its paired bg */
   --status-healthy-fg: oklch(0.475 0.135 150);

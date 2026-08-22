@@ -115,6 +115,53 @@ describe('DataTable — sorting', () => {
     expect(firstRowName).toBe('Bob'); // age 24, the smallest
   });
 
+  // TanStack Table v9 requires named sort functions to be registered
+  // explicitly (unlike v8, where 'alphanumeric'/'text' were built in) — see
+  // data-table.tsx's `features` doc comment. Leaving one unregistered
+  // doesn't disable sorting; a header click still reorders rows, just with
+  // table-core's raw `sortFn_basic` (`>`) fallback silently swapped in
+  // instead of the intended one. Both tests below fail without that
+  // registration — case-insensitivity and natural-numeric order are
+  // exactly what a raw comparison gets wrong, and exactly what the
+  // suite's other sort tests (plain, same-case, digit-free names) never
+  // happened to exercise.
+  it('sorts a text column case-insensitively, not by raw character code', async () => {
+    const user = userEvent.setup();
+    const rows: Row[] = [
+      { id: 'x', name: 'Banana', age: 1 },
+      { id: 'y', name: 'apple', age: 2 },
+    ];
+    renderTable({ data: rows });
+
+    const nameHeader = screen.getByRole('columnheader', { name: /name/i });
+    await user.click(within(nameHeader).getByRole('button'));
+
+    const rowEls = screen.getAllByRole('row').slice(1);
+    const firstCell = within(rowEls[0]!).getAllByRole('cell')[0]?.textContent;
+    // Case-insensitive alphabetical: "apple" before "Banana". A raw
+    // character-code comparison would put "Banana" first instead — every
+    // uppercase letter sorts before every lowercase one in UTF-16.
+    expect(firstCell).toBe('apple');
+  });
+
+  it('sorts a mixed alphanumeric column naturally, not lexically (item2 before item10)', async () => {
+    const user = userEvent.setup();
+    const rows: Row[] = [
+      { id: 'x', name: 'item10', age: 1 },
+      { id: 'y', name: 'item2', age: 2 },
+    ];
+    renderTable({ data: rows });
+
+    const nameHeader = screen.getByRole('columnheader', { name: /name/i });
+    await user.click(within(nameHeader).getByRole('button'));
+
+    const rowEls = screen.getAllByRole('row').slice(1);
+    const firstCell = within(rowEls[0]!).getAllByRole('cell')[0]?.textContent;
+    // Natural sort: "item2" before "item10" (2 < 10 as numbers). A lexical
+    // comparison ("1" < "2" as characters) would put "item10" first.
+    expect(firstCell).toBe('item2');
+  });
+
   it('a column with no sortValue renders no sort button and no aria-sort', () => {
     const columns: DataTableColumn<Row>[] = [
       { id: 'name', header: 'Name', cell: (row) => row.name },

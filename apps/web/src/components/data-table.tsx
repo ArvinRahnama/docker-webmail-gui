@@ -6,6 +6,8 @@ import {
   createSortedRowModel,
   rowPaginationFeature,
   rowSortingFeature,
+  sortFn_alphanumeric,
+  sortFn_text,
   tableFeatures,
   useTable,
   type RowData,
@@ -31,12 +33,30 @@ import { cn } from '@/lib/cn';
  * per-render or per-instance) — `tableFeatures()` output does not depend
  * on the row type, so every `DataTable<T>` instance, whatever `T` is,
  * shares it.
+ *
+ * `sortFns` must be registered explicitly in v9 — unlike v8, where
+ * `alphanumeric`/`text`/`basic`/`datetime` were built in and just worked.
+ * Every string-valued column here defaults to `sortFn: 'auto'`
+ * (`rowSortingFeature`'s own column-def default; no column below sets it),
+ * which samples the column's values and picks `'alphanumeric'` for a mixed
+ * text/digit string (most addresses, IDs, and ISO timestamps in this app)
+ * or `'text'` for a pure-alphabetic one — then looks *that name* up in
+ * here. Leaving this empty doesn't disable sorting (`column_getAutoSortFn`
+ * still falls through to `sortFn_basic`, a raw `>` comparison, so a header
+ * click does reorder rows) — it silently swaps in the wrong comparator:
+ * case-sensitive (every "Z" sorts before every "a") and lexical rather
+ * than natural ("item10" sorts before "item2"). Confirmed both ways by two
+ * tests in data-table.test.tsx that fail without this registration and
+ * pass with it — `sortFn_basic` itself needs no entry here; it's
+ * table-core's own hardcoded last-resort, not something `sortFns` looks up
+ * by name.
  */
 const features = tableFeatures({
   rowSortingFeature,
   rowPaginationFeature,
   sortedRowModel: createSortedRowModel(),
   paginatedRowModel: createPaginatedRowModel(),
+  sortFns: { alphanumeric: sortFn_alphanumeric, text: sortFn_text },
 });
 
 export interface DataTableColumn<T extends RowData> {

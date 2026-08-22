@@ -132,7 +132,7 @@ Every threat named in the project brief, with our actual exposure and control. *
 
 ### 3.7 XSS
 
-**Mitigations:** React escapes by default; `dangerouslySetInnerHTML` is banned by lint rule. **Log output is treated as fully untrusted** and rendered as text, never HTML — mail logs contain attacker-influenced content (sender names, subjects), making the log viewer the highest-risk XSS sink in the product. A strict CSP without `unsafe-inline`/`unsafe-eval` is a defence in depth.
+**Mitigations:** React escapes by default; `dangerouslySetInnerHTML` is banned by lint rule. **Log output is treated as fully untrusted** and rendered as text, never HTML — mail logs contain attacker-influenced content (sender names, subjects), making the log viewer the highest-risk XSS sink in the product. A strict CSP is a defence in depth: `script-src` carries no `unsafe-inline`/`unsafe-eval` anywhere, the directive that actually gates arbitrary code execution — §4.2's one exception (`style-src-elem`, for a third-party stylesheet-injection quirk) governs CSS, not script, and is not a relaxation of this control.
 
 ### 3.8 SQL injection
 

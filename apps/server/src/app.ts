@@ -13,7 +13,7 @@ import Fastify, { type FastifyBaseLogger, type FastifyInstance } from 'fastify';
 import fastifyHelmet from '@fastify/helmet';
 import fastifyCookie from '@fastify/cookie';
 import type { Logger } from 'pino';
-import { APP_VERSION, HealthResponseSchema } from '@dwg/shared';
+import { APP_VERSION, buildHelmetCspDirectives, HealthResponseSchema } from '@dwg/shared';
 import type { AppConfig } from './platform/config.js';
 import { AppError, createErrorHandler, generateId } from './platform/errors.js';
 import { createDatabase, type Database } from './platform/db.js';
@@ -165,28 +165,18 @@ export interface BuildAppOptions {
 const REQUEST_ID_HEADER = 'request-id';
 
 /**
- * Security headers (SECURITY.md §4.2). The CSP below matches that
- * section's directives directly. Final tuning against the *built* SPA
- * (e.g. any hashes/nonces Vite output ends up needing) is explicitly
- * IMPLEMENTATION_PLAN.md M12's job, once there is a real frontend bundle
- * to tune it against — this is the strict baseline until then.
+ * Security headers (SECURITY.md §4.2). The CSP directives come from
+ * `@dwg/shared`'s `buildHelmetCspDirectives()` — the one place this
+ * policy is defined, rather than a second hand-copy of SECURITY.md §4.2
+ * that could drift from it. M12 verified this exact policy against the
+ * real, built SPA in a real browser — see `e2e/security/csp.spec.ts` for
+ * the harness and result.
  */
 async function registerSecurityHeaders(app: FastifyInstance, config: AppConfig): Promise<void> {
   await app.register(fastifyHelmet, {
     contentSecurityPolicy: {
       useDefaults: false,
-      directives: {
-        defaultSrc: ["'self'"],
-        scriptSrc: ["'self'"],
-        styleSrc: ["'self'"],
-        imgSrc: ["'self'", 'data:'],
-        fontSrc: ["'self'"],
-        connectSrc: ["'self'"],
-        frameAncestors: ["'none'"],
-        baseUri: ["'none'"],
-        formAction: ["'self'"],
-        objectSrc: ["'none'"],
-      },
+      directives: buildHelmetCspDirectives(),
     },
     xFrameOptions: { action: 'deny' },
     referrerPolicy: { policy: 'no-referrer' },

@@ -23,3 +23,4 @@ export * from './backups.js';
 export * from './config-editor.js';
 export * from './dashboard.js';
 export * from './notifications.js';
+export * from './csp.js';

@@ -23,7 +23,8 @@
     "typecheck": "tsc --build",
     "check:deps": "node scripts/check-dep-consistency.mjs",
     "check:licenses": "node scripts/check-licenses.mjs",
-    "check": "npm run check:deps && npm run lint && npm run format:check && npm run typecheck && npm run test"
+    "check:audit": "npm audit --omit=dev --audit-level=high",
+    "check": "npm run check:deps && npm run check:audit && npm run lint && npm run format:check && npm run typecheck && npm run test"
   },
   "devDependencies": {
     "@cyclonedx/cyclonedx-npm": "^1.19.3",

@@ -28,7 +28,6 @@ describe('loadConfig — defaults', () => {
     expect(config.backupDir).toBe('./backups');
     expect(config.broker.url).toBe('http://broker:4000');
     expect(config.broker.port).toBe(4000);
-    expect(config.dockerSocketPath).toBe('/var/run/docker.sock');
     expect(config.dms.containerName).toBe('mailserver');
     expect(config.dms.containerLabel).toBeNull();
     expect(config.rspamd.url).toBe('http://mailserver:11334');

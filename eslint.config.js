@@ -14,6 +14,54 @@ import globals from 'globals';
  * silenced/downgraded lint rule should not be how that happens.
  */
 
+/**
+ * Shared `no-restricted-imports` `paths` entries banning a shell escape
+ * hatch out of `child_process`, applied everywhere (SECURITY.md §3.2).
+ * Factored out so the apps/server-only block below can extend it with an
+ * additional entry rather than replacing it — flat config resolves the
+ * same rule key from two matching blocks by letting the more specific
+ * block's options win outright (no array merge), so a second
+ * `no-restricted-imports` scoped to `apps/server/**` that did not repeat
+ * these paths would silently stop banning shell exec there.
+ */
+const shellExecRestrictedImportPaths = [
+  {
+    name: 'child_process',
+    importNames: ['exec', 'execSync'],
+    // SECURITY.md §3.2 — argv arrays only, never a shell.
+    message:
+      'exec/execSync run a shell (SECURITY.md §3.2). Import execFile/execFileSync/spawn and pass an argv array.',
+  },
+  {
+    name: 'node:child_process',
+    importNames: ['exec', 'execSync'],
+    message:
+      'exec/execSync run a shell (SECURITY.md §3.2). Import execFile/execFileSync/spawn and pass an argv array.',
+  },
+];
+
+/**
+ * apps/server-only: banning `dockerode`/`docker-modem` at import time is a
+ * stronger, earlier gate than any test could be for the architecture
+ * invariant that the web tier holds no Docker socket and no Docker
+ * vocabulary (AGENT_BRIEF.md §2, ARCHITECTURE.md §2; SECURITY.md Part 5
+ * check 4) — a build-time failure the moment the import is typed, not a
+ * property a test has to remember to assert. Not applied to apps/broker,
+ * which legitimately depends on `dockerode` to hold the socket itself.
+ */
+const dockerClientRestrictedImportPaths = [
+  {
+    name: 'dockerode',
+    message:
+      'apps/server holds no Docker socket and no Docker vocabulary (AGENT_BRIEF.md §2). Talk to the broker over HTTP via BrokerClient instead.',
+  },
+  {
+    name: 'docker-modem',
+    message:
+      'apps/server holds no Docker socket and no Docker vocabulary (AGENT_BRIEF.md §2). Talk to the broker over HTTP via BrokerClient instead.',
+  },
+];
+
 const restrictedSyntaxSecurityRules = [
   {
     // SECURITY.md §3.7 (XSS): "dangerouslySetInnerHTML is banned by lint
@@ -142,26 +190,7 @@ export default [
         },
       ],
       'no-restricted-syntax': ['error', ...restrictedSyntaxSecurityRules],
-      'no-restricted-imports': [
-        'error',
-        {
-          paths: [
-            {
-              name: 'child_process',
-              importNames: ['exec', 'execSync'],
-              // SECURITY.md §3.2 — argv arrays only, never a shell.
-              message:
-                'exec/execSync run a shell (SECURITY.md §3.2). Import execFile/execFileSync/spawn and pass an argv array.',
-            },
-            {
-              name: 'node:child_process',
-              importNames: ['exec', 'execSync'],
-              message:
-                'exec/execSync run a shell (SECURITY.md §3.2). Import execFile/execFileSync/spawn and pass an argv array.',
-            },
-          ],
-        },
-      ],
+      'no-restricted-imports': ['error', { paths: shellExecRestrictedImportPaths }],
     },
   },
 
@@ -190,6 +219,18 @@ export default [
       globals: {
         ...globals.browser,
       },
+    },
+  },
+
+  // SECURITY.md Part 5 check 4 ("no Docker socket reachable from the web
+  // tier"), enforced at build time — see `dockerClientRestrictedImportPaths`.
+  {
+    files: ['apps/server/**/*.{ts,tsx}'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        { paths: [...shellExecRestrictedImportPaths, ...dockerClientRestrictedImportPaths] },
+      ],
     },
   },
 

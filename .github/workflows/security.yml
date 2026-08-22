@@ -32,7 +32,23 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Audit (high and critical)
+      # Scoped to production dependencies: SECURITY.md §3.14's own control
+      # is "multi-stage builds so build tooling never ships" — a
+      # high/critical advisory in a devDependency (the SBOM generator, the
+      # test/build toolchain) never reaches a shipped image, so gating the
+      # build on it would fail CI for risk nobody using this project is
+      # exposed to. `npm run check:audit` mirrors this exact command
+      # locally (M12, SECURITY.md Part 5 check 10).
+      - name: Audit production dependencies (high and critical)
+        run: npm audit --omit=dev --audit-level=high
+
+      # Full-tree audit, devDependencies included: informational only.
+      # Surfaces a build/test-toolchain advisory (e.g. a vitest/vite CVE)
+      # for a human to see without blocking every PR on a risk that never
+      # ships.
+      - name: Audit full dependency tree (informational)
+        if: always()
+        continue-on-error: true
         run: npm audit --audit-level=high
 
   dependency-review:

@@ -160,8 +160,6 @@ const rawEnvSchema = z
     BROKER_SHARED_SECRET: optionalStringVar(),
     BROKER_PORT: portVar(4000),
 
-    DOCKER_SOCKET_PATH: stringVar('/var/run/docker.sock'),
-
     DMS_CONTAINER_NAME: stringVar('mailserver'),
     DMS_CONTAINER_LABEL: optionalStringVar(),
 
@@ -271,8 +269,6 @@ export interface AppConfig {
     readonly sharedSecretIsEphemeral: boolean;
     readonly port: number;
   };
-
-  readonly dockerSocketPath: string;
 
   readonly dms: {
     readonly containerName: string;
@@ -392,7 +388,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       sharedSecretIsEphemeral: brokerSharedSecretIsEphemeral,
       port: data.BROKER_PORT,
     }),
-    dockerSocketPath: data.DOCKER_SOCKET_PATH,
     dms: Object.freeze({
       containerName: data.DMS_CONTAINER_NAME,
       containerLabel: data.DMS_CONTAINER_LABEL,

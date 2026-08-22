@@ -80,6 +80,41 @@
  * app shell rather than repeating login.spec.ts's own login+forced-
  * password-change flow. logout.spec.ts deliberately opts out and signs
  * itself in; see AUTH_STATE_PATH's doc comment in e2e/env.ts for why.
+ *
+ * ---------------------------------------------------------------------
+ * Two projects (Round D)
+ * ---------------------------------------------------------------------
+ *
+ * `FakeBrokerClient.running` (drivers/broker/fake-broker-client.ts) is one
+ * boolean on the single `FakeBrokerClient` instance the whole server
+ * process shares for this run's entire lifetime (`create-broker-client.ts`
+ * picks it once at boot, and both `webServer` entries above start exactly
+ * one server process) — not per-request, per-session or per-spec state.
+ * `restart-container.spec.ts` and `backup-and-restore.spec.ts` both
+ * genuinely need to drive that one boolean through both states (stop it,
+ * observe "exited"; start it, observe "running"; restore additionally
+ * *requires* it stopped and separately needs to observe it *running* to
+ * prove its own refusal gate). Under `fullyParallel: true`'s default local
+ * workers, those two files racing over that shared boolean would make
+ * both flaky in a way no retry fixes, because the failure is a genuine
+ * cross-file data race, not flakiness internal to either test — so this is
+ * fixed structurally rather than with a retry, a timeout or a sleep.
+ *
+ * `chromium-serial` below is a dedicated project, limited to exactly the
+ * two files above via `testMatch` (and excluded from `chromium` via the
+ * mirror-image `testIgnore`, so neither file ever runs twice), with its
+ * own `workers: 1`. Per Playwright's own documented semantics for
+ * `testProject.workers`, that limits how many workers *that project*
+ * consumes, not a lock shared with any other project — which is exactly
+ * why the file split matters as much as the worker limit: `workers: 1` on
+ * a project that still shared `restart-container.spec.ts` with the
+ * default project would do nothing, since the default project could still
+ * run that file concurrently, in its own worker, against
+ * `chromium-serial`'s one worker running the other file — recreating the
+ * exact race one level up. With both files exclusively inside
+ * `chromium-serial` and that project capped at one worker, Playwright can
+ * never schedule them at the same instant, however many workers the
+ * default project (or a future CI worker-count bump) uses.
  */
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -119,7 +154,22 @@ export default defineConfig({
     trace: 'on-first-retry',
   },
 
-  projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
+  projects: [
+    {
+      name: 'chromium',
+      use: { ...devices['Desktop Chrome'] },
+      testIgnore: [/restart-container\.spec\.ts$/, /backup-and-restore\.spec\.ts$/],
+    },
+    {
+      name: 'chromium-serial',
+      use: { ...devices['Desktop Chrome'] },
+      testMatch: [/restart-container\.spec\.ts$/, /backup-and-restore\.spec\.ts$/],
+      // See "Two projects (Round D)" above for why both the file split and
+      // this limit are required together.
+      fullyParallel: false,
+      workers: 1,
+    },
+  ],
 
   webServer: [
     {

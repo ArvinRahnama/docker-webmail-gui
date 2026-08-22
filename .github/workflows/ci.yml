@@ -72,9 +72,11 @@ jobs:
 
       # Browsers are cached by neither `npm ci` nor actions/setup-node —
       # they're downloaded binaries, not an npm dependency — so this is a
-      # separate step. Chromium only: this repository has one project
-      # (playwright.config.ts) and no cross-browser requirement yet.
-      # `--with-deps` additionally installs the OS shared libraries
+      # separate step. Chromium only: both of this repository's Playwright
+      # projects (playwright.config.ts — 'chromium' and the dedicated
+      # 'chromium-serial') use Desktop Chrome, and there's no
+      # cross-browser requirement yet. `--with-deps` additionally installs
+      # the OS shared libraries
       # Chromium needs, which a bare Ubuntu runner doesn't have; a
       # developer's own machine usually already does, which is why this
       # flag isn't part of `npm run test:e2e` itself.

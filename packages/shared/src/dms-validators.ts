@@ -133,7 +133,9 @@ export function validateDkimSelector(value: string): string | null {
 }
 
 const VALID_DKIM_KEYSIZES = [1024, 2048, 4096] as const;
-export type DkimKeysize = (typeof VALID_DKIM_KEYSIZES)[number];
+// The public `DkimKeysize` type lives in `security.ts` (`DkimKeysizeSchema`)
+// and is identical; exporting a second one from here would give the package
+// two names for one concept and an ambiguous re-export from `index.ts`.
 
 /** Validates a DKIM key size — only 1024/2048/4096 are accepted (`docs/research/01-docker-mailserver.md` §7). */
 export function validateDkimKeysize(value: number): string | null {

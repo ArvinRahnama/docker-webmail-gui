@@ -12,6 +12,8 @@ export * from './version.js';
 export * from './errors.js';
 export * from './api.js';
 export * from './auth.js';
+export * from './dms-validators.js';
+export * from './dms.js';
 export * from './broker.js';
 export * from './mail.js';
 export * from './security.js';

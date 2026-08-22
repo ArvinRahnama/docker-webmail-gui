@@ -28,6 +28,13 @@ import { z } from 'zod';
 // Operation enum
 // ---------------------------------------------------------------------------
 
+import {
+  DMS_OPERATIONS,
+  DMS_REQUEST_SCHEMAS,
+  DMS_RESPONSE_SCHEMAS,
+  type DmsOperation,
+} from './dms.js';
+
 export const BROKER_OPERATIONS = [
   'container.list',
   'container.inspect',
@@ -65,6 +72,10 @@ export const BROKER_OPERATIONS = [
   'image.prune',
   'logs.file',
   'console.exec',
+  // The docker-mailserver half (M16 — `dms.ts`). Spread rather than
+  // re-listed: one source for the names, the request schemas and the
+  // response map, so an operation cannot exist in one and not the others.
+  ...DMS_OPERATIONS,
 ] as const;
 
 export type BrokerOperation = (typeof BROKER_OPERATIONS)[number];
@@ -238,6 +249,7 @@ export const BROKER_REQUEST_SCHEMAS = [
   ImagePruneRequestSchema,
   LogsFileRequestSchema,
   ConsoleExecRequestSchema,
+  ...DMS_REQUEST_SCHEMAS,
 ] as const;
 
 /**
@@ -547,6 +559,7 @@ export const BROKER_RESPONSE_SCHEMAS = {
   'image.prune': ImagePruneResponseSchema,
   'logs.file': LogsFileResponseSchema,
   'console.exec': ConsoleExecResponseSchema,
+  ...DMS_RESPONSE_SCHEMAS,
 } satisfies Record<BrokerOperation, z.ZodTypeAny>;
 
 /** The broker's minimal internal error envelope — distinct from `ApiErrorEnvelopeSchema` (`api.ts`), which is the public `/api/v1/*` contract. This one is internal-only, between the server and the broker. */

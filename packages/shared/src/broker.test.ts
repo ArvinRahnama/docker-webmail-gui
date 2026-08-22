@@ -39,6 +39,40 @@ describe('BROKER_OPERATIONS', () => {
       'image.prune',
       'logs.file',
       'console.exec',
+      // M16 — the docker-mailserver vocabulary. Written out here in full
+      // for the same reason as everything above it: growing the set of
+      // things a compromised web tier can ask the privileged tier to do is
+      // always a deliberate edit in this list, never a side effect of
+      // spreading an array from another module.
+      'dms.file.read',
+      'dms.env.read',
+      'dms.dkim.record.read',
+      'dms.email.add',
+      'dms.email.update',
+      'dms.email.del',
+      'dms.email.restrict',
+      'dms.email.list',
+      'dms.alias.add',
+      'dms.alias.del',
+      'dms.alias.list',
+      'dms.quota.set',
+      'dms.quota.del',
+      'dms.quota.get',
+      'dms.dkim.generate',
+      'dms.fail2ban.list',
+      'dms.fail2ban.status',
+      'dms.fail2ban.log',
+      'dms.fail2ban.ban',
+      'dms.fail2ban.unban',
+      'dms.clamd.control',
+      'dms.clamav.update',
+      'dms.clamav.log',
+      'dms.sieve.list',
+      'dms.sieve.get',
+      'dms.sieve.put',
+      'dms.sieve.activate',
+      'dms.sieve.deactivate',
+      'dms.queue.list',
     ];
     expect([...BROKER_OPERATIONS].sort()).toEqual([...expected].sort());
     expect(new Set(BROKER_OPERATIONS).size).toBe(BROKER_OPERATIONS.length);
@@ -291,6 +325,65 @@ describe('BrokerRequestSchema — dangerous Docker fields are structurally impos
     'image.prune': { operation: 'image.prune' },
     'logs.file': { operation: 'logs.file', source: 'mail' },
     'console.exec': { operation: 'console.exec', command: 'postqueue-p' },
+    // M16 — the docker-mailserver vocabulary (`dms.ts`). Same discipline as
+    // the M9 additions above: a symbolic file key, a closed verb enum, and
+    // validated leaf values (an address, a quota, an IP, a script name).
+    // Nothing here is a path, an argv element or a container spec, which is
+    // exactly what the poisoning test below is here to keep true.
+    'dms.file.read': { operation: 'dms.file.read', file: 'postfix-accounts' },
+    'dms.env.read': { operation: 'dms.env.read' },
+    'dms.dkim.record.read': {
+      operation: 'dms.dkim.record.read',
+      domain: 'example.com',
+      selector: 'mail',
+    },
+    'dms.email.add': { operation: 'dms.email.add', email: 'a@example.com', password: 'pw' },
+    'dms.email.update': { operation: 'dms.email.update', email: 'a@example.com', password: 'pw' },
+    'dms.email.del': {
+      operation: 'dms.email.del',
+      emails: ['a@example.com'],
+      mailData: 'keep',
+    },
+    'dms.email.restrict': { operation: 'dms.email.restrict', action: 'list', scope: 'send' },
+    'dms.email.list': { operation: 'dms.email.list' },
+    'dms.alias.add': {
+      operation: 'dms.alias.add',
+      alias: 'a@example.com',
+      recipient: 'b@example.com',
+    },
+    'dms.alias.del': {
+      operation: 'dms.alias.del',
+      alias: 'a@example.com',
+      recipient: 'b@example.com',
+    },
+    'dms.alias.list': { operation: 'dms.alias.list' },
+    'dms.quota.set': { operation: 'dms.quota.set', email: 'a@example.com', quota: '1G' },
+    'dms.quota.del': { operation: 'dms.quota.del', email: 'a@example.com' },
+    'dms.quota.get': { operation: 'dms.quota.get', email: 'a@example.com' },
+    'dms.dkim.generate': { operation: 'dms.dkim.generate' },
+    'dms.fail2ban.list': { operation: 'dms.fail2ban.list' },
+    'dms.fail2ban.status': { operation: 'dms.fail2ban.status' },
+    'dms.fail2ban.log': { operation: 'dms.fail2ban.log' },
+    'dms.fail2ban.ban': { operation: 'dms.fail2ban.ban', ip: '203.0.113.4' },
+    'dms.fail2ban.unban': { operation: 'dms.fail2ban.unban', ip: '203.0.113.4' },
+    'dms.clamd.control': { operation: 'dms.clamd.control', verb: 'PING' },
+    'dms.clamav.update': { operation: 'dms.clamav.update' },
+    'dms.clamav.log': { operation: 'dms.clamav.log' },
+    'dms.sieve.list': { operation: 'dms.sieve.list', user: 'a@example.com' },
+    'dms.sieve.get': { operation: 'dms.sieve.get', user: 'a@example.com', script: 'vacation' },
+    'dms.sieve.put': {
+      operation: 'dms.sieve.put',
+      user: 'a@example.com',
+      script: 'vacation',
+      content: 'keep;',
+    },
+    'dms.sieve.activate': {
+      operation: 'dms.sieve.activate',
+      user: 'a@example.com',
+      script: 'vacation',
+    },
+    'dms.sieve.deactivate': { operation: 'dms.sieve.deactivate', user: 'a@example.com' },
+    'dms.queue.list': { operation: 'dms.queue.list' },
   };
 
   it('the fixture above covers every operation the enum defines, exactly', () => {

@@ -46,18 +46,26 @@ import {
 import { useDomainsQuery } from '@/mail/use-mail-queries';
 import { fetchAliases, fetchMailboxes } from '@/lib/mail-api';
 
-interface NavEntry {
+export interface NavEntry {
   readonly to: string;
   readonly label: string;
 }
 
-interface NavGroup {
+export interface NavGroup {
   readonly heading: string;
   readonly items: readonly NavEntry[];
 }
 
-/** Exhaustive over `App.tsx`'s route table — every list-level (non-`:param`) route, grouped to match the nav bar's own sections (`app-layout.tsx`). */
-const NAV_GROUPS: readonly NavGroup[] = [
+/**
+ * Exhaustive over `App.tsx`'s route table — every list-level (non-
+ * `:param`) route, grouped to match the nav bar's own sections
+ * (`app-layout.tsx`). Exported so `command-palette.route-coverage.test.ts`
+ * can check that claim against `App.tsx` directly instead of trusting
+ * this comment — the claim already drifted false once (Rspamd was
+ * missing here until a later commit added it back), which is exactly the
+ * failure mode a doc comment alone cannot catch.
+ */
+export const NAV_GROUPS: readonly NavGroup[] = [
   { heading: 'Overview', items: [{ to: '/', label: 'Dashboard' }] },
   {
     heading: 'Mail',

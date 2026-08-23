@@ -11,8 +11,8 @@ export { parseFail2banList, type Fail2banListResult } from './fail2ban-parser.js
 export { RealDmsDriver } from './real-dms-driver.js';
 export { FakeDmsDriver } from './fake-dms-driver.js';
 export { createDmsDriver } from './create-dms-driver.js';
-export type { DmsExecPort, DmsExecResult, DmsExecOptions, DmsConfigFileName } from './exec-port.js';
-export { DMS_CONFIG_FILE_NAMES } from './exec-port.js';
+export type { DmsExecPort, DmsCommandRequest } from './exec-port.js';
+export { BrokerDmsExecPort } from './broker-dms-exec-port.js';
 export { DmsCommandValidationError, DmsCommandExecutionError } from './errors.js';
 export {
   type DmsCapabilities,
@@ -27,5 +27,5 @@ export {
   type QuotaUsage,
   type QuotaUsageResult,
 } from './quota-usage.js';
-export * from './commands.js';
+export * from './params.js';
 export * from './parsers/index.js';

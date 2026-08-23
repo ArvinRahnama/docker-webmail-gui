@@ -57,7 +57,7 @@ export class SieveService {
     }
 
     try {
-      await this.dmsDriver.sievePut({ user, name, content });
+      await this.dmsDriver.sievePut({ user, script: name, content });
     } catch (err) {
       if (err instanceof DmsCommandExecutionError) {
         throw new AppError(
@@ -76,7 +76,7 @@ export class SieveService {
     if (!scripts.some((script) => script.name === name)) {
       throw new AppError('NOT_FOUND', `No Sieve script named "${name}" exists for ${user}.`);
     }
-    await this.dmsDriver.sieveActivate({ user, name });
+    await this.dmsDriver.sieveActivate({ user, script: name });
   }
 
   async deactivate(user: string): Promise<void> {

@@ -3,44 +3,43 @@
  * Real in production and whenever `DANGEROUSLY_USE_REAL_DOCKER` is
  * explicitly set in development (unconditionally `false` in production —
  * `AppConfig.isProduction` already guarantees that, same reasoning as the
- * broker's factory); fake otherwise, which is also every case today where
- * no `DmsExecPort` implementation exists to hand `RealDmsDriver` — see
- * `exec-port.ts`'s doc comment.
+ * broker's factory); fake otherwise.
+ *
+ * Until M16 the real branch could not be taken at all: `DmsExecPort` had
+ * no implementation, because implementing it meant adding `exec.run(argv)`
+ * and `file.read(path)` to the broker, and both are the passthrough
+ * AGENT_BRIEF.md §2 forbids. So this function threw, and the server could
+ * not start in production. M16 replaced that port with the `dms.*` named
+ * operations, and {@link BrokerDmsExecPort} is the adapter that speaks
+ * them over the same `BrokerClient` every Docker operation already uses —
+ * so the real branch is now reachable, and the throw is gone.
  */
 import type { Logger } from 'pino';
 import type { AppConfig } from '../../platform/config.js';
+import type { BrokerClient } from '../broker/types.js';
+import { BrokerDmsExecPort } from './broker-dms-exec-port.js';
 import type { DmsExecPort } from './exec-port.js';
 import { FakeDmsDriver } from './fake-dms-driver.js';
 import { RealDmsDriver } from './real-dms-driver.js';
 import type { DmsDriver } from './types.js';
 
 /**
- * `execPort` is optional because most callers today have no
- * `DmsExecPort` to give it (none is wired to the real broker yet).
- * Passing one only matters when `useReal` is also true; in that
- * combination, omitting it is a startup-time configuration error, not a
- * silent fallback to the fake — silently downgrading to fake data in what
- * was configured to be a real/production deployment would be far more
- * dangerous than failing loudly.
+ * `execPort` is an explicit override, used by tests that want to record
+ * what the driver asked for. Normal callers pass `broker` and let this
+ * function build the adapter — which keeps the "which port does the real
+ * driver get" decision in one place rather than at every call site.
  */
 export function createDmsDriver(
   config: AppConfig,
   logger: Logger,
+  broker: BrokerClient,
   execPort?: DmsExecPort,
 ): DmsDriver {
   const useReal = config.isProduction || config.dangerouslyUseRealDocker;
 
   if (useReal) {
-    if (!execPort) {
-      throw new Error(
-        'createDmsDriver: a real DmsExecPort is required because this deployment is configured to ' +
-          'use real drivers, but none was provided. No concrete DmsExecPort adapter exists yet — see ' +
-          "exec-port.ts's doc comment: the broker has no exec.run/file.read operation (M4 deferred " +
-          'both). Wire an adapter before enabling DANGEROUSLY_USE_REAL_DOCKER or running in production.',
-      );
-    }
-    logger.info('DMS driver: RealDmsDriver');
-    return new RealDmsDriver(execPort);
+    logger.info('DMS driver: RealDmsDriver (over the broker)');
+    return new RealDmsDriver(execPort ?? new BrokerDmsExecPort(broker));
   }
 
   logger.info(

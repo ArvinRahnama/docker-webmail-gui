@@ -8,6 +8,9 @@
  */
 import { Readable } from 'node:stream';
 import {
+  DMS_ENV_KEYS,
+  type DmsConfigFileKey,
+  type DmsExecResponse,
   computeProtectedVolumeNames,
   type BackupVolumeKey,
   type ConsoleCommand,
@@ -33,6 +36,24 @@ import {
   type ContainerLogsParams,
   type LogsFileParams,
 } from './types.js';
+import type { DmsCommandRequest } from '../dms/exec-port.js';
+import {
+  FIXTURE_DMS_ENV,
+  FIXTURE_DOVECOT_QUOTAS_CF,
+  FIXTURE_POSTFIX_ACCOUNTS_CF,
+  FIXTURE_POSTFIX_RECEIVE_ACCESS_CF,
+  FIXTURE_POSTFIX_SEND_ACCESS_CF,
+  FIXTURE_POSTFIX_VIRTUAL_CF,
+} from '../dms/fixtures/index.js';
+
+/** The same captured `.cf` fixtures `FakeDmsDriver` parses, keyed by the broker's own symbolic file keys. */
+const FIXTURE_DMS_CONFIG_FILES: Record<DmsConfigFileKey, string> = {
+  'postfix-accounts': FIXTURE_POSTFIX_ACCOUNTS_CF,
+  'postfix-virtual': FIXTURE_POSTFIX_VIRTUAL_CF,
+  'dovecot-quotas': FIXTURE_DOVECOT_QUOTAS_CF,
+  'postfix-send-access': FIXTURE_POSTFIX_SEND_ACCESS_CF,
+  'postfix-receive-access': FIXTURE_POSTFIX_RECEIVE_ACCESS_CF,
+};
 import {
   FIXTURE_CONSOLE_OUTPUTS,
   FIXTURE_CONTAINERS,
@@ -177,5 +198,49 @@ export class FakeBrokerClient implements BrokerClient {
     for await (const _chunk of tarStream) {
       // Drain only — see the doc comment above.
     }
+  }
+
+  // -------------------------------------------------------------------------
+  // M16 — docker-mailserver.
+  //
+  // The three *reads* below return the same fixtures `FakeDmsDriver` parses,
+  // so `RealDmsDriver` + `BrokerDmsExecPort` + this client compose into a
+  // genuinely exercisable stack with no Docker daemon — which is what
+  // `real-dms-driver.broker.test.ts` uses to prove the adapter actually
+  // speaks the operations it claims to.
+  //
+  // `dmsCommand` deliberately refuses instead. Simulating the *output* of 26
+  // real DMS commands is `FakeDmsDriver`'s entire job, and it does it against
+  // captured fixtures; a second, thinner imitation living here would be a
+  // fixture set nobody maintains, quietly diverging from the one that is
+  // actually used. Development never reaches this method — `createDmsDriver`
+  // returns `FakeDmsDriver` whenever the real drivers are off — so this is a
+  // loud failure on a path that should not exist, not a limitation anyone hits.
+  // -------------------------------------------------------------------------
+
+  async dmsFileRead(file: DmsConfigFileKey): Promise<string | null> {
+    return FIXTURE_DMS_CONFIG_FILES[file];
+  }
+
+  async dmsEnvRead(): Promise<Readonly<Record<string, string>>> {
+    const env: Record<string, string> = {};
+    for (const key of DMS_ENV_KEYS) {
+      const value = FIXTURE_DMS_ENV[key];
+      if (value !== undefined) env[key] = value;
+    }
+    return env;
+  }
+
+  /** No DKIM key has been generated in the fixture deployment — `null` is the honest answer, and the one that exercises the "not generated" branch. */
+  async dmsDkimRecordRead(_domain: string, _selector: string): Promise<string | null> {
+    return null;
+  }
+
+  async dmsCommand(request: DmsCommandRequest): Promise<DmsExecResponse> {
+    throw new Error(
+      `FakeBrokerClient does not simulate DMS command execution (asked for "${request.operation}"). ` +
+        'Development uses FakeDmsDriver, which models these operations against captured fixtures; ' +
+        "see this method's own comment for why a second imitation does not live here.",
+    );
   }
 }

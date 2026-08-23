@@ -81,7 +81,11 @@ export class AutoresponderService {
     }
 
     try {
-      await this.dmsDriver.sievePut({ user, name: AUTORESPONDER_SCRIPT_NAME, content: script });
+      await this.dmsDriver.sievePut({
+        user,
+        script: AUTORESPONDER_SCRIPT_NAME,
+        content: script,
+      });
     } catch (err) {
       if (err instanceof DmsCommandExecutionError) {
         throw new AppError(
@@ -95,7 +99,7 @@ export class AutoresponderService {
     }
 
     if (input.enabled) {
-      await this.dmsDriver.sieveActivate({ user, name: AUTORESPONDER_SCRIPT_NAME });
+      await this.dmsDriver.sieveActivate({ user, script: AUTORESPONDER_SCRIPT_NAME });
     } else {
       // Only deactivate if the autoresponder itself is the currently
       // active script — never blind-deactivate, which could silently

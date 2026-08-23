@@ -217,10 +217,21 @@ export const DmsEmailRestrictRequestSchema = z
     operation: dmsOp('dms.email.restrict'),
     action: z.enum(RESTRICT_ACTIONS),
     scope: z.enum(RESTRICT_SCOPES),
-    // Absent for `list`; required by the builder for `add`/`del`.
+    // Required for `add`/`del`, absent for `list` — expressed as a
+    // cross-field rule below rather than by splitting this into three
+    // per-action schemas, which would triple the union for one field.
     email: CatchAllAddressField.optional(),
   })
-  .strict();
+  .strict()
+  .superRefine((value, ctx) => {
+    if (value.action !== 'list' && value.email === undefined) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['email'],
+        message: 'email is required for "add" and "del"',
+      });
+    }
+  });
 
 export const DmsEmailListRequestSchema = z.object({ operation: dmsOp('dms.email.list') }).strict();
 

@@ -17,25 +17,27 @@
  * presenting an invented behaviour as researched fact.
  */
 import {
-  buildAliasAddCommand,
-  buildAliasDeleteCommand,
-  buildConfigDkimCommand,
-  buildEmailAddCommand,
-  buildEmailDeleteCommand,
-  buildEmailRestrictCommand,
-  buildEmailUpdateCommand,
-  buildFail2banBanCommand,
-  buildFail2banUnbanCommand,
-  buildQuotaDeleteCommand,
-  buildQuotaSetCommand,
-  buildSieveActivateCommand,
-  buildSieveDeactivateCommand,
-  buildSieveGetCommand,
-  buildSieveListCommand,
-  buildSievePutCommand,
+  DmsAliasAddRequestSchema,
+  DmsAliasDeleteRequestSchema,
+  DmsDkimGenerateRequestSchema,
+  DmsEmailAddRequestSchema,
+  DmsEmailDeleteRequestSchema,
+  DmsEmailRestrictRequestSchema,
+  DmsEmailUpdateRequestSchema,
+  DmsFail2banBanRequestSchema,
+  DmsFail2banUnbanRequestSchema,
+  DmsQuotaDeleteRequestSchema,
+  DmsQuotaSetRequestSchema,
+  DmsSieveActivateRequestSchema,
+  DmsSieveDeactivateRequestSchema,
+  DmsSieveGetRequestSchema,
+  DmsSieveListRequestSchema,
+  DmsSievePutRequestSchema,
+} from '@dwg/shared';
+import { assertValidDmsRequest as assertValid } from './request.js';
+import {
   type AddAliasParams,
   type AddMailboxParams,
-  type CommandResult,
   type ConfigDkimParams,
   type DeleteAliasParams,
   type DeleteMailboxParams,
@@ -48,7 +50,7 @@ import {
   type SieveScriptParams,
   type SieveUserParams,
   type UpdateMailboxPasswordParams,
-} from './commands.js';
+} from './params.js';
 import { detectCapabilities, type DmsCapabilities } from './capabilities.js';
 import { deriveDomains, type DerivedDomain } from './domains.js';
 import { DmsCommandExecutionError, DmsCommandValidationError } from './errors.js';
@@ -121,10 +123,6 @@ function stableHex(input: string, length: number): string {
 }
 
 /** Throws {@link DmsCommandValidationError} for a rejected `commands.ts` result; otherwise a no-op. Every write method below calls this *before* touching any in-memory state, so a rejected call never partially mutates anything. */
-function assertValid(result: CommandResult): void {
-  if (!result.ok) throw new DmsCommandValidationError(result.error);
-}
-
 /** Re-derives `{localPart, domain}` for a value `commands.ts` has already validated as `local@domain` — used only when constructing a brand-new fixture entry, never on unvalidated input. */
 function splitForFixture(email: string): { localPart: string; domain: string } {
   const atIndex = email.lastIndexOf('@');
@@ -230,7 +228,7 @@ export class FakeDmsDriver implements DmsDriver {
   }
 
   async addMailbox(params: AddMailboxParams): Promise<void> {
-    assertValid(buildEmailAddCommand(params));
+    assertValid(DmsEmailAddRequestSchema, { operation: 'dms.email.add', ...params });
     if (this.accounts.some((account) => account.email === params.email)) {
       throw new DmsCommandValidationError(`An account already exists for ${params.email}.`);
     }
@@ -248,7 +246,7 @@ export class FakeDmsDriver implements DmsDriver {
   }
 
   async updateMailboxPassword(params: UpdateMailboxPasswordParams): Promise<void> {
-    assertValid(buildEmailUpdateCommand(params));
+    assertValid(DmsEmailUpdateRequestSchema, { operation: 'dms.email.update', ...params });
     if (!this.accounts.some((account) => account.email === params.email)) {
       throw new DmsCommandValidationError(`No account exists for ${params.email}.`);
     }
@@ -260,7 +258,7 @@ export class FakeDmsDriver implements DmsDriver {
   }
 
   async deleteMailbox(params: DeleteMailboxParams): Promise<void> {
-    assertValid(buildEmailDeleteCommand(params));
+    assertValid(DmsEmailDeleteRequestSchema, { operation: 'dms.email.del', ...params });
     for (const email of params.emails) {
       if (!this.accounts.some((account) => account.email === email)) {
         throw new DmsCommandValidationError(`No account exists for ${email}.`);
@@ -283,7 +281,7 @@ export class FakeDmsDriver implements DmsDriver {
   }
 
   async restrictMailbox(params: RestrictMailboxParams): Promise<void> {
-    assertValid(buildEmailRestrictCommand(params));
+    assertValid(DmsEmailRestrictRequestSchema, { operation: 'dms.email.restrict', ...params });
     // 'list' is a read, satisfied by getRestrictedAddresses instead — see
     // that method and mailboxes.service.ts, which never calls this method
     // with action: 'list'. Kept as a no-op branch here (rather than
@@ -308,7 +306,7 @@ export class FakeDmsDriver implements DmsDriver {
   }
 
   async setQuota(params: SetQuotaParams): Promise<void> {
-    assertValid(buildQuotaSetCommand(params));
+    assertValid(DmsQuotaSetRequestSchema, { operation: 'dms.quota.set', ...params });
     if (this.quotas.some((quota) => quota.email === params.email)) {
       this.quotas = this.quotas.map((quota) =>
         quota.email === params.email ? { ...quota, quota: params.quota } : quota,
@@ -328,12 +326,12 @@ export class FakeDmsDriver implements DmsDriver {
   }
 
   async deleteQuota(params: DeleteQuotaParams): Promise<void> {
-    assertValid(buildQuotaDeleteCommand(params));
+    assertValid(DmsQuotaDeleteRequestSchema, { operation: 'dms.quota.del', ...params });
     this.quotas = this.quotas.filter((quota) => quota.email !== params.email);
   }
 
   async addAlias(params: AddAliasParams): Promise<void> {
-    assertValid(buildAliasAddCommand(params));
+    assertValid(DmsAliasAddRequestSchema, { operation: 'dms.alias.add', ...params });
     const existing = this.aliases.find((alias) => alias.address === params.alias);
     if (existing) {
       if (!existing.recipients.includes(params.recipient)) {
@@ -359,7 +357,7 @@ export class FakeDmsDriver implements DmsDriver {
   }
 
   async deleteAlias(params: DeleteAliasParams): Promise<void> {
-    assertValid(buildAliasDeleteCommand(params));
+    assertValid(DmsAliasDeleteRequestSchema, { operation: 'dms.alias.del', ...params });
     const existing = this.aliases.find((alias) => alias.address === params.alias);
     if (!existing || !existing.recipients.includes(params.recipient)) {
       throw new DmsCommandValidationError(
@@ -380,7 +378,7 @@ export class FakeDmsDriver implements DmsDriver {
   }
 
   async generateDkim(params: ConfigDkimParams = {}): Promise<void> {
-    assertValid(buildConfigDkimCommand(params));
+    assertValid(DmsDkimGenerateRequestSchema, { operation: 'dms.dkim.generate', ...params });
     const selector = params.selector ?? DEFAULT_DKIM_SELECTOR;
     const keysize = params.keysize ?? DEFAULT_DKIM_KEYSIZE;
     // ★7: when `domains` is omitted, real DMS auto-sources every mail
@@ -415,12 +413,12 @@ export class FakeDmsDriver implements DmsDriver {
   }
 
   async fail2banBan(params: Fail2banIpParams): Promise<void> {
-    assertValid(buildFail2banBanCommand(params));
+    assertValid(DmsFail2banBanRequestSchema, { operation: 'dms.fail2ban.ban', ...params });
     this.bannedIps.add(params.ip);
   }
 
   async fail2banUnban(params: Fail2banIpParams): Promise<void> {
-    assertValid(buildFail2banUnbanCommand(params));
+    assertValid(DmsFail2banUnbanRequestSchema, { operation: 'dms.fail2ban.unban', ...params });
     this.bannedIps.delete(params.ip);
   }
 
@@ -479,7 +477,7 @@ export class FakeDmsDriver implements DmsDriver {
   }
 
   async sieveList(user: string): Promise<readonly SieveScriptSummary[]> {
-    assertValid(buildSieveListCommand({ user }));
+    assertValid(DmsSieveListRequestSchema, { operation: 'dms.sieve.list', user });
     const scripts = this.sieveScripts.get(user);
     if (!scripts) return [];
     return [...scripts.entries()]
@@ -488,7 +486,7 @@ export class FakeDmsDriver implements DmsDriver {
   }
 
   async sieveGet(user: string, name: string): Promise<string> {
-    assertValid(buildSieveGetCommand({ user, name }));
+    assertValid(DmsSieveGetRequestSchema, { operation: 'dms.sieve.get', user, script: name });
     const script = this.sieveScripts.get(user)?.get(name);
     if (!script) {
       throw new DmsCommandExecutionError(
@@ -501,33 +499,33 @@ export class FakeDmsDriver implements DmsDriver {
   }
 
   async sievePut(params: SievePutParams): Promise<void> {
-    assertValid(buildSievePutCommand(params));
+    assertValid(DmsSievePutRequestSchema, { operation: 'dms.sieve.put', ...params });
     const scripts = this.scriptsFor(params.user);
-    const existing = scripts.get(params.name);
-    scripts.set(params.name, { content: params.content, active: existing?.active ?? false });
+    const existing = scripts.get(params.script);
+    scripts.set(params.script, { content: params.content, active: existing?.active ?? false });
   }
 
   async sieveActivate(params: SieveScriptParams): Promise<void> {
-    assertValid(buildSieveActivateCommand(params));
+    assertValid(DmsSieveActivateRequestSchema, { operation: 'dms.sieve.activate', ...params });
     const scripts = this.sieveScripts.get(params.user);
-    const target = scripts?.get(params.name);
+    const target = scripts?.get(params.script);
     if (!scripts || !target) {
       throw new DmsCommandExecutionError(
-        ['doveadm', 'sieve', 'activate', '-u', params.user, params.name],
+        ['doveadm', 'sieve', 'activate', '-u', params.user, params.script],
         1,
-        `sieve: user=${params.user}: Sieve script not found: ${params.name}`,
+        `sieve: user=${params.user}: Sieve script not found: ${params.script}`,
       );
     }
     // Only one script is ever active per user, matching real Pigeonhole
     // semantics (`sieve-list-parser.ts`'s own doc comment) — deactivate
     // every other stored script before activating the target one.
     for (const [name, state] of scripts) {
-      scripts.set(name, { ...state, active: name === params.name });
+      scripts.set(name, { ...state, active: name === params.script });
     }
   }
 
   async sieveDeactivate(params: SieveUserParams): Promise<void> {
-    assertValid(buildSieveDeactivateCommand(params));
+    assertValid(DmsSieveDeactivateRequestSchema, { operation: 'dms.sieve.deactivate', ...params });
     const scripts = this.sieveScripts.get(params.user);
     if (!scripts) return;
     for (const [name, state] of scripts) {

@@ -8,52 +8,46 @@
  * (FEATURE_MATRIX.md §0 Rule 1 and ARCHITECTURE.md §5).
  */
 import {
-  buildAliasAddCommand,
-  buildAliasDeleteCommand,
-  buildClamavLogTailCommand,
-  buildClamdCommand,
-  buildConfigDkimCommand,
-  buildDoveadmQuotaGetCommand,
-  buildEmailAddCommand,
-  buildEmailDeleteCommand,
-  buildEmailRestrictCommand,
-  buildEmailUpdateCommand,
-  buildFail2banBanCommand,
-  buildFail2banListCommand,
-  buildFail2banStatusCommand,
-  buildFail2banUnbanCommand,
-  buildFreshclamCommand,
-  buildPostqueueJsonCommand,
-  buildQuotaDeleteCommand,
-  buildQuotaSetCommand,
-  buildSieveActivateCommand,
-  buildSieveDeactivateCommand,
-  buildSieveGetCommand,
-  buildSieveListCommand,
-  buildSievePutCommand,
-  type AddAliasParams,
-  type AddMailboxParams,
-  type CommandResult,
-  type ConfigDkimParams,
-  type DeleteAliasParams,
-  type DeleteMailboxParams,
-  type DeleteQuotaParams,
-  type Fail2banIpParams,
-  type RestrictMailboxParams,
-  type RestrictScope,
-  type SetQuotaParams,
-  type SievePutParams,
-  type SieveScriptParams,
-  type SieveUserParams,
-  type UpdateMailboxPasswordParams,
-} from './commands.js';
+  DmsAliasAddRequestSchema,
+  DmsAliasDeleteRequestSchema,
+  DmsDkimGenerateRequestSchema,
+  DmsEmailAddRequestSchema,
+  DmsEmailDeleteRequestSchema,
+  DmsEmailRestrictRequestSchema,
+  DmsEmailUpdateRequestSchema,
+  DmsFail2banBanRequestSchema,
+  DmsFail2banUnbanRequestSchema,
+  DmsQuotaDeleteRequestSchema,
+  DmsQuotaSetRequestSchema,
+  DmsSieveActivateRequestSchema,
+  DmsSieveDeactivateRequestSchema,
+  DmsSievePutRequestSchema,
+  type DmsConfigFileKey,
+} from '@dwg/shared';
+import type {
+  AddAliasParams,
+  AddMailboxParams,
+  ConfigDkimParams,
+  DeleteAliasParams,
+  DeleteMailboxParams,
+  DeleteQuotaParams,
+  Fail2banIpParams,
+  RestrictMailboxParams,
+  RestrictScope,
+  SetQuotaParams,
+  SievePutParams,
+  SieveScriptParams,
+  SieveUserParams,
+  UpdateMailboxPasswordParams,
+} from './params.js';
+import { parseDmsRequest } from './request.js';
 import { detectCapabilities, type DmsCapabilities } from './capabilities.js';
 import { deriveDomains, type DerivedDomain } from './domains.js';
 import { parseDkimZoneFile } from './dkim-record.js';
 import { parseFail2banList, type Fail2banListResult } from './fail2ban-parser.js';
 import { parseSieveList, type SieveScriptSummary } from './sieve-list-parser.js';
-import { DmsCommandExecutionError, DmsCommandValidationError } from './errors.js';
-import type { DmsExecPort } from './exec-port.js';
+import { DmsCommandExecutionError } from './errors.js';
+import type { DmsCommandRequest, DmsExecPort } from './exec-port.js';
 import type { ParseResult } from './parsers/parse-result.js';
 import { parseDovecotQuotas, type DovecotQuotaEntry } from './parsers/dovecot-quotas.js';
 import { parsePostfixAccounts, type PostfixAccountEntry } from './parsers/postfix-accounts.js';
@@ -63,26 +57,27 @@ import { parseDoveadmQuotaGet, type QuotaUsageResult } from './quota-usage.js';
 import { parsePostqueueJson, type MailQueueEntry } from './parsers/postqueue.js';
 import type { ClamavReadResult, DkimRecordReadResult, DmsDriver } from './types.js';
 
-const RESTRICT_SCOPE_FILE_NAME = {
-  send: 'postfix-send-access.cf',
-  receive: 'postfix-receive-access.cf',
-} as const satisfies Record<RestrictScope, 'postfix-send-access.cf' | 'postfix-receive-access.cf'>;
+/** Which broker-owned config-file key backs each restriction direction. A symbolic key, never a filename — see `exec-port.ts`. */
+const RESTRICT_SCOPE_FILE_KEY = {
+  send: 'postfix-send-access',
+  receive: 'postfix-receive-access',
+} as const satisfies Record<RestrictScope, DmsConfigFileKey>;
 
 export class RealDmsDriver implements DmsDriver {
   constructor(private readonly execPort: DmsExecPort) {}
 
   async listMailboxes(): Promise<ParseResult<PostfixAccountEntry>> {
-    const content = await this.execPort.readFile('postfix-accounts.cf');
+    const content = await this.execPort.readFile('postfix-accounts');
     return parsePostfixAccounts(content ?? '');
   }
 
   async listAliases(): Promise<ParseResult<PostfixVirtualEntry>> {
-    const content = await this.execPort.readFile('postfix-virtual.cf');
+    const content = await this.execPort.readFile('postfix-virtual');
     return parsePostfixVirtual(content ?? '');
   }
 
   async listQuotas(): Promise<ParseResult<DovecotQuotaEntry>> {
-    const content = await this.execPort.readFile('dovecot-quotas.cf');
+    const content = await this.execPort.readFile('dovecot-quotas');
     return parseDovecotQuotas(content ?? '');
   }
 
@@ -92,31 +87,22 @@ export class RealDmsDriver implements DmsDriver {
   }
 
   async getCapabilities(): Promise<DmsCapabilities> {
-    const env = await this.execPort.getEnv();
+    const env = await this.execPort.readEnv();
     return detectCapabilities(env);
   }
 
   async getRestrictedAddresses(scope: RestrictScope): Promise<ParseResult<PostfixAccessEntry>> {
-    const content = await this.execPort.readFile(RESTRICT_SCOPE_FILE_NAME[scope]);
+    const content = await this.execPort.readFile(RESTRICT_SCOPE_FILE_KEY[scope]);
     return parsePostfixAccess(content ?? '');
   }
 
   async getMailboxUsage(email: string): Promise<QuotaUsageResult> {
-    const result = buildDoveadmQuotaGetCommand({ email });
-    if (!result.ok) throw new DmsCommandValidationError(result.error);
-    const execResult = await this.execPort.exec(result.command.argv);
-    if (execResult.exitCode !== 0) {
-      throw new DmsCommandExecutionError(
-        result.command.argv,
-        execResult.exitCode,
-        execResult.stderr,
-      );
-    }
-    return parseDoveadmQuotaGet(execResult.stdout);
+    const stdout = await this.runRead({ operation: 'dms.quota.get', email });
+    return parseDoveadmQuotaGet(stdout);
   }
 
   async getDkimRecord(domain: string, selector: string): Promise<DkimRecordReadResult> {
-    const content = await this.execPort.readDkimPublicKeyFile(domain, selector);
+    const content = await this.execPort.readDkimRecord(domain, selector);
     if (content === null) return { ok: false, reason: 'not-generated' };
     const record = parseDkimZoneFile(content, domain, selector);
     if (record === null) return { ok: false, reason: 'unparseable' };
@@ -124,78 +110,107 @@ export class RealDmsDriver implements DmsDriver {
   }
 
   async getSslType(): Promise<string | null> {
-    const env = await this.execPort.getEnv();
+    const env = await this.execPort.readEnv();
     const raw = env['SSL_TYPE'];
     return raw === undefined || raw.trim().length === 0 ? null : raw.trim();
   }
 
   /**
-   * Every write method funnels through here: validate (throwing
-   * {@link DmsCommandValidationError} for a builder rejection, *before*
-   * ever calling the exec port) and, only for a validated command,
-   * actually invoke it, throwing {@link DmsCommandExecutionError} for a
-   * non-zero exit.
+   * Every write method funnels through here. Validation has already
+   * happened at the call site (`parseDmsRequest` against the shared
+   * schema, which throws `DmsCommandValidationError` before the port is
+   * ever touched); this only sends the operation and turns a non-zero
+   * exit into {@link DmsCommandExecutionError}.
    */
-  private async run(result: CommandResult): Promise<void> {
-    if (!result.ok) throw new DmsCommandValidationError(result.error);
-    const { argv, stdin } = result.command;
-    const execResult = await this.execPort.exec(argv, stdin === undefined ? undefined : { stdin });
+  private async run(request: DmsCommandRequest): Promise<void> {
+    const execResult = await this.execPort.runCommand(request);
     if (execResult.exitCode !== 0) {
-      throw new DmsCommandExecutionError(argv, execResult.exitCode, execResult.stderr);
+      throw new DmsCommandExecutionError(
+        [request.operation],
+        execResult.exitCode,
+        execResult.stderr,
+      );
     }
   }
 
   async addMailbox(params: AddMailboxParams): Promise<void> {
-    await this.run(buildEmailAddCommand(params));
+    await this.run(
+      parseDmsRequest(DmsEmailAddRequestSchema, { operation: 'dms.email.add', ...params }),
+    );
   }
 
   async updateMailboxPassword(params: UpdateMailboxPasswordParams): Promise<void> {
-    await this.run(buildEmailUpdateCommand(params));
+    await this.run(
+      parseDmsRequest(DmsEmailUpdateRequestSchema, { operation: 'dms.email.update', ...params }),
+    );
   }
 
   async deleteMailbox(params: DeleteMailboxParams): Promise<void> {
-    await this.run(buildEmailDeleteCommand(params));
+    await this.run(
+      parseDmsRequest(DmsEmailDeleteRequestSchema, { operation: 'dms.email.del', ...params }),
+    );
   }
 
   async restrictMailbox(params: RestrictMailboxParams): Promise<void> {
-    await this.run(buildEmailRestrictCommand(params));
+    await this.run(
+      parseDmsRequest(DmsEmailRestrictRequestSchema, {
+        operation: 'dms.email.restrict',
+        ...params,
+      }),
+    );
   }
 
   async setQuota(params: SetQuotaParams): Promise<void> {
-    await this.run(buildQuotaSetCommand(params));
+    await this.run(
+      parseDmsRequest(DmsQuotaSetRequestSchema, { operation: 'dms.quota.set', ...params }),
+    );
   }
 
   async deleteQuota(params: DeleteQuotaParams): Promise<void> {
-    await this.run(buildQuotaDeleteCommand(params));
+    await this.run(
+      parseDmsRequest(DmsQuotaDeleteRequestSchema, { operation: 'dms.quota.del', ...params }),
+    );
   }
 
   async addAlias(params: AddAliasParams): Promise<void> {
-    await this.run(buildAliasAddCommand(params));
+    await this.run(
+      parseDmsRequest(DmsAliasAddRequestSchema, { operation: 'dms.alias.add', ...params }),
+    );
   }
 
   async deleteAlias(params: DeleteAliasParams): Promise<void> {
-    await this.run(buildAliasDeleteCommand(params));
+    await this.run(
+      parseDmsRequest(DmsAliasDeleteRequestSchema, { operation: 'dms.alias.del', ...params }),
+    );
   }
 
   async generateDkim(params: ConfigDkimParams = {}): Promise<void> {
-    await this.run(buildConfigDkimCommand(params));
+    await this.run(
+      parseDmsRequest(DmsDkimGenerateRequestSchema, { operation: 'dms.dkim.generate', ...params }),
+    );
   }
 
   async fail2banBan(params: Fail2banIpParams): Promise<void> {
-    await this.run(buildFail2banBanCommand(params));
+    await this.run(
+      parseDmsRequest(DmsFail2banBanRequestSchema, { operation: 'dms.fail2ban.ban', ...params }),
+    );
   }
 
   async fail2banUnban(params: Fail2banIpParams): Promise<void> {
-    await this.run(buildFail2banUnbanCommand(params));
+    await this.run(
+      parseDmsRequest(DmsFail2banUnbanRequestSchema, {
+        operation: 'dms.fail2ban.unban',
+        ...params,
+      }),
+    );
   }
 
   /** Runs a read-only command (never a validated write) and returns its stdout, throwing the same two typed errors as every write path. */
-  private async runRead(result: CommandResult): Promise<string> {
-    if (!result.ok) throw new DmsCommandValidationError(result.error);
-    const execResult = await this.execPort.exec(result.command.argv);
+  private async runRead(request: DmsCommandRequest): Promise<string> {
+    const execResult = await this.execPort.runCommand(request);
     if (execResult.exitCode !== 0) {
       throw new DmsCommandExecutionError(
-        result.command.argv,
+        [request.operation],
         execResult.exitCode,
         execResult.stderr,
       );
@@ -204,12 +219,12 @@ export class RealDmsDriver implements DmsDriver {
   }
 
   async fail2banList(): Promise<Fail2banListResult> {
-    const stdout = await this.runRead(buildFail2banListCommand());
+    const stdout = await this.runRead({ operation: 'dms.fail2ban.list' });
     return parseFail2banList(stdout);
   }
 
   async fail2banStatus(): Promise<string> {
-    return this.runRead(buildFail2banStatusCommand());
+    return this.runRead({ operation: 'dms.fail2ban.status' });
   }
 
   /**
@@ -217,18 +232,14 @@ export class RealDmsDriver implements DmsDriver {
    * `ClamavReadResult`'s doc comment (`types.ts`) for why the ClamAV reads
    * below need this instead of `runRead`'s throw-on-failure contract.
    */
-  private async execSoft(result: CommandResult): Promise<ClamavReadResult> {
-    if (!result.ok) return { ok: false, reason: result.error };
-    const { argv, stdin } = result.command;
+  private async execSoft(request: DmsCommandRequest): Promise<ClamavReadResult> {
     try {
-      const execResult = await this.execPort.exec(
-        argv,
-        stdin === undefined ? undefined : { stdin },
-      );
+      const execResult = await this.execPort.runCommand(request);
       if (execResult.exitCode !== 0) {
         return {
           ok: false,
-          reason: execResult.stderr.trim() || `"${argv.join(' ')}" exited ${execResult.exitCode}`,
+          reason:
+            execResult.stderr.trim() || `"${request.operation}" exited ${execResult.exitCode}`,
         };
       }
       return { ok: true, output: execResult.stdout };
@@ -238,49 +249,61 @@ export class RealDmsDriver implements DmsDriver {
   }
 
   async clamavPing(): Promise<ClamavReadResult> {
-    return this.execSoft(buildClamdCommand('PING'));
+    return this.execSoft({ operation: 'dms.clamd.control', verb: 'PING' });
   }
 
   async clamavVersion(): Promise<ClamavReadResult> {
-    return this.execSoft(buildClamdCommand('VERSION'));
+    return this.execSoft({ operation: 'dms.clamd.control', verb: 'VERSION' });
   }
 
   async clamavStats(): Promise<ClamavReadResult> {
-    return this.execSoft(buildClamdCommand('STATS'));
+    return this.execSoft({ operation: 'dms.clamd.control', verb: 'STATS' });
   }
 
   async clamavLogTail(): Promise<ClamavReadResult> {
-    return this.execSoft(buildClamavLogTailCommand());
+    return this.execSoft({ operation: 'dms.clamav.log' });
   }
 
   /** Unlike the four reads above, a failed `freshclam` run is a real error to surface (`types.ts`'s doc comment on this method) — `runRead` already throws on a non-zero exit, which is exactly the behaviour wanted here. */
   async clamavUpdateSignatures(): Promise<string> {
-    return this.runRead(buildFreshclamCommand());
+    return this.runRead({ operation: 'dms.clamav.update' });
   }
 
   async sieveList(user: string): Promise<readonly SieveScriptSummary[]> {
-    const stdout = await this.runRead(buildSieveListCommand({ user }));
+    const stdout = await this.runRead({ operation: 'dms.sieve.list', user });
     return parseSieveList(stdout);
   }
 
   async sieveGet(user: string, name: string): Promise<string> {
-    return this.runRead(buildSieveGetCommand({ user, name }));
+    return this.runRead({ operation: 'dms.sieve.get', user, script: name });
   }
 
   async sievePut(params: SievePutParams): Promise<void> {
-    await this.run(buildSievePutCommand(params));
+    await this.run(
+      parseDmsRequest(DmsSievePutRequestSchema, { operation: 'dms.sieve.put', ...params }),
+    );
   }
 
   async sieveActivate(params: SieveScriptParams): Promise<void> {
-    await this.run(buildSieveActivateCommand(params));
+    await this.run(
+      parseDmsRequest(DmsSieveActivateRequestSchema, {
+        operation: 'dms.sieve.activate',
+        ...params,
+      }),
+    );
   }
 
   async sieveDeactivate(params: SieveUserParams): Promise<void> {
-    await this.run(buildSieveDeactivateCommand(params));
+    await this.run(
+      parseDmsRequest(DmsSieveDeactivateRequestSchema, {
+        operation: 'dms.sieve.deactivate',
+        ...params,
+      }),
+    );
   }
 
   async getMailQueue(): Promise<ParseResult<MailQueueEntry>> {
-    const stdout = await this.runRead(buildPostqueueJsonCommand());
+    const stdout = await this.runRead({ operation: 'dms.queue.list' });
     return parsePostqueueJson(stdout);
   }
 }

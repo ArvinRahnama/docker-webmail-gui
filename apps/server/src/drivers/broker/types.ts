@@ -12,7 +12,10 @@
  * fixture-seeded) — see `create-broker-client.ts` for how one is chosen
  * (ARCHITECTURE.md §7.2, §9).
  */
+import type { DmsCommandRequest } from '../dms/exec-port.js';
 import type {
+  DmsConfigFileKey,
+  DmsExecResponse,
   BackupVolumeKey,
   ConsoleCommand,
   ConsoleExecResponse,
@@ -137,4 +140,23 @@ export interface BrokerClient {
    * layer — see `modules/backups/backups.service.ts`).
    */
   archivePut(volumeKey: BackupVolumeKey, tarStream: NodeJS.ReadableStream): Promise<void>;
+
+  // ---------------------------------------------------------------------
+  // M16 — docker-mailserver. Four methods, the same "named intent, typed
+  // leaves" shape as everything above: a symbolic file key, no path; a
+  // filtered environment, not the container's; a public DKIM record with
+  // no private-key counterpart anywhere; and one command call whose body
+  // is a closed discriminated union the broker turns into an argv array.
+  // `BrokerDmsExecPort` (`drivers/dms/broker-dms-exec-port.ts`) is the
+  // only consumer.
+  // ---------------------------------------------------------------------
+
+  /** Reads one of the fixed config-file keys — never a path. `null` when the file does not exist yet. */
+  dmsFileRead(file: DmsConfigFileKey): Promise<string | null>;
+  /** The six allowlisted environment values the mail container actually sets. */
+  dmsEnvRead(): Promise<Readonly<Record<string, string>>>;
+  /** The **public** DKIM record for a domain/selector, or `null` when none has been generated. There is deliberately no private-key equivalent. */
+  dmsDkimRecordRead(domain: string, selector: string): Promise<string | null>;
+  /** Runs one named DMS operation. Resolves with the result whatever the exit code — interpreting a non-zero exit is the driver's job. */
+  dmsCommand(request: DmsCommandRequest): Promise<DmsExecResponse>;
 }

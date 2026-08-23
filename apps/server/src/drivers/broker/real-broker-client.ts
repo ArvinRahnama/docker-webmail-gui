@@ -10,7 +10,14 @@
  */
 import { Readable } from 'node:stream';
 import { request } from 'undici';
+import type { DmsCommandRequest } from '../dms/exec-port.js';
 import {
+  DmsDkimRecordReadResponseSchema,
+  DmsEnvReadResponseSchema,
+  DmsExecResponseSchema,
+  DmsFileReadResponseSchema,
+  type DmsConfigFileKey,
+  type DmsExecResponse,
   BROKER_OPS_PATH,
   BROKER_SECRET_HEADER,
   ConsoleExecResponseSchema,
@@ -206,6 +213,33 @@ export class RealBrokerClient implements BrokerClient {
 
   async consoleExec(command: ConsoleCommand): Promise<ConsoleExecResponse> {
     return this.call({ operation: 'console.exec', command }, ConsoleExecResponseSchema);
+  }
+
+  // -------------------------------------------------------------------------
+  // M16 — docker-mailserver. Each is one `call()` with the operation body
+  // exactly as the shared schema defines it; nothing is assembled here.
+  // -------------------------------------------------------------------------
+
+  async dmsFileRead(file: DmsConfigFileKey): Promise<string | null> {
+    const result = await this.call({ operation: 'dms.file.read', file }, DmsFileReadResponseSchema);
+    return result.content;
+  }
+
+  async dmsEnvRead(): Promise<Readonly<Record<string, string>>> {
+    const result = await this.call({ operation: 'dms.env.read' }, DmsEnvReadResponseSchema);
+    return result.env;
+  }
+
+  async dmsDkimRecordRead(domain: string, selector: string): Promise<string | null> {
+    const result = await this.call(
+      { operation: 'dms.dkim.record.read', domain, selector },
+      DmsDkimRecordReadResponseSchema,
+    );
+    return result.content;
+  }
+
+  async dmsCommand(request: DmsCommandRequest): Promise<DmsExecResponse> {
+    return this.call(request, DmsExecResponseSchema);
   }
 
   // -------------------------------------------------------------------------

@@ -18,7 +18,7 @@ import {
   validateHostnameForDns,
   type DnsLookupPort,
 } from '../../drivers/dns/index.js';
-import { validateDkimSelector } from '../../drivers/dms/validators.js';
+import { validateDkimSelector } from '@dwg/shared';
 import type { DmsDriver } from '../../drivers/dms/index.js';
 import { AppError } from '../../platform/errors.js';
 import type { DkimKeysize, DkimStatus } from '@dwg/shared';

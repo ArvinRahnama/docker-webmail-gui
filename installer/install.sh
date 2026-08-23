@@ -212,7 +212,14 @@ ENABLE_HSTS=$(resolve ENABLE_HSTS 'true')
 # upgrade, which would silently do nothing (an admin already exists) but
 # would be a confusing thing to find in .env regardless.
 if [ "${FRESH_INSTALL}" = "true" ]; then
-  BOOTSTRAP_ADMIN_EMAIL=$(resolve BOOTSTRAP_ADMIN_EMAIL 'admin@localhost')
+  # Not admin@localhost: config.ts validates this with a strict email
+  # rule that rejects an address with no TLD (AGENT_BRIEF.md §7 — read
+  # paths accept `user@domain`, write paths stay strict), so the old
+  # default made the server refuse to start on a default install.
+  # example.com is RFC 2606's reserved documentation domain: valid,
+  # unmistakably a placeholder, and it never needs to receive mail —
+  # this is a login identifier for the panel, not a mailbox.
+  BOOTSTRAP_ADMIN_EMAIL=$(resolve BOOTSTRAP_ADMIN_EMAIL 'admin@example.com')
   BOOTSTRAP_ADMIN_PASSWORD=$(resolve BOOTSTRAP_ADMIN_PASSWORD "$(gen_secret)")
 else
   BOOTSTRAP_ADMIN_EMAIL=$(resolve BOOTSTRAP_ADMIN_EMAIL '')

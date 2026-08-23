@@ -11,9 +11,9 @@ import type { DmsExecPort } from './exec-port.js';
 function unusedExecPort(): DmsExecPort {
   return {
     readFile: () => Promise.reject(new Error('not used in this test')),
-    exec: () => Promise.reject(new Error('not used in this test')),
-    getEnv: () => Promise.reject(new Error('not used in this test')),
-    readDkimPublicKeyFile: () => Promise.reject(new Error('not used in this test')),
+    runCommand: () => Promise.reject(new Error('not used in this test')),
+    readEnv: () => Promise.reject(new Error('not used in this test')),
+    readDkimRecord: () => Promise.reject(new Error('not used in this test')),
   };
 }
 

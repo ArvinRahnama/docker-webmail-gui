@@ -1,35 +1,41 @@
 import { describe, expect, it, vi } from 'vitest';
 import { RealDmsDriver } from './real-dms-driver.js';
 import { DmsCommandExecutionError, DmsCommandValidationError } from './errors.js';
-import type { DmsConfigFileName, DmsExecOptions, DmsExecPort, DmsExecResult } from './exec-port.js';
+import type { DmsConfigFileKey, DmsExecResponse } from '@dwg/shared';
+import type { DmsCommandRequest, DmsExecPort } from './exec-port.js';
 
 /**
- * A hand-written, in-memory `DmsExecPort` — proves `RealDmsDriver`'s own
- * logic (parse what it reads, validate + build what it writes, surface
- * exec failures) is genuinely real and testable today, independent of
- * whether a broker-backed `DmsExecPort` adapter exists yet (`exec-port.ts`).
+ * A hand-written, in-memory `DmsExecPort`.
+ *
+ * What it records changed with M16, and the change is the point. It used
+ * to capture the **argv** `RealDmsDriver` had assembled, because the
+ * driver assembled one. The driver now sends a *named operation with
+ * typed parameters* and the broker decides what argv that means, so this
+ * records operation bodies — which is a better subject anyway: it asserts
+ * the intent the web tier expressed, and the argv that intent produces is
+ * asserted where it is now built, in `apps/broker/src/dms/`.
  */
 class RecordingExecPort implements DmsExecPort {
-  readonly execCalls: Array<{ argv: readonly string[]; options: DmsExecOptions | undefined }> = [];
-  files = new Map<DmsConfigFileName, string | null>();
+  readonly execCalls: DmsCommandRequest[] = [];
+  files = new Map<DmsConfigFileKey, string | null>();
   dkimFiles = new Map<string, string | null>();
-  env: Readonly<Record<string, string | undefined>> = {};
-  nextExecResult: DmsExecResult = { stdout: '', stderr: '', exitCode: 0 };
+  env: Readonly<Record<string, string>> = {};
+  nextExecResult: DmsExecResponse = { stdout: '', stderr: '', exitCode: 0 };
 
-  async readFile(name: DmsConfigFileName): Promise<string | null> {
-    return this.files.get(name) ?? null;
+  async readFile(file: DmsConfigFileKey): Promise<string | null> {
+    return this.files.get(file) ?? null;
   }
 
-  async exec(argv: readonly string[], options?: DmsExecOptions): Promise<DmsExecResult> {
-    this.execCalls.push({ argv, options });
+  async runCommand(request: DmsCommandRequest): Promise<DmsExecResponse> {
+    this.execCalls.push(request);
     return this.nextExecResult;
   }
 
-  async getEnv(): Promise<Readonly<Record<string, string | undefined>>> {
+  async readEnv(): Promise<Readonly<Record<string, string>>> {
     return this.env;
   }
 
-  async readDkimPublicKeyFile(domain: string, selector: string): Promise<string | null> {
+  async readDkimRecord(domain: string, selector: string): Promise<string | null> {
     return this.dkimFiles.get(`${domain}::${selector}`) ?? null;
   }
 }
@@ -37,7 +43,7 @@ class RecordingExecPort implements DmsExecPort {
 describe('RealDmsDriver — reads parse files via the exec port, never invoke setup', () => {
   it('listMailboxes parses postfix-accounts.cf content from readFile', async () => {
     const port = new RecordingExecPort();
-    port.files.set('postfix-accounts.cf', 'user@example.com|{SHA512-CRYPT}$6$aaa');
+    port.files.set('postfix-accounts', 'user@example.com|{SHA512-CRYPT}$6$aaa');
     const driver = new RealDmsDriver(port);
 
     const result = await driver.listMailboxes();
@@ -56,7 +62,7 @@ describe('RealDmsDriver — reads parse files via the exec port, never invoke se
 
   it('listAliases parses postfix-virtual.cf content', async () => {
     const port = new RecordingExecPort();
-    port.files.set('postfix-virtual.cf', 'alias@example.com target@example.com');
+    port.files.set('postfix-virtual', 'alias@example.com target@example.com');
     const driver = new RealDmsDriver(port);
     const result = await driver.listAliases();
     expect(result.entries).toHaveLength(1);
@@ -64,7 +70,7 @@ describe('RealDmsDriver — reads parse files via the exec port, never invoke se
 
   it('listQuotas parses dovecot-quotas.cf content', async () => {
     const port = new RecordingExecPort();
-    port.files.set('dovecot-quotas.cf', 'user@example.com:50M');
+    port.files.set('dovecot-quotas', 'user@example.com:50M');
     const driver = new RealDmsDriver(port);
     const result = await driver.listQuotas();
     expect(result.entries).toHaveLength(1);
@@ -72,8 +78,8 @@ describe('RealDmsDriver — reads parse files via the exec port, never invoke se
 
   it('listDomains derives from both files read through the port', async () => {
     const port = new RecordingExecPort();
-    port.files.set('postfix-accounts.cf', 'user@mailboxdomain.tld|{SHA512-CRYPT}$6$aaa');
-    port.files.set('postfix-virtual.cf', '@aliasonlydomain.tld dump@mailboxdomain.tld');
+    port.files.set('postfix-accounts', 'user@mailboxdomain.tld|{SHA512-CRYPT}$6$aaa');
+    port.files.set('postfix-virtual', '@aliasonlydomain.tld dump@mailboxdomain.tld');
     const driver = new RealDmsDriver(port);
 
     const domains = await driver.listDomains();
@@ -137,7 +143,7 @@ describe('RealDmsDriver — reads parse files via the exec port, never invoke se
 
     const result = await driver.fail2banList();
     expect(result.bannedIps).toEqual(['203.0.113.5']);
-    expect(port.execCalls[0]?.argv).toEqual(['setup', 'fail2ban']);
+    expect(port.execCalls[0]).toEqual({ operation: 'dms.fail2ban.list' });
   });
 
   it('fail2banStatus runs "setup fail2ban status" and returns raw stdout', async () => {
@@ -147,7 +153,7 @@ describe('RealDmsDriver — reads parse files via the exec port, never invoke se
 
     const result = await driver.fail2banStatus();
     expect(result).toBe('Status\n|- Number of jail:\t2\n');
-    expect(port.execCalls[0]?.argv).toEqual(['setup', 'fail2ban', 'status']);
+    expect(port.execCalls[0]).toEqual({ operation: 'dms.fail2ban.status' });
   });
 
   it('fail2ban reads surface a non-zero exit as DmsCommandExecutionError, same as writes', async () => {
@@ -177,7 +183,7 @@ describe('RealDmsDriver — reads parse files via the exec port, never invoke se
     const result = await driver.getMailQueue();
     expect(result.entries).toHaveLength(1);
     expect(result.entries[0]?.queueName).toBe('deferred');
-    expect(port.execCalls[0]?.argv).toEqual(['postqueue', '-j']);
+    expect(port.execCalls[0]).toEqual({ operation: 'dms.queue.list' });
   });
 
   it('getMailQueue surfaces a non-zero exit as DmsCommandExecutionError', async () => {
@@ -200,15 +206,22 @@ describe('RealDmsDriver — writes validate before ever calling exec', () => {
     expect(port.execCalls).toEqual([]);
   });
 
-  it('a valid addMailbox call sends the built argv and stdin to the exec port', async () => {
+  it('a valid addMailbox call sends the named operation, with the password as a typed field and no command line anywhere', async () => {
     const port = new RecordingExecPort();
     const driver = new RealDmsDriver(port);
 
     await driver.addMailbox({ email: 'user@example.com', password: 'hunter2pass' });
 
     expect(port.execCalls).toHaveLength(1);
-    expect(port.execCalls[0]?.argv).toEqual(['setup', 'email', 'add', 'user@example.com']);
-    expect(port.execCalls[0]?.options).toEqual({ stdin: 'hunter2pass\nhunter2pass\n' });
+    expect(port.execCalls[0]).toEqual({
+      operation: 'dms.email.add',
+      email: 'user@example.com',
+      password: 'hunter2pass',
+    });
+    // The whole M16 property, asserted from the web tier's side: what
+    // crosses the boundary is an intent. Turning the password into stdin
+    // (never argv) happens broker-side and is asserted there.
+    expect(JSON.stringify(port.execCalls[0])).not.toContain('setup');
   });
 
   it('deleteMailbox sends the explicit -y/-n flag through to exec', async () => {
@@ -217,7 +230,13 @@ describe('RealDmsDriver — writes validate before ever calling exec', () => {
 
     await driver.deleteMailbox({ emails: ['user@example.com'], mailData: 'delete' });
 
-    expect(port.execCalls[0]?.argv).toEqual(['setup', 'email', 'del', '-y', 'user@example.com']);
+    // The -y/-n flag is the broker's to add; what must never be lost on
+    // this side is the *choice* itself, carried as a required field.
+    expect(port.execCalls[0]).toEqual({
+      operation: 'dms.email.del',
+      emails: ['user@example.com'],
+      mailData: 'delete',
+    });
   });
 
   it('a non-zero exit is surfaced as DmsCommandExecutionError, carrying argv/exitCode/stderr', async () => {
@@ -231,7 +250,7 @@ describe('RealDmsDriver — writes validate before ever calling exec', () => {
 
     expect(error).toBeInstanceOf(DmsCommandExecutionError);
     const executionError = error as DmsCommandExecutionError;
-    expect(executionError.argv).toEqual(['setup', 'email', 'add', 'user@example.com']);
+    expect(executionError.command).toEqual(['dms.email.add']);
     expect(executionError.exitCode).toBe(1);
     expect(executionError.stderr).toBe('account already exists');
     // The password must never leak into the error's own message.
@@ -253,23 +272,29 @@ describe('RealDmsDriver — writes validate before ever calling exec', () => {
     await driver.generateDkim({ selector: 'mail' });
     await driver.fail2banBan({ ip: '203.0.113.5' });
 
-    expect(port.execCalls.map((call) => call.argv)).toEqual([
-      ['setup', 'alias', 'add', 'a@example.com', 'b@example.com'],
-      ['setup', 'quota', 'set', 'a@example.com', '50M'],
-      ['setup', 'config', 'dkim', 'selector', 'mail'],
-      ['setup', 'fail2ban', 'ban', '203.0.113.5'],
+    expect(port.execCalls).toEqual([
+      { operation: 'dms.alias.add', alias: 'a@example.com', recipient: 'b@example.com' },
+      { operation: 'dms.quota.set', email: 'a@example.com', quota: '50M' },
+      { operation: 'dms.dkim.generate', selector: 'mail' },
+      { operation: 'dms.fail2ban.ban', ip: '203.0.113.5' },
     ]);
   });
 
-  it('the exec port is invoked with the exact call signature RealDmsDriver promises — argv array, no shell', async () => {
+  it('never sends anything shaped like a command line — the port only ever receives a named operation', async () => {
     const port = new RecordingExecPort();
-    const execSpy = vi.spyOn(port, 'exec');
+    const execSpy = vi.spyOn(port, 'runCommand');
     const driver = new RealDmsDriver(port);
 
     await driver.addAlias({ alias: 'a@example.com', recipient: 'b@example.com' });
 
     expect(execSpy).toHaveBeenCalledTimes(1);
-    const [argv] = execSpy.mock.calls[0] ?? [];
-    expect(Array.isArray(argv)).toBe(true);
+    const [request] = execSpy.mock.calls[0] ?? [];
+    expect(request).toBeDefined();
+    // The property that replaced "argv is an array, not a shell string":
+    // there is no argv at all, and no field that could hold one.
+    expect(typeof request?.operation).toBe('string');
+    expect(request).not.toHaveProperty('argv');
+    expect(request).not.toHaveProperty('command');
+    expect(request).not.toHaveProperty('path');
   });
 });

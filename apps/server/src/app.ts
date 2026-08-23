@@ -334,12 +334,18 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
 
   const middleware = createAuthMiddleware(app, { authService, config });
 
+  // One `BrokerClient` for the whole application. Constructed here, ahead
+  // of the mail services, because since M16 the DMS driver reaches
+  // docker-mailserver *through* it — every mail write is a named broker
+  // operation now, not an argv this tier assembles.
+  const brokerClient = options.brokerClient ?? createBrokerClient(config, logger);
+
   // M7 — mail management (FEATURE_MATRIX.md §2–§7). One DmsDriver instance
   // shared by every mail service, mirroring how `admins`/`sessions`/
   // `attempts` are each constructed once above and handed to whichever
   // service needs them — see `createDmsDriver`'s own doc comment for how
   // real vs fake is selected.
-  const dmsDriver = options.dmsDriver ?? createDmsDriver(config, logger);
+  const dmsDriver = options.dmsDriver ?? createDmsDriver(config, logger, brokerClient);
   const domainsService = new DomainsService(dmsDriver);
   const mailboxesService = new MailboxesService(dmsDriver);
   const aliasesService = new AliasesService(dmsDriver);
@@ -389,12 +395,11 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   // comment for why there is no separate persistence layer.
   const autoresponderService = new AutoresponderService(dmsDriver);
 
-  // M9 — Docker & observability (FEATURE_MATRIX.md §24-26, §32). One
-  // `BrokerClient` shared by every module below, mirroring how one
-  // `dmsDriver` backs every M7 mail service above. `ConsoleService` alone
-  // also takes `config.enableExecConsole` — the one flag-gated module in
-  // this group (AGENT_BRIEF.md §4: "off by default").
-  const brokerClient = options.brokerClient ?? createBrokerClient(config, logger);
+  // M9 — Docker & observability (FEATURE_MATRIX.md §24-26, §32). The one
+  // `BrokerClient` these modules share is constructed above, before the
+  // mail services, because M16 made `dmsDriver` depend on it too.
+  // `ConsoleService` alone also takes `config.enableExecConsole` — the one
+  // flag-gated module in this group (AGENT_BRIEF.md §4: "off by default").
   const containersService = new ContainersService(brokerClient);
   const imagesService = new ImagesService(brokerClient);
   const volumesService = new VolumesService(brokerClient);

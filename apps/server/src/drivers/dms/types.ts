@@ -47,7 +47,7 @@ import type {
   SieveScriptParams,
   SieveUserParams,
   UpdateMailboxPasswordParams,
-} from './commands.js';
+} from './params.js';
 
 /**
  * `getDkimRecord`'s result — mirrors `QuotaUsageResult`'s `ok`/reason

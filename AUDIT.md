@@ -486,22 +486,34 @@ Also asserted in the suite, with no driver override, by
 
 ---
 
-## 7. Open items after this audit
+## 7. Open items
 
-Nothing below is fixed by this audit. This is the honest backlog.
+Updated after M17, which was the first time this project had a Docker
+daemon. Four of the nine items below are now closed; what replaced them is
+narrower and, in two cases, newly discovered.
 
-| #   | Item                                                                          | Where it is recorded                           |
-| --- | ----------------------------------------------------------------------------- | ---------------------------------------------- |
-| 1   | The nine deferred parser verifications                                        | `FEATURE_MATRIX.md`, §2.2                      |
-| 2   | No live `docker-mailserver` integration has ever run                          | §1.1, `docs/docker.md` §6                      |
-| 3   | No image built, no container run                                              | §1.2, §1.3                                     |
-| 4   | No observed CI run of any workflow                                            | §1.5, §6.3                                     |
-| 5   | `dockerode` → `uuid` moderate advisory, accepted                              | §3.4                                           |
-| 6   | Mail queue is read-only; `postqueue -f`/`postsuper` not wired                 | `FEATURE_MATRIX.md`, `UX_ARCHITECTURE.md` §5.2 |
-| 7   | No `system.events` broker operation; `/docker/events` deliberately absent     | `UX_ARCHITECTURE.md` §5.2                      |
-| 8   | Non-Linux hosts unsupported and untested                                      | `docs/docker.md` §6                            |
-| 9   | No published image, no release artifacts, no checksum-verified remote install | `docs/docker.md` §2                            |
+**Closed by M17 (2026-08-23):**
 
-Item 4 is the cheapest to close and unblocks 3: a single push runs the
-Docker and Installer workflows, and their output would move most of §1
-from _asserted_ to _observed_.
+| Was                                     | Outcome                                                                                                                                                                          |
+| --------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| The nine deferred parser verifications  | **All nine resolved** against a live docker-mailserver v15.1.0. Seven confirmed the design; DKIM's key path and record format were wrong and are fixed. See `FEATURE_MATRIX.md`. |
+| No live `docker-mailserver` integration | One ran. Output captured as fixtures with provenance (`fixtures/live-capture.ts`) and pinned by `live-capture.test.ts`.                                                          |
+| No image built, no container run        | Both images built; the full stack ran; the privilege boundary was verified from inside the running containers.                                                                   |
+| No observed CI run of any workflow      | CI has run. Four failures came back and are fixed — see the commits from 2026-08-23.                                                                                             |
+
+**Still open:**
+
+| #   | Item                                                                                                                               | Where it is recorded                           |
+| --- | ---------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------- |
+| 1   | Nothing requiring **real mail to flow** — quota usage above zero, spam/virus counters with traffic, Fail2ban with actual bans      | `FEATURE_MATRIX.md`                            |
+| 2   | `socat` is absent from the DMS image, so live ClamAV status is unavailable on a stock image and reports `Unknown`                  | `FEATURE_MATRIX.md` item 7                     |
+| 3   | `dockerode` → `uuid` moderate advisory, accepted                                                                                   | §3.4                                           |
+| 4   | Mail queue is read-only; `postqueue -f`/`postsuper` not wired                                                                      | `FEATURE_MATRIX.md`, `UX_ARCHITECTURE.md` §5.2 |
+| 5   | No `system.events` broker operation; `/docker/events` deliberately absent                                                          | `UX_ARCHITECTURE.md` §5.2                      |
+| 6   | Non-Linux hosts unsupported and untested                                                                                           | `docs/docker.md` §6                            |
+| 7   | No published image, no release artifacts, no checksum-verified remote install                                                      | `docs/docker.md` §2                            |
+| 8   | The panel has never been driven **through a browser against the packaged container** — only against dev and static-proxy harnesses | §6.2                                           |
+
+Item 2 is worth a decision rather than a fix: reaching clamd needs either
+a binary the image does not ship, or a different transport. Reporting
+`Unknown` is correct today, and is what a stock deployment will see.

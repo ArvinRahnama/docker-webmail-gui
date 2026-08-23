@@ -266,8 +266,10 @@ verification:**
   server directly), but **no run of this workflow has been observed**, and
   nothing in this repository records one. Treat everything below as
   asserted, not observed, until a run says otherwise.
-- **A real `docker-mailserver` container**, not the minimal named
-  placeholder CI uses to exercise container-resolution and the
+- **A real `docker-mailserver` container in CI.** One was run by hand on
+  2026-08-23 and settled all nine deferred parser questions (see
+  `FEATURE_MATRIX.md`), but CI still stands up only a minimal named
+  placeholder to exercise container-resolution and the
   network-join step. Mailbox operations, DKIM, TLS status, Rspamd/ClamAV
   reachability and every other DMS-dependent feature against a real DMS
   deployment is not exercised by this workflow. The fake-driver-backed

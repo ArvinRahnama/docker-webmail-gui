@@ -51,22 +51,25 @@ is never a synonym for zero, healthy, or broken. A resolver failure
 renders as `Unknown` in grey, never as `Invalid` in yellow, precisely so
 that a network problem cannot be mistaken for a misconfigured DNS record.
 
-Nine parsers were written against documented formats rather than against
-captured output from a running system, because no live
-`docker-mailserver` was available. Each has a defined fallback, and the
-fallback is what you would actually see if the real format differs.
+Nine parsers were originally written against documented formats rather
+than captured output. All nine have since been checked against a live
+`docker-mailserver` (see `FEATURE_MATRIX.md`): seven were right, DKIM's
+key path and record format were wrong and are fixed, and one fallback —
+ClamAV's — turns out to fire on a stock image. Each still has a defined
+fallback, and the fallback is what you would see if your deployment
+differs from the one that was tested.
 [`FEATURE_MATRIX.md`](../FEATURE_MATRIX.md)'s "Deferred to runtime
 verification" table is the authoritative list; in operator terms:
 
-| If you see                                                 | The likely cause                                                                                                                             |
-| ---------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| Mailbox or storage usage as `Unknown` rather than a number | `doveadm -f json quota get`'s key casing or units did not match. It reports `Unknown` rather than a guessed figure.                          |
-| ClamAV shown as `Unknown`                                  | The clamd control socket is reached via `socat`, whose presence in the DMS image was never confirmed. Detected at runtime.                   |
-| A ClamAV version shown as a raw string                     | The `VERSION` string format was not as documented, so it is displayed verbatim rather than parsed.                                           |
-| The Fail2ban page showing raw command output               | `setup fail2ban status`'s output shape differed from the documented one. Raw output beats invented structure.                                |
-| DKIM key path or status as `Unknown`                       | The key path under `ENABLE_RSPAMD=1` is detected at runtime rather than assumed.                                                             |
-| A spam statistic missing rather than zero                  | Rspamd `/stat` field names are bound defensively; only confirmed fields render.                                                              |
-| Restriction status not reflecting a restriction you set    | `postfix-{send,receive}-access.cf`'s exact line format was parsed as standard Postfix `access(5)` syntax, unconfirmed against a real sample. |
+| If you see                                                 | The likely cause                                                                                                                                                                                                                 |
+| ---------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Mailbox or storage usage as `Unknown` rather than a number | `doveadm -f json quota get`'s key casing or units did not match. It reports `Unknown` rather than a guessed figure.                                                                                                              |
+| ClamAV shown as `Unknown`                                  | **Expected on a stock image.** clamd's control socket is reached through `socat`, which docker-mailserver does not install — confirmed against v15.1.0. Detected at runtime and reported honestly rather than failing obscurely. |
+| A ClamAV version shown as a raw string                     | The `VERSION` string format was not as documented, so it is displayed verbatim rather than parsed.                                                                                                                               |
+| The Fail2ban page showing raw command output               | `setup fail2ban status`'s output shape differed from the documented one. Raw output beats invented structure.                                                                                                                    |
+| DKIM key path or status as `Unknown`                       | The key path under `ENABLE_RSPAMD=1` is detected at runtime rather than assumed.                                                                                                                                                 |
+| A spam statistic missing rather than zero                  | Rspamd `/stat` field names are bound defensively; only confirmed fields render.                                                                                                                                                  |
+| Restriction status not reflecting a restriction you set    | `postfix-{send,receive}-access.cf`'s exact line format was parsed as standard Postfix `access(5)` syntax, unconfirmed against a real sample.                                                                                     |
 
 None of these are failures of the panel so much as honest reporting of
 the limit of what it knows. If you hit one against a real DMS, that is

@@ -1,5 +1,5 @@
 /**
- * Parses the **public** DKIM DNS record file `opendkim-genkey` writes
+ * Parses the **public** DKIM DNS record file docker-mailserver writes
  * (`docs/research/01-docker-mailserver.md` §7: `<selector>.txt`, next to
  * the `<selector>.private` key file this project never reads —
  * FEATURE_MATRIX.md §11: "Private keys are never returned by any API and
@@ -31,7 +31,27 @@
  */
 export function parseDkimZoneFileValue(content: string): string | null {
   const matches = [...content.matchAll(/"((?:[^"\\]|\\.)*)"/g)];
-  if (matches.length === 0) return null;
+
+  if (matches.length === 0) {
+    // No quoted strings at all. That is not necessarily unparseable: under
+    // `ENABLE_RSPAMD=1` docker-mailserver does not use `opendkim-genkey`,
+    // and the file it writes
+    // (`rspamd/dkim/rsa-<bits>-<selector>-<domain>.public.dns.txt`) holds
+    // the bare record value on one line, unquoted:
+    //
+    //   v=DKIM1; k=rsa; p=MIIBIjANBgkqhkiG9w0…
+    //
+    // Captured from a live docker-mailserver 15.1.0 on 2026-08-23 (see
+    // `fixtures/dkim-rspamd.ts`). Before this branch, a real Rspamd
+    // deployment's DKIM record parsed as `null` and the panel reported the
+    // key as unparseable — while the key existed and was perfectly valid.
+    //
+    // Accepted only when it actually looks like a DKIM record, so an
+    // unrelated file's contents still fail rather than being echoed back
+    // to an admin as though they were a DNS value.
+    const bare = content.trim();
+    return /^v=DKIM1\b/i.test(bare) ? bare.replace(/\s+/g, ' ') : null;
+  }
 
   const joined = matches
     .map((match) => (match[1] ?? '').replace(/\\"/g, '"').replace(/\\\\/g, '\\'))

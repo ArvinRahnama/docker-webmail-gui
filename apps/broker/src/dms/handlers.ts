@@ -183,9 +183,9 @@ export async function handleDmsFileRead(
 }
 
 /**
- * The **public** DKIM record `opendkim-genkey` writes, at
- * `<config>/opendkim/keys/<domain>/<selector>.txt`
- * (`docs/research/01-docker-mailserver.md` §7). `domain` and `selector`
+ * The **public** DKIM record docker-mailserver writes. Two layouts exist
+ * and both are tried, OpenDKIM's first — see the body for why, and for
+ * what a live deployment actually showed. `domain` and `selector`
  * are already validated by the request schema — a domain cannot contain a
  * `/` or `..` and a selector is `[A-Za-z0-9][A-Za-z0-9_-]*` — so the two
  * interpolations below cannot leave the keys directory.
@@ -200,9 +200,44 @@ export async function handleDmsDkimRecordRead(
   deps: OperationDeps,
 ): Promise<{ content: string | null }> {
   const ref = await resolveOrForbid(deps);
-  const path = `${DMS_CONFIG_DIR}/opendkim/keys/${body.domain}/${body.selector}.txt`;
-  const result = await deps.docker.execContainer(ref.id, ['cat', path]);
-  return { content: result.exitCode === 0 ? result.stdout : null };
+
+  // Layout 1 — OpenDKIM (`ENABLE_OPENDKIM=1`): one file per domain,
+  // named for the selector.
+  const openDkimPath = `${DMS_CONFIG_DIR}/opendkim/keys/${body.domain}/${body.selector}.txt`;
+  const openDkim = await deps.docker.execContainer(ref.id, ['cat', openDkimPath]);
+  if (openDkim.exitCode === 0) return { content: openDkim.stdout };
+
+  // Layout 2 — Rspamd (`ENABLE_RSPAMD=1`, which is docker-mailserver's
+  // modern default and what this project's own compose encourages).
+  // `setup config dkim` then writes
+  // `rspamd/dkim/rsa-<bits>-<selector>-<domain>.public.dns.txt` and never
+  // creates the opendkim directory at all — verified against a live
+  // docker-mailserver on 2026-08-23, where the OpenDKIM path above did not
+  // exist while a perfectly good key did.
+  //
+  // The key size is in the filename and is not something the caller sends,
+  // so the file is located by pattern rather than constructed. `find` with
+  // a fixed argv, never a shell: `-name` takes the pattern as one argument
+  // and `-exec cat {} +` prints what it finds. `domain` and `selector` are
+  // schema-validated leaf values that cannot contain a glob character, a
+  // slash, or `..`, so neither can widen the pattern beyond this one
+  // directory.
+  const rspamd = await deps.docker.execContainer(ref.id, [
+    'find',
+    `${DMS_CONFIG_DIR}/rspamd/dkim`,
+    '-maxdepth',
+    '1',
+    '-type',
+    'f',
+    '-name',
+    `*-${body.selector}-${body.domain}.public.dns.txt`,
+    '-exec',
+    'cat',
+    '{}',
+    '+',
+  ]);
+  const found = rspamd.exitCode === 0 ? rspamd.stdout.trim() : '';
+  return { content: found.length > 0 ? rspamd.stdout : null };
 }
 
 /**

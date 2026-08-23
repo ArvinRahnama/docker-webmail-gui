@@ -238,6 +238,51 @@ both directions. It found real drift on its first run (three broker-owned
 variables) — which turned out to be correct, since one `.env` configures
 both containers.
 
+### 3.35 The intermittent "N passed, 2 did not run" — diagnosed and closed
+
+Reported as a harness flake reproducible by chaining `npm run check` and
+`npx playwright test` in one shell invocation. Reproduced here on the
+first attempt, with the four E2E ports **verified free beforehand**.
+
+**The offered hypothesis was that `reuseExistingServer` adopted a
+leftover server. That is falsified for this failure**: nothing was
+listening to adopt, and the error was not a lost connection.
+
+The real cause is a strict-mode locator ambiguity in
+`e2e/backup-and-restore.spec.ts`. `/maintenance/backups` renders a
+"Create backup" button in the page header _and_, once the list query
+resolves on an empty list, a second one in the first-run empty state
+(deliberate — `domains-list-page.test.tsx` asserts the same duplication
+for mailboxes). `DATA_DIR` is a fresh `mkdtemp` per run, so the list is
+always empty; whether the click sees one button or two is a race with
+that query, and `getByRole` is strict. Chaining after a full `check`
+loads the machine enough to change which side wins.
+
+The `2 did not run` is `test.describe.serial` semantics — the two later
+tests in the block are skipped after a failure — not a truncated run.
+
+**This one fails loudly and never passes falsely**, so unlike §3.3's
+tautologies it was not producing false confidence. Fixed by asserting the
+empty state first, making the DOM deterministic, then taking `.first()`
+(the header button in either state). Three consecutive chained runs green
+afterwards.
+
+**A genuine latent hazard found while investigating it, and closed.**
+`reuseExistingServer: !process.env.CI` did not cause the above, but it
+would silently adopt a server left by a killed run — built from different
+source — producing a green suite that never executed the code under test.
+On ports used by nothing but this harness there is no case where adopting
+is wanted, and `e2e/env.ts`'s own comment says fixed ports exist to make a
+stuck process "a loud, obvious failure instead of a silent reuse of the
+wrong server", which the setting quietly defeated. Now `false`
+everywhere. Verified by occupying port 3900 with a decoy:
+
+```
+Error: http://127.0.0.1:3900/api/v1/health is already used, make sure that
+nothing is running on the port/url or set reuseExistingServer:true …
+exit 1
+```
+
 ### 3.4 Dependency posture
 
 ```

@@ -132,7 +132,28 @@ test.describe.serial('backup and restore', () => {
     await page.goto('/maintenance/backups');
     await expect(page.getByRole('heading', { name: 'Backups' })).toBeVisible();
 
-    await page.getByRole('button', { name: 'Create backup' }).click();
+    // Wait for the list query to settle before touching anything.
+    //
+    // `DATA_DIR` is a fresh `mkdtemp` per run (playwright.config.ts), so
+    // this page always starts with no backups — and the first-run empty
+    // state renders its *own* "Create backup" call to action alongside the
+    // page header's (backups-page.tsx: `PageHeader`'s `action`, and the
+    // `EmptyState`'s; `domains-list-page.test.tsx` asserts the same
+    // duplication is deliberate on the mailbox pages). Before the query
+    // resolves only the header button exists; after it, two do.
+    //
+    // Clicking without waiting is therefore a race between one match and
+    // two, and `getByRole` is strict — which is exactly how this line
+    // failed intermittently, as a strict-mode violation rather than a
+    // timeout, and only when the machine was busy enough for the query to
+    // win the race. Asserting the empty state first makes the DOM
+    // deterministic, and is real coverage this test did not previously
+    // have.
+    await expect(page.getByRole('heading', { name: 'No backups yet' })).toBeVisible();
+
+    // `.first()` is the page header's button in either state — it precedes
+    // the table in source order. Same idiom as the radio below.
+    await page.getByRole('button', { name: 'Create backup' }).first().click();
     const createDialog = page.getByRole('dialog');
     await expect(createDialog.getByRole('heading', { name: 'Create backup' })).toBeVisible();
 

@@ -49,6 +49,36 @@
  *    way would call `/api/*` with no backend behind it at all.
  *
  * ---------------------------------------------------------------------
+ * Why `reuseExistingServer` is false, even locally
+ * ---------------------------------------------------------------------
+ *
+ * Playwright's default for a local run is to adopt whatever is already
+ * listening on a `webServer` port instead of starting one. That is a
+ * sensible default when the port might hold something you deliberately
+ * started — and it is the wrong default here, because these four ports
+ * (`e2e/env.ts`: 3900, 3901, 3910, 3911) are used by nothing but this
+ * harness. There is no scenario in which a process on port 3900 is
+ * something a run should want to keep; there is only the scenario where a
+ * previous run was killed and left one behind, built from different
+ * source.
+ *
+ * Adopting that server means a green suite that never executed the code
+ * under test — the same false-confidence family as a test asserting a
+ * value against itself, and harder to notice, because nothing fails.
+ * `e2e/env.ts`'s own comment on these ports already states the intent:
+ * fixed ports exist to make a stuck process "a loud, obvious failure
+ * instead of a silent reuse of the wrong server". `reuseExistingServer:
+ * !process.env.CI` quietly defeated that intent on every local run. With
+ * it off, a leftover process makes the run fail to start, loudly, which
+ * is the outcome that comment was asking for.
+ *
+ * This is not what caused the intermittent cut-short runs that prompted
+ * the change — those were a strict-mode locator ambiguity in
+ * `backup-and-restore.spec.ts`, reproduced and fixed separately, with the
+ * ports verified free beforehand. This is a latent hazard found while
+ * investigating that one.
+ *
+ * ---------------------------------------------------------------------
  * State isolation
  * ---------------------------------------------------------------------
  *
@@ -219,7 +249,7 @@ export default defineConfig({
       command: 'node apps/server/dist/index.js',
       cwd: ROOT_DIR,
       url: `${SERVER_ORIGIN}/api/v1/health`,
-      reuseExistingServer: !process.env.CI,
+      reuseExistingServer: false,
       timeout: 60_000,
       env: {
         ...process.env,
@@ -239,7 +269,7 @@ export default defineConfig({
       command: `npm run dev --workspace apps/web -- --host 127.0.0.1 --port ${WEB_PORT} --strictPort`,
       cwd: ROOT_DIR,
       url: WEB_ORIGIN,
-      reuseExistingServer: !process.env.CI,
+      reuseExistingServer: false,
       timeout: 30_000,
       env: {
         ...process.env,
@@ -261,7 +291,7 @@ export default defineConfig({
       command: 'node apps/server/dist/index.js',
       cwd: ROOT_DIR,
       url: `${SECURITY_SERVER_ORIGIN}/api/v1/health`,
-      reuseExistingServer: !process.env.CI,
+      reuseExistingServer: false,
       timeout: 60_000,
       env: {
         ...process.env,

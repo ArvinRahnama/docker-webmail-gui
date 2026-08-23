@@ -212,18 +212,6 @@ claims as much as to the app's: this section says plainly what is actually
 tested versus what remains a documented manual step, rather than letting
 "there's a workflow for it" imply more than it does.
 
-> **Read this first.** `apps/server` does not currently start with
-> `APP_MODE=production` — the driver port it uses to reach
-> `docker-mailserver` has no concrete implementation yet, so the process
-> exits at startup rather than serve fake data in a real deployment. Every
-> "install → healthy" claim below is therefore a claim about what the
-> workflow _asserts_, not about a cycle that has been observed passing:
-> the workflow has not yet run, and as things stand it would fail at its
-> first health check. That is the workflow working correctly — it is
-> designed to catch exactly this — but it means nothing in this section
-> may be read as "already verified". See
-> [`troubleshooting.md`](troubleshooting.md).
-
 **Asserted in CI, on every relevant push (`.github/workflows/installer.yml`),
 against a real Docker daemon on a real Linux runner** — this machine, at
 the time these files were written, had no Docker daemon reachable at all
@@ -272,11 +260,11 @@ against anything real rather than simulated:
 **Not verified here, and not claimed to be — remaining manual/future
 verification:**
 
-- **Any part of the install cycle actually completing.** See the note
-  above: the server does not start in production mode, so the workflow's
-  first health check would fail. Everything from that step onwards in this
-  document describes intended, asserted behaviour that has never been
-  observed succeeding.
+- **The install cycle actually completing against a real Docker daemon.**
+  The workflow asserts the right things and the server now does boot in
+  production configuration (proven by a test and by running the built
+  server directly), but this workflow has not yet been run, so nothing
+  below has been _observed_ passing on a real runner.
 - **A real `docker-mailserver` container**, not the minimal named
   placeholder CI uses to exercise container-resolution and the
   network-join step. Mailbox operations, DKIM, TLS status, Rspamd/ClamAV

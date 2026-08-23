@@ -56,7 +56,7 @@ and `exec.*` are absent from the operation vocabulary entirely. The web
 tier never sends a container id at all — the broker resolves the mail
 container's identity itself, from its own configuration.
 
-The complete vocabulary is these 18 operations, and nothing else:
+The complete vocabulary is these 47 operations, and nothing else — 18 for Docker, 29 for docker-mailserver:
 
 ```
 container.list     container.inspect   container.start    container.stop
@@ -64,9 +64,30 @@ container.restart  container.stats     container.logs     system.ping
 system.version     system.info         system.df          image.list
 volume.list        network.list        volume.remove      image.prune
 logs.file          console.exec
+
+dms.file.read      dms.env.read        dms.dkim.record.read
+dms.email.add      dms.email.update    dms.email.del       dms.email.restrict
+dms.email.list     dms.alias.add       dms.alias.del       dms.alias.list
+dms.quota.set      dms.quota.del       dms.quota.get       dms.dkim.generate
+dms.fail2ban.list  dms.fail2ban.status dms.fail2ban.log    dms.fail2ban.ban
+dms.fail2ban.unban dms.clamd.control   dms.clamav.update   dms.clamav.log
+dms.sieve.list     dms.sieve.get       dms.sieve.put       dms.sieve.activate
+dms.sieve.deactivate                   dms.queue.list
 ```
 
-Three of those deserve a note, because they are the ones that could have
+The `dms.*` half is where this design was most tempting to compromise.
+Every mail operation could have been one `exec.run(argv)` behind an
+allowlist checking the argv — and that would have been a passthrough
+wearing an allowlist's clothes, turning web-tier RCE into arbitrary
+command execution inside your mail container. Instead each one carries
+typed leaf values (an address, a quota, an IP, a script name) and **the
+broker constructs the command line from its own builders**.
+`dms.file.read` takes a five-value symbolic key, never a path.
+`dms.env.read` returns six allowlisted variables, not your mail
+container's environment. Passwords and Sieve script bodies reach the
+container on stdin, never as an argument visible in `ps`.
+
+Three of the Docker operations deserve a note too, because they are the ones that could have
 been passthroughs and deliberately are not. `volume.remove` takes a
 volume _name_ and is refused broker-side for any volume backing a mail
 data mount — re-derived from the managed container's own mounts on every
@@ -110,7 +131,8 @@ that fails a build. This project has a mix, and the difference matters:
 
 | Property                                                    | Enforced by                                                                                                     |
 | ----------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
-| No container spec, bind mount or capability in the protocol | A test that fails if those field names appear in any schema                                                     |
+| No container spec, bind mount or capability in the protocol | A test that fails if those field names appear in any schema, across all 47 operations                           |
+| No argv, path or shell string anywhere in the protocol      | The schemas carry only typed leaf values; the broker builds every command line and owns every path              |
 | Web tier holds no Docker client                             | An ESLint rule banning the import, plus a build-time assertion in the image that fails if the package reappears |
 | Web tier has no socket on any path                          | CI inspects the running container's mounts on every install cycle                                               |
 | Broker publishes no port; its network is internal           | The compose file, asserted against live containers in CI                                                        |

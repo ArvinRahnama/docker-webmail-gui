@@ -2,44 +2,29 @@
 
 Ordered roughly by when you would hit them.
 
-## Known blocking limitation: the panel does not start in production mode
+## Mail features and the broker
 
-**Symptom.** `installer/install.sh` builds and starts the stack, then
-waits and eventually fails with "the server did not become healthy after
-60 attempts". `docker compose logs server` shows the container starting
-and exiting repeatedly, each time with:
+Everything this panel does to `docker-mailserver` — create a mailbox, set
+a quota, install a Sieve script, ban an IP — crosses the privilege
+boundary as a **named operation**, never as a command line. The web tier
+sends `dms.email.add` with an address and a password; the broker decides
+that this means `setup email add <address>` with the password on stdin.
+There is no field in that protocol that can carry a command, a flag or a
+path, which is why a compromise of the web tier cannot become arbitrary
+command execution inside your mail container.
 
-```
-Fatal startup error: Error: createDmsDriver: a real DmsExecPort is required
-because this deployment is configured to use real drivers, but none was
-provided. No concrete DmsExecPort adapter exists yet ...
-```
+This matters for troubleshooting in one practical way: if a mail
+operation fails, the error names the _operation_ (`"dms.sieve.get"
+exited 68`), not a command line, because the web tier never had one. The
+command that actually ran is the broker's, and its stderr is passed
+through to you verbatim.
 
-**Cause.** `apps/server` reaches `docker-mailserver` through a
-`DmsExecPort` — read a config file, run an argv command, read the
-container's environment. **No concrete implementation of that port
-exists yet.** It needs two broker operations, `exec.run` (allowlisted
-argv) and `file.read` (allowlisted DMS config paths), which the broker's
-operation vocabulary deliberately deferred when it was defined and which
-have not been added since. Rather than silently fall back to fake data in
-a deployment configured to be real — which would be far more dangerous —
-the driver factory refuses to construct and the process exits.
-
-`APP_MODE=production` is what `docker/compose.yaml` sets and what
-`install.sh` writes, so this affects every production install. The broker
-container starts and stays healthy; only the web tier crash-loops.
-
-**Status.** This is a genuine gap in the product, not a misconfiguration,
-and there is no setting that works around it. Development mode
-(`APP_MODE=development`) starts normally against fixture-backed fake
-drivers — which is how the entire test suite runs — but that is a
-development environment, not a deployment.
-
-**What this means for everything below.** The mail-management features
-this panel is for — mailboxes, aliases, quotas, DKIM, Sieve,
-autoresponders, restrictions — depend on that port. Until it exists,
-their documented behaviour is what the code does, proven against fixtures
-and fakes, not what a live `docker-mailserver` has been observed doing.
+**Historical note.** Until M16 this port had no implementation at all,
+and the server refused to start in `APP_MODE=production` rather than
+serve fake data in a real deployment. If you are running a build from
+before that milestone you will see `createDmsDriver: a real DmsExecPort
+is required` in the server log and an install that never reaches health.
+The fix is to update, not to change any setting.
 
 ## Install
 

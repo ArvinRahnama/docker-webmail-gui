@@ -5,12 +5,13 @@ the limits come from. [`FEATURE_MATRIX.md`](../FEATURE_MATRIX.md) is the
 authoritative, feature-by-feature version with a status for every row;
 this page is the operator's walkthrough.
 
-> **Before relying on any of this**, read
-> [`troubleshooting.md`](troubleshooting.md)'s first section. The
-> mail-management features below depend on a driver port that has no
-> concrete implementation yet, and a production install does not currently
-> start. Their behaviour is proven against fixtures and fakes, not against
-> a live `docker-mailserver`.
+> **On what "works" means here.** Every feature below is implemented and
+> tested, and the panel boots and runs. None of it has yet been exercised
+> against a live `docker-mailserver` — the test suites run against
+> captured fixtures and fake drivers. See
+> [`troubleshooting.md`](troubleshooting.md) for how to read `Unknown`,
+> which is what you will see wherever a parser meets output it did not
+> expect.
 
 ## Two rules that explain most of the design
 

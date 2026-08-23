@@ -376,11 +376,61 @@ called out explicitly here.
     not, and no longer claims an installation path that works.
 
 
+- docker-mailserver behind the broker (M16): the milestone that made the
+  panel able to start. `apps/server` reached DMS through a `DmsExecPort`
+  that had **no implementation** — implementing it meant giving the broker
+  `exec.run(argv)` and `file.read(path)` — so `createDmsDriver` refused to
+  construct and the process exited at startup. `APP_MODE=production` is
+  what the compose file sets and the installer writes, so every production
+  install crash-looped the web tier while the broker sat healthy beside it.
+  - **The vocabulary moved instead of the argv.** An allowlist that
+    validates a caller-supplied argv is still a passthrough, and full RCE
+    in the web tier would have become arbitrary command execution inside
+    the mail container. So each DMS operation became a named intent with
+    typed leaf parameters — 29 of them, taking the broker's vocabulary
+    from 18 to 47 — and the broker constructs the command line from its
+    own builders. `commands.ts` physically moved from `apps/server` to
+    `apps/broker`: the web tier has no copy to reach for.
+  - **File reads take a symbolic key, never a path**, and the broker owns
+    the five-key mapping. **Environment reads return six allowlisted
+    variables**, not the container's environment — the port this replaced
+    returned all of it, which would have handed a compromised web tier
+    every credential in the mail container for the sake of four capability
+    flags. Passwords and Sieve bodies still travel on stdin, never argv.
+  - **The cost, stated plainly:** the broker now owns the DMS command
+    vocabulary, which is real business logic in the component whose whole
+    virtue is having none. That was a deliberate trade — a structural
+    guarantee in place of a validation routine — and it is why the two
+    tables that encode it (`DMS_COMMAND_BUILDERS`, `DMS_CONFIG_FILE_PATHS`)
+    are `satisfies`-checked, so an operation cannot exist without a
+    builder or a key without a path.
+  - **Proven, not asserted.** `production-boot.test.ts` builds the real
+    application in production configuration with no driver override — the
+    override would skip the line that used to throw — and reaches a
+    healthy `/api/v1/health`. The built server, run directly, now logs
+    "DMS driver: RealDmsDriver (over the broker)" and answers healthy
+    where it previously exited 1. M12's command-injection manifest
+    followed the builders to the broker and still fails the suite when a
+    builder appears without coverage; new `handlers.security.test.ts`
+    asserts the file-key mapping, the environment filtering, stdin for
+    passwords, and that no code path names a DKIM `.private` key.
+  - **A second boot-blocking bug, found while proving the first:**
+    `install.sh` defaulted `BOOTSTRAP_ADMIN_EMAIL` to `admin@localhost`,
+    which the config schema's strict email rule rejects for having no TLD.
+    A default install would have failed configuration validation before it
+    ever reached the DMS driver. Now `admin@example.com`.
+  - The `name` field on three Sieve operations became `script`, because
+    `broker.test.ts`'s container-reference guard rejects a `name` field on
+    every operation but one documented exemption — and a vocabulary where
+    "name" sometimes means a container is the ambiguity that guard exists
+    to prevent. The guard stayed blunt; the field got renamed.
+
+
 ### Notes
 
 - No release has been published yet and no image is published to any
-  registry. **The panel does not currently start in production mode** —
-  see M14's entry above and `docs/troubleshooting.md`. The production
-  audit is M15. See the project status banner in `README.md`.
+  registry. The panel starts and runs; nothing has yet been exercised
+  against a live `docker-mailserver`. The production audit is M15. See the
+  project status banner in `README.md`.
 
 [Unreleased]: https://github.com/ArvinRahnama/docker-webmail-gui/commits/main

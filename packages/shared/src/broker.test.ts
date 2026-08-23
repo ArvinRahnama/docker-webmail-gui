@@ -13,6 +13,7 @@ import {
   LOGS_TAIL_MIN,
   type BrokerOperation,
 } from './broker.js';
+import { DMS_COMMAND_OPERATIONS, DmsExecResponseSchema } from './dms.js';
 
 describe('BROKER_OPERATIONS', () => {
   it('is exactly the documented vocabulary, with no duplicates', () => {
@@ -444,7 +445,44 @@ describe('BrokerRequestSchema — dangerous Docker fields are structurally impos
 });
 
 describe('BROKER_RESPONSE_SCHEMAS', () => {
-  it('has exactly one response schema per operation (also enforced at compile time by "satisfies")', () => {
+  /**
+   * Honest about its own reach, as of M16.
+   *
+   * The Docker half of this map is written out by hand, so this assertion
+   * is a real cross-check for those 18 operations. The DMS half is not:
+   * `DMS_RESPONSE_SCHEMAS` generates its 26 command entries from
+   * `DMS_COMMAND_OPERATIONS`, which is derived from the same
+   * `DMS_OPERATIONS` list that is spread into `BROKER_OPERATIONS` — so for
+   * those 26 both sides of this comparison come from one source and it
+   * cannot fail. That is not a bug in the generation (structural
+   * guarantees beat assertions) but it does mean this line proves less
+   * than its name suggests, and a test that reports coverage it does not
+   * have is worse than no test. Hence the second case below, which checks
+   * the part generation genuinely cannot.
+   */
+  it('has exactly one response schema per operation — a real cross-check for the hand-written Docker half', () => {
     expect(Object.keys(BROKER_RESPONSE_SCHEMAS).sort()).toEqual([...BROKER_OPERATIONS].sort());
+  });
+
+  it('gives the three DMS state reads their own schemas, and every DMS command the shared exec schema', () => {
+    // Generation maps every *command* to DmsExecResponseSchema, so the risk
+    // it cannot cover is the opposite one: a state read silently sharing
+    // that schema, which would let a `{stdout,stderr,exitCode}` body pass
+    // validation where a `{content}` body was meant.
+    const stateReads = ['dms.file.read', 'dms.env.read', 'dms.dkim.record.read'] as const;
+    for (const operation of stateReads) {
+      expect(
+        BROKER_RESPONSE_SCHEMAS[operation],
+        `${operation} must not reuse the exec schema`,
+      ).not.toBe(DmsExecResponseSchema);
+    }
+    // ...and the three are distinct from each other, not one schema reused.
+    expect(new Set(stateReads.map((op) => BROKER_RESPONSE_SCHEMAS[op])).size).toBe(
+      stateReads.length,
+    );
+
+    for (const operation of DMS_COMMAND_OPERATIONS) {
+      expect(BROKER_RESPONSE_SCHEMAS[operation]).toBe(DmsExecResponseSchema);
+    }
   });
 });

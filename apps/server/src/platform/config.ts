@@ -105,6 +105,39 @@ function urlVar(defaultValue: string) {
 // individual fields, since "required" here depends on APP_MODE.
 // ---------------------------------------------------------------------------
 
+/**
+ * The variable names this schema understands, exported so
+ * `config-env-example.test.ts` can hold `.env.example` to it. Documented
+ * configuration drifting from the code that reads it is a silent failure
+ * — an operator sets a variable that does nothing, or misses one that
+ * matters — and `docs/configuration.md` points at `.env.example` as the
+ * authoritative reference, so that claim needs something enforcing it.
+ */
+export const CONFIG_ENV_KEYS = [
+  'APP_MODE',
+  'DANGEROUSLY_USE_REAL_DOCKER',
+  'PORT',
+  'HOST',
+  'LOG_LEVEL',
+  'COOKIE_SECRET',
+  'COOKIE_SECURE',
+  'SESSION_ABSOLUTE_TTL_HOURS',
+  'SESSION_IDLE_TTL_HOURS',
+  'DATA_DIR',
+  'STATIC_DIR',
+  'BOOTSTRAP_ADMIN_EMAIL',
+  'BOOTSTRAP_ADMIN_PASSWORD',
+  'BACKUP_DIR',
+  'BROKER_URL',
+  'BROKER_SHARED_SECRET',
+  'DMS_CONTAINER_NAME',
+  'DMS_CONTAINER_LABEL',
+  'RSPAMD_URL',
+  'RSPAMD_PASSWORD',
+  'ENABLE_EXEC_CONSOLE',
+  'ENABLE_HSTS',
+] as const;
+
 const rawEnvSchema = z
   .object({
     APP_MODE: z

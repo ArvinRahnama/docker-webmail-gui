@@ -1,6 +1,7 @@
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import * as tar from 'tar';
 import type { ReadEntry } from 'tar';
@@ -84,10 +85,20 @@ describe('buildUstarTar', () => {
     }
   });
 
-  it('is deterministic: the same volume key always yields the same bytes and checksum', () => {
+  it('is deterministic: the same volume key always yields the same bytes', () => {
     const first = buildFixtureVolumeTar('mail');
     const second = buildFixtureVolumeTar('mail');
     expect(first.equals(second)).toBe(true);
-    expect(fixtureVolumeTarChecksum('mail')).toBe(fixtureVolumeTarChecksum('mail'));
+  });
+
+  it('the published checksum is the real SHA-256 of the bytes, computed independently', () => {
+    // `expect(f('mail')).toBe(f('mail'))` was the previous assertion here.
+    // It is true for any deterministic function, including one that
+    // returned a constant, so it proved only what the case above already
+    // proves. Recomputing the digest from the bytes by a separate path is
+    // the assertion that can actually fail.
+    const expected = createHash('sha256').update(buildFixtureVolumeTar('mail')).digest('hex');
+    expect(fixtureVolumeTarChecksum('mail')).toBe(expected);
+    expect(expected).toMatch(/^[0-9a-f]{64}$/);
   });
 });

@@ -35,7 +35,7 @@ Consequences you must preserve:
 ## 3. Nine working agreements — non-negotiable
 
 1. **No control ships that the backend cannot perform.** A feature is real, explicitly unsupported, or absent.
-2. **Reads parse state; writes use the CLI.** DMS has no machine-readable output, so never parse its decorative CLI text for data.
+2. **Reads parse state; writes use the CLI.** DMS has no machine-readable output, so never parse its decorative CLI text for data. Vindicated in M17: `setup email list` errors outright on an account with no quota, while the panel listed that same account correctly from `postfix-accounts.cf` (`FEATURE_MATRIX.md` §0).
 3. **Argv arrays only.** Never `sh -c`, never interpolation, never a shell. ESLint fails the build on a shell in an argv array — do not work around it.
 4. **No client-supplied path or container spec** reaches a filesystem or the Docker API. Log sources and editable files are server-side enums.
 5. **Secrets never enter logs, responses, the bundle, or browser storage.**

@@ -486,11 +486,36 @@ Also asserted in the suite, with no driver override, by
 
 ---
 
+### 6.5 M17 — observed on a real Docker daemon (2026-08-23)
+
+Everything §1 previously listed as never having happened, happened. Recorded
+here with the same asserted/observed discipline as the rest of this file.
+
+| What                                           | Result                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Both images build                              | **Observed.** Server 446 MB, broker 280 MB. The build-time tier-isolation assertions ran for the first time and passed.                                                                                                                                                                                                                                                                                                                                                                     |
+| Image contents match their claims              | **Observed.** No Docker client in the web tier; no compiled test files; runs as `dwg` uid 10001; SPA present at `STATIC_DIR`.                                                                                                                                                                                                                                                                                                                                                               |
+| The stack comes up healthy                     | **Observed**, via `installer/install.sh` against a real daemon.                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| The privilege boundary                         | **Observed from inside the containers**: the server has no socket on any mount path and none anywhere in its filesystem, and cannot reach the Docker API (`fetch failed`); the broker has the socket, publishes nothing, and its network is `internal: true`. Both non-root, read-only rootfs, `cap_drop: ALL`, `no-new-privileges`, PID caps 512/128.                                                                                                                                      |
+| M13's exit criterion                           | **Observed in full.** install → healthy → uninstall, twice; `.env` byte-identical across re-install; `--purge` removes volumes, `.env` and images; a second `--purge` with no `.env` present succeeds; a post-purge install is genuinely fresh.                                                                                                                                                                                                                                             |
+| Same-origin SPA serving                        | **Observed** on the real image: `GET /` returns the shell, its hashed asset loads, a client-side route falls back to the shell, and an unmatched `/api/*` still returns the JSON envelope.                                                                                                                                                                                                                                                                                                  |
+| `COOKIE_SECURE` over plain HTTP                | **Observed exactly as documented**: the session cookie carries `Secure` over `http://`, which browsers honour only on localhost. The installer's warning fires.                                                                                                                                                                                                                                                                                                                             |
+| The panel driving a **live docker-mailserver** | **Observed, both directions.** `GET /api/v1/mailboxes` returned the real account with its real quota and its real send restriction, `unparseableLines: 0` — three config files parsed. `POST /api/v1/mailboxes` created `m17-created@example.test`, which appears in the container's own `postfix-accounts.cf` with a maildir under `/var/mail`. That is the M16 vocabulary end to end: web tier → named operation → broker-built argv → real `setup email add` with the password on stdin. |
+
+**An incidental vindication of Rule 1.** `setup email list` _fails_ on this
+version of docker-mailserver when an account has no quota
+(`listmailuser: Supplied non-number argument '' to
+'_bytes_to_human_readable_size()'` — its bug, not ours). The panel is
+unaffected, because FEATURE_MATRIX.md §0 Rule 1 says reads parse state
+rather than the CLI's decorative output: the same account listed correctly
+through the API while DMS's own command was erroring on it.
+
 ## 7. Open items
 
-Updated after M17, which was the first time this project had a Docker
-daemon. Four of the nine items below are now closed; what replaced them is
-narrower and, in two cases, newly discovered.
+Updated after M17, the first time this project had a Docker daemon. Four
+of the nine items this section previously listed are closed. Five carry
+over unchanged, and three are new — found only because the milestone
+finally ran the things nobody had been able to run.
 
 **Closed by M17 (2026-08-23):**
 
@@ -512,7 +537,7 @@ narrower and, in two cases, newly discovered.
 | 5   | No `system.events` broker operation; `/docker/events` deliberately absent                                                          | `UX_ARCHITECTURE.md` §5.2                      |
 | 6   | Non-Linux hosts unsupported and untested                                                                                           | `docs/docker.md` §6                            |
 | 7   | No published image, no release artifacts, no checksum-verified remote install                                                      | `docs/docker.md` §2                            |
-| 8   | The panel has never been driven **through a browser against the packaged container** — only against dev and static-proxy harnesses | §6.2                                           |
+| 8   | The panel has never been driven **through a browser against the packaged container** — only against dev and static-proxy harnesses | §6.5                                           |
 
 Item 2 is worth a decision rather than a fix: reaching clamd needs either
 a binary the image does not ship, or a different transport. Reporting

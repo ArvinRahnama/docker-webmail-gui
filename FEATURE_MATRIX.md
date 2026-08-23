@@ -41,6 +41,21 @@ DMS's `setup` CLI has **no JSON or machine-readable output mode anywhere** — `
 - **Read path:** parse the config files directly (`postfix-accounts.cf`, `postfix-virtual.cf`, `dovecot-quotas.cf`) and query real APIs (Rspamd HTTP, clamd socket, `doveadm`, `postqueue -j`, Docker Engine API). These have stable, documented formats.
 - **Write path:** invoke `setup` via `docker exec` with an **argv array**, never `sh -c`. `setup` owns the write semantics (hashing, file locking, side effects) and we must not reimplement them.
 
+> **This rule was adopted on reasoning and has since been vindicated by an
+> upstream bug nobody predicted.** On docker-mailserver v15.1.0, creating an
+> account without a quota makes `setup email list` fail outright:
+>
+> ```
+> doveadm(m17-created@example.test): Error: User doesn't exist
+> ERROR listmailuser: Supplied non-number argument '' to '_bytes_to_human_readable_size()'
+> ERROR listmailuser: Aborting
+> ```
+>
+> A panel that read mailboxes by parsing that command's output would have
+> shown the operator an error, or an empty list, for an account that exists
+> and works. This one listed it correctly at the same moment, from
+> `postfix-accounts.cf`. Observed 2026-08-23 (M17) — see `AUDIT.md` §6.5.
+
 **Rule 2 — Every mutation crosses the broker boundary.**
 The web tier holds no Docker socket. Mutations are named operations sent to the privileged broker, which pins the target container identity server-side. See `ARCHITECTURE.md`.
 

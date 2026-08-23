@@ -426,6 +426,48 @@ called out explicitly here.
     to prevent. The guard stayed blunt; the field got renamed.
 
 
+- Final audit (M15): `AUDIT.md` — functional, security, UX, licensing and
+  production, with a file, a test name or a command and its output behind
+  every row, and §1 stating up front what a reader may **not** conclude:
+  nothing has touched a live docker-mailserver, no image has been built,
+  no container has run, and no CI run has been observed.
+  - **The checklist the milestone names does not exist here.** The exit
+    criterion cites "the brief's §80 checklist"; the brief is not in the
+    repository. The audit is assembled instead from the checklists that
+    are — `FEATURE_MATRIX.md`, `SECURITY.md` Part 5, `UX_ARCHITECTURE.md`,
+    `LICENSE_AUDIT.md` — and records the substitution rather than papering
+    over it.
+  - **Two more tautologies found and fixed.** `broker.test.ts`'s
+    "one response schema per operation" check became partly
+    self-referential in M16, when 26 of the 47 keys started being
+    generated from the same list the assertion compares against — a
+    regression this project's own author introduced. It now claims only
+    the hand-written half and adds the case generation cannot cover: that
+    the three DMS state reads do not silently reuse the exec schema. And
+    `archive.test.ts` asserted `f(x) === f(x)`, true for any function
+    including one returning a constant; it now recomputes the digest by
+    an independent path.
+  - **An unsupported documentation claim, made true rather than
+    softened.** `docs/configuration.md` said `.env.example` "is checked
+    against the code's own schema, so it cannot quietly drift". Nothing
+    checked it. `config-env-example.test.ts` now does, in both
+    directions, against the union of both tiers' schemas — and found
+    real drift on its first run.
+  - **Three stale file citations** in `SECURITY.md`, `UX_ARCHITECTURE.md`
+    and `docs/README.md`, found by a scan of every path cited in every
+    document. Two were M16 fallout; one was a long-standing typo.
+  - **Licensing verified against what actually ships**, not against the
+    pre-adoption inventory: 251 production packages, nine license
+    expressions, every one inside the gate's allowlist, exceptions list
+    empty, and both images' pruned trees re-measured after M16 moved code
+    between workspaces.
+  - **A claim of this project's own corrected:** the README and
+    `docs/docker.md` said the installer workflow "has not yet run". No CI
+    tooling is available in the development environment, so that was
+    unsupportable in either direction. Both now say no run has been
+    *observed*.
+
+
 ### Notes
 
 - No release has been published yet and no image is published to any

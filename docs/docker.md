@@ -263,8 +263,9 @@ verification:**
 - **The install cycle actually completing against a real Docker daemon.**
   The workflow asserts the right things and the server now does boot in
   production configuration (proven by a test and by running the built
-  server directly), but this workflow has not yet been run, so nothing
-  below has been _observed_ passing on a real runner.
+  server directly), but **no run of this workflow has been observed**, and
+  nothing in this repository records one. Treat everything below as
+  asserted, not observed, until a run says otherwise.
 - **A real `docker-mailserver` container**, not the minimal named
   placeholder CI uses to exercise container-resolution and the
   network-join step. Mailbox operations, DKIM, TLS status, Rspamd/ClamAV

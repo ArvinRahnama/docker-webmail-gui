@@ -22,8 +22,8 @@ Read in this order if you are installing for the first time:
 5. **[`backup-restore.md`](backup-restore.md)** — the archive format, the
    manual restore path, and why restore is deliberately awkward.
 6. **[`troubleshooting.md`](troubleshooting.md)** — symptoms and causes,
-   including the current blocking limitation and how to read `Unknown`
-   correctly.
+   including how mail operations cross the privilege boundary and how to
+   read `Unknown` correctly.
 
 > **Start here if something is already wrong:**
 > [`troubleshooting.md`](troubleshooting.md).
@@ -43,6 +43,10 @@ Different reader, different documents. These live at the repository root:
   components.
 - [`IMPLEMENTATION_PLAN.md`](../IMPLEMENTATION_PLAN.md) — milestones and
   progress.
+- [`AUDIT.md`](../AUDIT.md) — the final audit: functional, security, UX,
+  licensing and production, with evidence per item, and an explicit list
+  of what a reader may **not** conclude from it. Start here if you want
+  to know what is actually proven.
 - [`CONTRIBUTING.md`](../CONTRIBUTING.md) — how to work on it.
 - [`AGENT_BRIEF.md`](AGENT_BRIEF.md) — the condensed working context that
   replaces reading all of the above. Written for agents implementing a

@@ -15,13 +15,22 @@
  * and build all passed, because they were consistently testing the *old*
  * version.
  *
- * npm does notice — `npm ls` reports ELSPROBLEMS — but nothing was running
- * it, and its output is noisy enough to be ignored. This check is narrow and
- * says exactly which workspaces disagree.
+ * npm does notice — `npm ls` reports ELSPROBLEMS — and for a long time
+ * nothing here ran it, on the reasoning that its output was noisy enough to
+ * be ignored. That reasoning turned out to be expensive: see
+ * {@link checkTreeIntegrity} below, added after a second skew arrived
+ * through a *peer* dependency, where there were never two declarations to
+ * compare. `npm ls` is now run too, as the last of three checks.
+ *
+ * So this file gates three things, narrowest first:
+ *   1. declarations agree on a major across workspaces;
+ *   2. what is installed matches what is declared;
+ *   3. npm itself reports no invalid or missing package in the tree.
  *
  * Usage: node scripts/check-dep-consistency.mjs
  */
 
+import { execFileSync } from 'node:child_process';
 import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -118,6 +127,54 @@ function checkInstalledVersions(root, manifestPaths) {
   return true;
 }
 
+/**
+ * The second half of this gate, added 2026-08-23 after the *same class* of
+ * failure recurred in a shape the declaration comparison above cannot see.
+ *
+ * That comparison only looks at what workspaces *declare*. This skew came
+ * from a peer dependency: the root declared `vite@^6`, `apps/web` declared
+ * no vite at all, and `@vitejs/plugin-react@6` peers on `vite@^8` — so npm
+ * quietly installed a nested Vite 8 inside `apps/web` and built the SPA
+ * with it, while every declaration in the repository said 6. Nothing
+ * compared two declarations, because there was only one.
+ *
+ * This file's own header used to explain that `npm ls` was not run because
+ * its output is "noisy enough to be ignored". That was true of a tree that
+ * had unresolved problems in it; it is not an argument against running it
+ * once the tree is clean. And the cost of not running it was concrete: the
+ * lockfile was missing `@standard-schema/spec` entirely, `npm ls` exited 1,
+ * and CI's SBOM step — and therefore the licence gate that consumes it —
+ * had never once produced output.
+ *
+ * So: run it, fail on it, and print npm's own diagnosis rather than
+ * paraphrasing it.
+ */
+function checkTreeIntegrity(root) {
+  try {
+    execFileSync('npm', ['ls', '--all', '--json'], {
+      cwd: root,
+      stdio: ['ignore', 'ignore', 'pipe'],
+      encoding: 'utf8',
+    });
+    return true;
+  } catch (error) {
+    const detail = (error.stderr ?? '').trim();
+    console.error('Dependency tree integrity check failed (`npm ls --all`):\n');
+    console.error(detail || String(error.message));
+    console.error(
+      '\nnpm reports the installed tree does not match what the manifests and the\n' +
+        'lockfile ask for. "invalid" means an installed version does not satisfy a\n' +
+        'declared range; "missing" means the lockfile has no entry for something a\n' +
+        'dependency requires. Either way `npm ci` reproduces it exactly, so CI is\n' +
+        'installing the same broken tree — and `@cyclonedx/cyclonedx-npm` refuses to\n' +
+        'generate an SBOM from it, which silently disables the licence gate.\n\n' +
+        'Usual fix: correct the declarations, delete node_modules and\n' +
+        'package-lock.json, reinstall, then re-run the full suite.',
+    );
+    return false;
+  }
+}
+
 function main() {
   const root = process.cwd();
   const declarations = new Map(); // package name -> Map<major, string[] workspaces>
@@ -160,9 +217,16 @@ function main() {
     if (!checkInstalledVersions(root, manifestPaths)) {
       process.exit(1);
     }
+    // Run last: it is the slowest of the three and the only one that shells
+    // out, and there is no point asking npm to audit a tree whose
+    // declarations are already known to disagree.
+    if (!checkTreeIntegrity(root)) {
+      process.exit(1);
+    }
     console.log(
       `Checked ${declarations.size} distinct dependencies across workspaces: ` +
-        'declarations agree, and installed versions match them.',
+        'declarations agree, installed versions match them, and npm reports no ' +
+        'invalid or missing packages in the tree.',
     );
     return;
   }

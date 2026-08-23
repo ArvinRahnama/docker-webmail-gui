@@ -468,6 +468,35 @@ called out explicitly here.
     *observed*.
 
 
+- Dependency-tree integrity, and what CI found (post-M17): the first pushes
+  of this project's history produced real failures, and all of them were
+  invisible locally.
+  - **The lockfile did not reproduce a valid tree.** `npm ls` passed on a
+    developer's existing `node_modules` and failed after a clean `npm ci`,
+    because `npm install` creates nested copies to resolve version
+    conflicts and records them as `extraneous` — which `npm ci` skips by
+    design. Regenerating the lockfile did not help; the conflicts had to go.
+    **vitest 2 → 4** removes one at its root (vitest 4 accepts Vite 6/7/8,
+    so it shares apps/web's Vite 8 instead of dragging in Vite 5 and a
+    second, incompatible esbuild). All 1,477 tests pass on it unchanged.
+    `apps/web` now declares `ajv-formats@^2.1.1`, which it imports nowhere:
+    `@hookform/resolvers` declares ~24 *optional* peers, one per validation
+    library, and npm matched the root's Fastify-owned `ajv-formats@3`
+    against that range and called it invalid. See
+    `scripts/check-dep-consistency.mjs` for why a declaration beat an
+    allowlist of expected complaints.
+  - Verified the way CI does rather than the way that hid it: a fresh clone,
+    `npm ci`, then `npm ls --all` — exit 0. The SBOM now generates (486
+    components) and the licence gate passes.
+  - The `npm ls` gate added during M15's audit did its job on its first real
+    outing: a break that previously surfaced only in the SBOM job now fails
+    the build loudly.
+  - Also fixed from CI feedback: a login E2E assertion that matched the app
+    shell *and* every dashboard activity row naming the same admin (passing
+    locally, failing deterministically in CI), and three defects the
+    container images only revealed when actually built and run.
+
+
 ### Notes
 
 - No release has been published yet and no image is published to any

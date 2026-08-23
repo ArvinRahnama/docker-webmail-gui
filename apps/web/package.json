@@ -51,6 +51,7 @@
     "@types/react": "^19.0.2",
     "@types/react-dom": "^19.0.2",
     "@vitejs/plugin-react": "^6.0.5",
+    "ajv-formats": "^2.1.1",
     "axe-core": "^4.13.0",
     "jsdom": "^30.0.1",
     "vite": "^8.0.0"

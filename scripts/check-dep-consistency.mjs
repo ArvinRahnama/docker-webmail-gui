@@ -148,6 +148,20 @@ function checkInstalledVersions(root, manifestPaths) {
  *
  * So: run it, fail on it, and print npm's own diagnosis rather than
  * paraphrasing it.
+ *
+ * **One declaration exists solely to keep this check honest**, and it is
+ * worth knowing about before someone deletes it as unused:
+ * `apps/web` declares `ajv-formats@^2.1.1` and imports it nowhere.
+ * `@hookform/resolvers` (which apps/web does use, for `zodResolver`)
+ * declares roughly two dozen *optional* peer dependencies, one per
+ * validation library it can adapt — `ajv-formats@^2.1.1` among them. The
+ * root tree carries `ajv-formats@3` for Fastify's ajv compiler, npm
+ * matches that hoisted copy against the optional peer's range, and
+ * reports it invalid even though nothing imports it. Declaring a
+ * satisfying copy inside the workspace resolves the peer locally and
+ * leaves the root copy to Fastify. The alternative was an allowlist of
+ * "expected" npm complaints, and an exception list is where a gate like
+ * this quietly rots.
  */
 function checkTreeIntegrity(root) {
   try {

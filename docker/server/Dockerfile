@@ -91,6 +91,15 @@ RUN npm run build --workspace packages/shared \
 # ---------------------------------------------------------------------------
 FROM build AS prod-deps
 RUN rm -rf apps/broker && npm prune --omit=dev
+# npm does not guarantee hoisting. A dependency whose version conflicts with
+# another workspace's is placed in that workspace's own node_modules instead
+# of the root — which the runtime stage below would not copy, producing an
+# image that builds cleanly and then dies at startup on a missing package.
+# That happened: `tar` moved to apps/server/node_modules after an unrelated
+# lockfile repair, and the first container run failed with
+# ERR_MODULE_NOT_FOUND. These directories are created unconditionally so the
+# COPY of each always has a source, whether npm hoisted everything or not.
+RUN mkdir -p apps/server/node_modules packages/shared/node_modules
 
 # The compiled unit tests are dead weight in a runtime image: `tsc --build`
 # emits one `.test.js`/`.test.d.ts`/`.test.js.map` beside every module,
@@ -145,16 +154,23 @@ COPY --from=prod-deps --chown=dwg:dwg /app/packages/shared/package.json ./packag
 COPY --from=prod-deps --chown=dwg:dwg /app/packages/shared/dist ./packages/shared/dist
 COPY --from=prod-deps --chown=dwg:dwg /app/apps/server/package.json ./apps/server/package.json
 COPY --from=prod-deps --chown=dwg:dwg /app/apps/server/dist ./apps/server/dist
+COPY --from=prod-deps --chown=dwg:dwg /app/apps/server/node_modules ./apps/server/node_modules
+COPY --from=prod-deps --chown=dwg:dwg /app/packages/shared/node_modules ./packages/shared/node_modules
 COPY --from=prod-deps --chown=dwg:dwg /app/apps/web/dist ./apps/web/dist
 
 # Two build-time assertions, both of which fail the *build* rather than
 # shipping an image that would be wrong at `docker run`:
 #
-#  1. The npm-workspace symlink for `@dwg/shared`
-#     (node_modules/@dwg/shared -> ../../packages/shared) still resolves
-#     after being copied across stages above — Node's runtime module
-#     resolution for that bare specifier depends on it, and nothing else
-#     in this Dockerfile would otherwise notice if it didn't.
+#  1. **Every** dependency `apps/server` declares actually resolves inside
+#     this image — read from its own package.json rather than a hand-kept
+#     list, so a dependency added later is covered without anyone
+#     remembering to add it here. The previous version of this check
+#     imported three packages by name and was therefore blind to `tar`
+#     going missing, which is exactly what happened; the container built,
+#     passed this check, and then exited at startup. This also covers the
+#     `@dwg/shared` workspace symlink (node_modules/@dwg/shared ->
+#     ../../packages/shared) surviving the copies above, which Node's
+#     resolution of that bare specifier depends on.
 #  2. No Docker client library is present in this image at all. This is
 #     what makes this file's header claim a *checked* property of the
 #     shipped artifact rather than a comment: the web tier holding no
@@ -165,9 +181,24 @@ COPY --from=prod-deps --chown=dwg:dwg /app/apps/web/dist ./apps/web/dist
 #     Deliberately checked *after* the COPY above rather than trusted from
 #     the prune, so a future change to either step cannot quietly
 #     reintroduce it.
-RUN node --input-type=module -e "await import('@dwg/shared'); await import('fastify'); await import('@node-rs/argon2');"
+# Run from inside the workspace, not /app: Node resolves a bare specifier
+# from the importing module's directory upwards, and the real entrypoint
+# lives in apps/server/dist. Evaluating this at /app would only ever search
+# /app/node_modules, which is both stricter than reality and — now that
+# workspace-local node_modules are copied too — the wrong question.
+RUN cd apps/server && node --input-type=module -e "\
+  const { readFileSync } = await import('node:fs'); \
+  const pkg = JSON.parse(readFileSync('package.json', 'utf8')); \
+  const names = Object.keys(pkg.dependencies ?? {}); \
+  for (const name of names) { await import(name); } \
+  console.log('confirmed: all ' + names.length + ' declared runtime dependencies resolve'); \
+"
+# Scans every node_modules in the image, not just the root one: since the
+# runtime stage now also copies workspace-local node_modules (see the
+# prod-deps stage), checking only the root would leave a place for one of
+# these to hide.
 RUN for pkg in dockerode docker-modem; do \
-      if [ -e "node_modules/${pkg}" ]; then \
+      if find . -type d -path "*/node_modules/${pkg}" | grep -q .; then \
         echo "FAIL: ${pkg} is present in the web tier's runtime dependencies — see this file's header." >&2; \
         exit 1; \
       fi; \

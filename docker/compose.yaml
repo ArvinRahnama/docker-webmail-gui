@@ -116,10 +116,19 @@ services:
         limits:
           cpus: '1.0'
           memory: 512M
-    # A runaway or exploited process cannot exhaust the host's PID space.
-    # Generous relative to what a Fastify server actually uses (a handful
-    # of threads plus libuv's pool), tight relative to a fork bomb.
-    pids_limit: 512
+          # A runaway or exploited process cannot exhaust the host's PID
+          # space. Generous relative to what a Fastify server actually uses
+          # (a handful of threads plus libuv's pool), tight relative to a
+          # fork bomb.
+          #
+          # Expressed here rather than as a sibling `pids_limit:` key.
+          # Compose v5 reads both and refuses the file outright when they
+          # disagree — including when only one is set, since the other then
+          # reads as 0: "can't set distinct values on 'pids_limit' and
+          # 'deploy.resources.limits.pids'". Found the first time this file
+          # was given to a real `docker compose`, which is also the first
+          # time `docker compose config` had ever run against it.
+          pids: 512
     # `restart: unless-stopped` above means an unhealthy loop can run for
     # weeks; the default json-file driver grows without bound while it
     # does. Bounded here so a long-lived install cannot fill the host disk
@@ -181,10 +190,11 @@ services:
         limits:
           cpus: '0.5'
           memory: 256M
-    # Tighter than `server`'s: this tier runs one route and a Docker
-    # client, and is the one place where a runaway process would be
-    # holding the socket while it ran.
-    pids_limit: 128
+          # Tighter than `server`'s: this tier runs one route and a Docker
+          # client, and is the one place where a runaway process would be
+          # holding the socket while it ran. Same placement reasoning as
+          # `server`'s above.
+          pids: 128
     logging:
       driver: json-file
       options:

@@ -46,6 +46,10 @@ RUN npm run build --workspace packages/shared \
 # principle is that it is small.
 FROM build AS prod-deps
 RUN rm -rf apps/server apps/web && npm prune --omit=dev
+# See docker/server/Dockerfile's identical step: npm does not guarantee
+# hoisting, and a workspace-local node_modules the runtime stage never
+# copied would produce an image that starts and immediately dies.
+RUN mkdir -p apps/broker/node_modules packages/shared/node_modules
 
 # The compiled unit tests are dead weight in a runtime image: `tsc --build`
 # emits one `.test.js`/`.test.d.ts`/`.test.js.map` beside every module,
@@ -90,6 +94,8 @@ COPY --from=prod-deps --chown=dwg:dwg /app/packages/shared/package.json ./packag
 COPY --from=prod-deps --chown=dwg:dwg /app/packages/shared/dist ./packages/shared/dist
 COPY --from=prod-deps --chown=dwg:dwg /app/apps/broker/package.json ./apps/broker/package.json
 COPY --from=prod-deps --chown=dwg:dwg /app/apps/broker/dist ./apps/broker/dist
+COPY --from=prod-deps --chown=dwg:dwg /app/apps/broker/node_modules ./apps/broker/node_modules
+COPY --from=prod-deps --chown=dwg:dwg /app/packages/shared/node_modules ./packages/shared/node_modules
 
 # Fails the *build*, not `docker run`, if the npm-workspace symlink for
 # @dwg/shared did not survive the copy across stages above — see
@@ -98,9 +104,24 @@ COPY --from=prod-deps --chown=dwg:dwg /app/apps/broker/dist ./apps/broker/dist
 # stage above claims to carry "dockerode, fastify, pino, zod, @dwg/shared
 # — nothing else", so the build asserts the web tier's own dependencies
 # genuinely are not here, rather than leaving that to a comment.
-RUN node --input-type=module -e "await import('@dwg/shared'); await import('fastify'); await import('dockerode');"
+# Run from inside the workspace, not /app: Node resolves a bare specifier
+# from the importing module's directory upwards, and the real entrypoint
+# lives in apps/broker/dist. Evaluating this at /app would only ever search
+# /app/node_modules, which is both stricter than reality and — now that
+# workspace-local node_modules are copied too — the wrong question.
+RUN cd apps/broker && node --input-type=module -e "\
+  const { readFileSync } = await import('node:fs'); \
+  const pkg = JSON.parse(readFileSync('package.json', 'utf8')); \
+  const names = Object.keys(pkg.dependencies ?? {}); \
+  for (const name of names) { await import(name); } \
+  console.log('confirmed: all ' + names.length + ' declared runtime dependencies resolve'); \
+"
+# Scans every node_modules in the image, not just the root one: since the
+# runtime stage now also copies workspace-local node_modules (see the
+# prod-deps stage), checking only the root would leave a place for one of
+# these to hide.
 RUN for pkg in react @node-rs/argon2 tar undici; do \
-      if [ -e "node_modules/${pkg}" ]; then \
+      if find . -type d -path "*/node_modules/${pkg}" | grep -q .; then \
         echo "FAIL: ${pkg} is present in the broker image — this tier is meant to carry nothing the web tier needs." >&2; \
         exit 1; \
       fi; \

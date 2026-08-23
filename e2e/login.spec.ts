@@ -93,7 +93,16 @@ test.describe('login', () => {
     await expect(page).toHaveURL(/\/$/);
     await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible();
     await expect(page.getByRole('navigation', { name: 'Mail' })).toBeVisible();
-    await expect(page.getByText(email)).toBeVisible();
+    // Scoped to the banner deliberately. Unscoped, this matched the app
+    // shell's identity display *and* every dashboard recent-activity row
+    // mentioning this admin — and the login and forced password change this
+    // test just performed each write one. How many exist when the assertion
+    // runs depends on whether the dashboard's activity query has resolved,
+    // so the unscoped locator was a strict-mode violation waiting on a race:
+    // it passed locally (the assertion won) and failed deterministically in
+    // CI on all three retries, resolving to 3 elements. The banner holds
+    // exactly one — the one this test's own comment above says it asserts.
+    await expect(page.getByRole('banner').getByText(email)).toBeVisible();
     await expect(page.getByRole('button', { name: 'Sign out' })).toBeVisible();
   });
 

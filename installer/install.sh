@@ -190,6 +190,17 @@ if [ -z "${DOCKER_GID}" ]; then
 fi
 log "Docker socket group GID: ${DOCKER_GID}"
 
+# `pull` fetches the released images from GHCR; `build` compiles them from
+# this checkout. Default `build`, because reaching this script at all means
+# having the source — but an operator installing a release wants `pull`,
+# which is what README.md's quick start uses. Either way the images end up
+# under the same name (docker/compose.yaml's header explains why).
+DWG_IMAGE_MODE=$(resolve DWG_IMAGE_MODE 'build')
+case "${DWG_IMAGE_MODE}" in
+  pull | build) ;;
+  *) die "DWG_IMAGE_MODE must be 'pull' or 'build', not '${DWG_IMAGE_MODE}'." ;;
+esac
+DWG_VERSION=$(resolve DWG_VERSION '0.1.0')
 BIND_ADDRESS=$(resolve BIND_ADDRESS '0.0.0.0')
 PORT=$(resolve PORT '3000')
 LOG_LEVEL=$(resolve LOG_LEVEL 'info')
@@ -253,7 +264,7 @@ fi
 #    exactly the kind of quiet destruction the uninstaller is careful to
 #    avoid.
 # ---------------------------------------------------------------------------
-MANAGED_KEYS='APP_MODE BIND_ADDRESS PORT LOG_LEVEL COOKIE_SECRET COOKIE_SECURE SESSION_ABSOLUTE_TTL_HOURS SESSION_IDLE_TTL_HOURS BOOTSTRAP_ADMIN_EMAIL BOOTSTRAP_ADMIN_PASSWORD BROKER_SHARED_SECRET DOCKER_GID DMS_CONTAINER_NAME DMS_CONTAINER_LABEL RSPAMD_URL RSPAMD_PASSWORD ENABLE_EXEC_CONSOLE ENABLE_HSTS'
+MANAGED_KEYS='APP_MODE BIND_ADDRESS PORT DWG_IMAGE_MODE DWG_VERSION LOG_LEVEL COOKIE_SECRET COOKIE_SECURE SESSION_ABSOLUTE_TTL_HOURS SESSION_IDLE_TTL_HOURS BOOTSTRAP_ADMIN_EMAIL BOOTSTRAP_ADMIN_PASSWORD BROKER_SHARED_SECRET DOCKER_GID DMS_CONTAINER_NAME DMS_CONTAINER_LABEL RSPAMD_URL RSPAMD_PASSWORD ENABLE_EXEC_CONSOLE ENABLE_HSTS'
 
 TMP_ENV=$(mktemp "${REPO_ROOT}/.env.XXXXXX")
 TMP_EXTRA=$(mktemp "${REPO_ROOT}/.env.extra.XXXXXX")
@@ -265,6 +276,8 @@ cat > "${TMP_ENV}" <<EOF
 # value below is read back out before being rewritten, so hand edits
 # survive an upgrade, and no existing secret is ever regenerated.
 APP_MODE=production
+DWG_IMAGE_MODE=${DWG_IMAGE_MODE}
+DWG_VERSION=${DWG_VERSION}
 BIND_ADDRESS=${BIND_ADDRESS}
 PORT=${PORT}
 LOG_LEVEL=${LOG_LEVEL}
@@ -320,8 +333,13 @@ log "Wrote ${ENV_FILE}."
 # ---------------------------------------------------------------------------
 # 9. Build and start.
 # ---------------------------------------------------------------------------
-log "Building images..."
-docker compose -f "${COMPOSE_FILE}" --env-file "${ENV_FILE}" build
+if [ "${DWG_IMAGE_MODE}" = "pull" ]; then
+  log "Pulling published images (DWG_IMAGE_MODE=pull, version ${DWG_VERSION})..."
+  docker compose -f "${COMPOSE_FILE}" --env-file "${ENV_FILE}" pull
+else
+  log "Building images from source (DWG_IMAGE_MODE=build)..."
+  docker compose -f "${COMPOSE_FILE}" --env-file "${ENV_FILE}" build
+fi
 
 log "Starting the stack..."
 docker compose -f "${COMPOSE_FILE}" --env-file "${ENV_FILE}" up -d --remove-orphans

@@ -1,49 +1,18 @@
 # Docker Webmail GUI
 
-A self-hosted web management panel for [`docker-mailserver`](https://github.com/docker-mailserver/docker-mailserver), built so that a compromise of the web tier cannot become a compromise of the host.
+A self-hosted web admin panel for [`docker-mailserver`](https://github.com/docker-mailserver/docker-mailserver), built so that a compromise of the web panel cannot become a compromise of your host.
 
-> ### ⚠️ Project status: under active development — not yet production-ready
->
-> Version 0.1.0 is in development. Every feature milestone is built and the panel installs, but it has not been through the production audit (`IMPLEMENTATION_PLAN.md` M15). Do not point this at a mail server you care about.
->
-> **What is proven.** Over 1,400 unit tests and 55 Playwright end-to-end tests, including a real-browser CSP and accessibility sweep against the built SPA. The server boots in `APP_MODE=production` and reports healthy — asserted by a test that builds the real application with no driver override, and confirmed by running the built server directly. The packaging exists — multi-stage images, a hardened compose topology, an idempotent installer and uninstaller — and CI is wired to run the full install → healthy → uninstall cycle three times on a real Linux runner, asserting the privilege boundary against live containers.
->
-> **What is not.** No published image and no release artifacts. And while the install cycle, the image builds and the privilege boundary have now all been observed on a real daemon, nothing has been driven through a browser against the packaged container. No tagged release and no published image. The clean-VM cycle has never been run on real hardware, and nothing has ever run against a live `docker-mailserver` — CI stands up a minimal placeholder container so that container resolution and the network-join step exercise something real, which is not the same as exercising mail operations. What has **not** happened is real mail flowing through it: every figure was read from a server with one account and no delivered mail, so quota usage, spam counters and Fail2ban bans are all still unexercised.
->
-> Progress is tracked in [`IMPLEMENTATION_PLAN.md`](IMPLEMENTATION_PLAN.md) §3, and [`AUDIT.md`](AUDIT.md) records what is proven, what is merely asserted, and what a reader may not conclude.
+[![CI](https://github.com/ArvinRahnama/docker-webmail-gui/actions/workflows/ci.yml/badge.svg)](https://github.com/ArvinRahnama/docker-webmail-gui/actions/workflows/ci.yml)
+[![Security](https://github.com/ArvinRahnama/docker-webmail-gui/actions/workflows/security.yml/badge.svg)](https://github.com/ArvinRahnama/docker-webmail-gui/actions/workflows/security.yml)
+[![Docker](https://github.com/ArvinRahnama/docker-webmail-gui/actions/workflows/docker.yml/badge.svg)](https://github.com/ArvinRahnama/docker-webmail-gui/actions/workflows/docker.yml)
+[![Installer](https://github.com/ArvinRahnama/docker-webmail-gui/actions/workflows/installer.yml/badge.svg)](https://github.com/ArvinRahnama/docker-webmail-gui/actions/workflows/installer.yml)
+[![License](https://img.shields.io/badge/licence-Apache--2.0-blue.svg)](LICENSE)
 
----
+Manage mailboxes, aliases, quotas, DKIM, Sieve rules, spam and antivirus settings, container health, logs and backups — from a browser, without handing that browser-facing process the keys to your machine.
 
-## Why this exists
+## The problem this is built around
 
-`docker-mailserver` is an excellent mail stack, but it ships **no HTTP API, no web UI, and no webmail** — it is managed through a CLI (`setup`) and flat configuration files inside the container. Administering it means SSH, `docker exec`, and remembering command syntax.
-
-This project provides a web panel for that job. It is aimed at an administrator who owns a production mail server and is not a mail expert: someone who needs to know quickly whether mail is flowing, whether DNS and TLS are correct, and where the problem is when it is not.
-
-## What it does — and honestly does not
-
-Every capability below was verified against upstream documentation and source before being planned. The project's hard rule is that **no control ships unless the backend can actually perform it** — anything upstream cannot do is shown as an explained, disabled state rather than hidden or faked.
-
-**Working as full features:** mailboxes, aliases and forwarding, quotas and usage, password management, DNS diagnostics (MX/SPF/DKIM/DMARC/PTR) with real validation, DKIM generation, Sieve filters, autoresponders with start/end dates, log viewing with live tailing, container/image/volume/network views, backups and restore, health checks, monitoring, and the dashboard.
-
-**Deliberately limited, with the reason shown in the UI:**
-
-| Area                 | Limit                                                           | Why                                                                                                                                                                                                                                   |
-| -------------------- | --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Domains**          | No create, delete, or disable                                   | `docker-mailserver` has no `setup domain` command and no domain object. A domain exists only as long as a mailbox or alias references it, so the panel derives the list and explains that adding the first mailbox creates the domain |
-| **Mailbox disable**  | Only _restrict sending / receiving_                             | Upstream has no true account-disable; it has `setup email restrict`. The UI is labelled for what it actually does                                                                                                                     |
-| **Let's Encrypt**    | Status and diagnostics only, no issuance                        | `docker-mailserver` consumes certificates from an external ACME client. Embedding one would duplicate the tool you already run and create a second source of truth for certificates                                                   |
-| **Rspamd config**    | Thresholds, symbol scores, and learn spam/ham only              | Rspamd configuration embeds **Lua**, and maps can reference URLs. A general editor would hand code execution and SSRF to anyone holding an admin session                                                                              |
-| **Terminal**         | Restricted allowlisted command console, **disabled by default** | Exec into the mail container is root inside a container holding your mail, DKIM private keys and TLS certificates. There is no unrestricted shell and never a host shell                                                              |
-| **Networks**         | Read-only                                                       | Network mutation offers a mail panel nothing and `NetworkMode: host` is an escalation path                                                                                                                                            |
-| **Virus statistics** | Derived from log parsing, labelled as such                      | `clamd` exposes no detection counter — this is a genuine upstream gap, not an oversight                                                                                                                                               |
-| **Spam trends**      | Sampled by this panel into its own database                     | Rspamd's history is a 200-entry in-memory ring buffer that does not survive a restart. Until enough samples exist the UI says _"Collecting"_ rather than drawing a line it cannot back                                                |
-
-Full detail, per capability, in [`FEATURE_MATRIX.md`](FEATURE_MATRIX.md).
-
-## Architecture
-
-The panel needs Docker access, and **read/write access to the Docker socket is root on the host** — one `POST /containers/create` with a bind mount or `Privileged: true` ends the discussion. An internet-reachable web application is the worst possible holder of that capability.
+A mail-server panel needs Docker access. **Read/write access to the Docker socket is root on the host** — one `POST /containers/create` with a bind mount or `Privileged: true` ends the discussion. An internet-reachable web application is the worst possible holder of that capability.
 
 So it doesn't hold it:
 
@@ -71,92 +40,109 @@ So it doesn't hold it:
               Docker daemon → docker-mailserver
 ```
 
-The web tier speaks a fixed vocabulary of 47 named intents — `container.restart`, `container.logs`, `dms.email.add` and so on. **There is no field in that protocol that can carry a bind mount, a capability, or a container specification.** Full remote code execution in the web tier yields the broker's allowlist and nothing more.
+The web tier speaks a closed vocabulary of **47 named intents** — `container.restart`, `dms.email.add`, `logs.file`. **There is no field in that protocol that can carry a path, an argv array, a bind mount, a capability, or a container specification**, and a test fails the build if one ever appears. Full remote code execution in the web tier yields the broker's allowlist and nothing more.
 
-This is privilege separation, as used by OpenSSH — not a microservice split.
+That is the whole design. [`docs/security-model.md`](docs/security-model.md) is the operator's version — what the boundary protects you from, and just as importantly what it does not.
 
-**A note on `docker-socket-proxy`:** the common recommendation does not solve this. It filters on URL path and HTTP method only, never the request body, and a single `CONTAINERS` gate governs both container listing _and_ container creation. The configuration a panel needs leaves creation open. Verified against its shipped `haproxy.cfg`; details in [`docs/research/02-docker-api-security.md`](docs/research/02-docker-api-security.md).
+## Status
 
-Full design in [`ARCHITECTURE.md`](ARCHITECTURE.md).
+**v0.1.0 — first public release.** Every feature milestone is built, the images are published, and CI runs a real install → healthy → uninstall cycle on every relevant push.
 
-## Security
+Verified: 1,477 unit tests and 55 real-browser end-to-end tests, including a CSP and accessibility sweep against the built SPA; both images built and run; the privilege boundary checked from inside the running containers; and the panel driving a live `docker-mailserver`, reading a real account and creating one that appears in the mail server's own config with a maildir on disk.
 
-Treat this as tier-0 infrastructure: it authenticates to your mail server and can read DKIM private keys from configuration.
+**Three things are not proven, and you should know them before trusting this with anything important:**
 
-Highlights — the complete threat model, controls, and how each is verified are in [`SECURITY.md`](SECURITY.md):
+1. **No mail has ever flowed through a server this panel manages.** Every figure was read from a mail server with two accounts and no delivered messages, so quota usage, spam and virus counters, and Fail2ban bans are all unexercised.
+2. **The packaged container has never been driven through a browser.** The end-to-end suite runs against development harnesses; the published image was exercised over HTTP.
+3. **ClamAV reports `Unknown` on a stock `docker-mailserver` image**, because reaching clamd needs `socat`, which that image does not install. This is the design failing honestly rather than guessing, but it does mean live ClamAV status is unavailable by default.
 
-- Argon2id password hashing; server-side sessions with immediate revocation (not JWTs, because revocation must take effect _now_).
-- Rate limiting, lockout, and login responses that reveal nothing about whether an account exists.
-- Argv arrays only — **never `sh -c`**, never shell interpolation.
-- No client-supplied path or container specification ever reaches a filesystem or the Docker API.
-- Secrets never appear in logs, API responses, the frontend bundle, or browser storage. Revealing a masked secret is itself an audited event.
-- Every mutation is audited; the audit log never records secrets.
-- Strict CSP with no `unsafe-inline` and no CDN — which is why fonts are self-hosted.
+This is a `0.x` release: configuration format and database schema may change between minor versions. [`AUDIT.md`](AUDIT.md) is the full account of what is proven, what is merely asserted, and what a reader may not conclude.
 
-**Data safety is structural, not advisory.** The four `docker-mailserver` volumes are identified from container mounts and **cannot be deleted through the panel at all**. There is no bulk mailbox delete. Destructive operations are tiered, and restore requires a verified backup or an explicit acknowledgement that none exists.
+## Quick start
 
-Found a vulnerability? See [`SECURITY.md`](SECURITY.md) Part 1 — please use the private advisory flow, not a public issue.
-
-## Requirements
-
-- Linux host with Docker Engine and Compose
-- A running `docker-mailserver` container
-- Node.js 24+ _(only to build from source; the released image will not require it)_
-
-## Installation
+Requires a Linux host with Docker Engine and the Compose v2 plugin. Nothing is built locally — this pulls the published images.
 
 ```sh
-git clone <this repository>
-cd docker-webmail-gui
-./installer/install.sh
+mkdir -p docker-webmail-gui/docker && cd docker-webmail-gui
+
+curl -fsSL -o docker/compose.yaml \
+  https://raw.githubusercontent.com/ArvinRahnama/docker-webmail-gui/v0.1.0/docker/compose.yaml
+
+cat > .env <<EOF
+DWG_VERSION=0.1.0
+PORT=3000
+COOKIE_SECRET=$(openssl rand -hex 32)
+BROKER_SHARED_SECRET=$(openssl rand -hex 32)
+DOCKER_GID=$(stat -c '%g' /var/run/docker.sock)
+BOOTSTRAP_ADMIN_EMAIL=admin@example.com
+BOOTSTRAP_ADMIN_PASSWORD=$(openssl rand -hex 16)
+EOF
+chmod 600 .env
+
+docker compose -f docker/compose.yaml --env-file .env up -d
 ```
 
-Idempotent — re-running it upgrades an existing install in place without
-touching data or regenerating secrets. Prints a one-time bootstrap admin
-credential on a fresh install only. Requires a Linux host with Docker
-Engine and the Compose v2 plugin; a running `docker-mailserver` container
-is not required to install (mail-dependent features report `Unknown` until
-one is found), but is what makes the panel useful. Full detail, including
-hardening, uninstall, and — honestly — what is and isn't verified where,
-lives in [`docs/docker.md`](docs/docker.md). No pre-built images are
-published yet, so this is a source build (Docker builds it; Node.js on the
-host is not required for this path). A published-image install and a
-checksum-verified remote-script path both remain future work — see that
-file's own §2 and §6.
+Then open `http://127.0.0.1:3000`, sign in with the address and password from `.env`, and change the password — the first login requires it. Clear the two `BOOTSTRAP_ADMIN_*` lines afterwards.
 
-## Configuration
+> **Reaching it from another machine?** The session cookie is sent with `Secure`, and browsers refuse to store that over plain `http://` on anything but `localhost`. Terminate TLS in front of the panel (and set `BIND_ADDRESS=127.0.0.1` so the port is only for your proxy), or set `COOKIE_SECURE=false` for a trusted LAN. Without one of those, login silently does nothing. See [`docs/configuration.md`](docs/configuration.md).
 
-Copy [`.env.example`](.env.example) to `.env`. Every variable is documented inline with its purpose, whether it is required, and its default. Secrets must be generated with a CSPRNG — **no default password ships with this project**.
+`docker-mailserver` is **not** deployed by this project — bring your own, on the same Docker host, and point `DMS_CONTAINER_NAME` at it.
 
-## Backups
+**Installing from a source checkout instead**, with secret generation, health checks and a privilege-boundary assertion done for you:
 
-`docker-mailserver` ships no official backup tooling, so this project implements it. Backups cover the four volumes needed for a full restore: mail data, mail state, logs, and configuration (which includes DKIM keys and TLS certificates).
+```sh
+git clone --branch v0.1.0 https://github.com/ArvinRahnama/docker-webmail-gui.git
+cd docker-webmail-gui
+DWG_IMAGE_MODE=pull ./installer/install.sh    # or omit to build from source
+```
 
-Archives are plain `tar` with a JSON manifest, deliberately: **a backup only our software can read is a liability**, so you can restore by hand if the panel is unavailable. Restore is the most guarded operation in the product.
+Re-running the installer is safe: it upgrades in place, preserves hand-edited settings, and never regenerates a secret. Uninstall with `./installer/uninstall.sh` — which never removes a mail volume under any flag. Full detail in [`docs/docker.md`](docs/docker.md).
+
+## What it does — and honestly does not
+
+The guiding rule: **a feature is real, explicitly unsupported, or absent.** No control ships that the backend cannot perform, and nothing renders a number it had to invent.
+
+| Area                                                        | What you get                                                                                                                                                     |
+| ----------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Mailboxes, aliases, quotas, passwords**                   | Full. Deleting an account always requires an explicit choice about whether its mail dies with it.                                                                |
+| **Domains**                                                 | Derived from addresses. `docker-mailserver` has no domain concept, so there is no create or delete — the page offers "Add mailbox".                              |
+| **DNS, DKIM, SPF, DMARC**                                   | Full diagnostics. A resolver failure renders as grey `Unknown`, never as a red `Invalid`.                                                                        |
+| **Rspamd, ClamAV, Fail2ban**                                | Status, statistics, thresholds, learn spam/ham, unban. Rspamd config editing is refused: its config embeds Lua and its maps fetch URLs.                          |
+| **Sieve and autoresponders**                                | Full, with real start/end dates generated server-side. Scripts invoking external programs are rejected.                                                          |
+| **Containers, images, volumes, networks, logs, monitoring** | Read plus start/stop/restart. No create, no remove, no pull — the broker has no such operation, deliberately.                                                    |
+| **Backups and restore**                                     | Full, and the highest-risk feature here: restore needs the container stopped, a typed confirmation, and either a verified backup or an explicit acknowledgement. |
+| **Updates**                                                 | Checking is real. **Applying is refused**, names the missing Docker operation, and audits the refusal every time.                                                |
+| **Terminal**                                                | A fixed set of zero-argument diagnostic commands, off by default. Never a shell.                                                                                 |
+
+[`FEATURE_MATRIX.md`](FEATURE_MATRIX.md) is the authoritative row-by-row version, including everything deliberately unsupported and why.
+
+## Documentation
+
+- [`docs/security-model.md`](docs/security-model.md) — **read before installing.** What you are accepting.
+- [`docs/docker.md`](docs/docker.md) — deployment, hardening, uninstall, and what is verified where.
+- [`docs/configuration.md`](docs/configuration.md) — the settings that need a decision. [`.env.example`](.env.example) is the full reference.
+- [`docs/operations.md`](docs/operations.md) — what each area of the panel does.
+- [`docs/backup-restore.md`](docs/backup-restore.md) — archive format and the by-hand restore path.
+- [`docs/troubleshooting.md`](docs/troubleshooting.md) — symptoms, causes, and how to read `Unknown`.
+- [`AUDIT.md`](AUDIT.md) · [`SECURITY.md`](SECURITY.md) · [`ARCHITECTURE.md`](ARCHITECTURE.md) · [`CHANGELOG.md`](CHANGELOG.md)
 
 ## Development
 
-No Docker required — mock drivers are the default in development mode, so the panel is fully developable on a machine with no Docker daemon, and cannot touch a real one by accident.
+Node 24 and npm workspaces. No Docker daemon or mail server needed — every driver has a fixture-backed fake, and that is the development default.
 
 ```sh
 npm install
-npm run dev
+npm run dev            # server, broker and SPA
+npm run check          # deps, audit, lint, format, typecheck, tests
+npm run test:e2e       # Playwright
 ```
 
-Useful scripts: `npm run check` (lint + typecheck + test), `npm run build`, `npm test`.
+See [`CONTRIBUTING.md`](CONTRIBUTING.md), and [`docs/AGENT_BRIEF.md`](docs/AGENT_BRIEF.md) for the condensed working context.
 
-See [`CONTRIBUTING.md`](CONTRIBUTING.md).
+## Security
 
-## Testing
-
-Unit and fake-driver integration tests run anywhere. Playwright end-to-end tests (fake-driver-backed, including a real-browser CSP and accessibility sweep — M12) run in CI on Linux, as does a real install → verify → uninstall cycle against a real Docker daemon (M13, `docs/docker.md` §6). Integration tests against a live `docker-mailserver` container are not yet part of CI — `docs/docker.md` §6 says exactly what is and isn't verified where, rather than leaving it implied. Test fixtures are **captured from real output, never invented** — a fabricated fixture would reintroduce the fake-feature problem one layer below the UI.
-
-## Contributing
-
-Contributions are welcome — see [`CONTRIBUTING.md`](CONTRIBUTING.md) and [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md). Please read the working agreements in [`IMPLEMENTATION_PLAN.md`](IMPLEMENTATION_PLAN.md) §5 first; they are the project's non-negotiables.
+Found a vulnerability? See [`SECURITY.md`](SECURITY.md) Part 1 — please use private disclosure rather than a public issue.
 
 ## License
 
-[Apache-2.0](LICENSE). Chosen from a researched shortlist — the reasoning, the full third-party dependency inventory, and the analysis of the mail stack's own licences are in [`LICENSE_AUDIT.md`](LICENSE_AUDIT.md).
-
-This project is not affiliated with the `docker-mailserver` project.
+Apache-2.0. See [`LICENSE`](LICENSE) and [`NOTICE`](NOTICE).

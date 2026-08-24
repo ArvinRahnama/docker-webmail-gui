@@ -39,6 +39,14 @@
 # once it finds one; until then this stack still comes up healthy on its
 # own, DMS features reporting `Unknown` rather than the whole install
 # refusing to start over a dependency that may not exist yet.
+# Both services name a **published** image and also carry a `build:`
+# section, and that combination is deliberate. `docker compose pull` fetches
+# the released image and never builds; `docker compose build` builds from
+# this checkout and tags the result with the same name, so the rest of the
+# file — and the installer — is identical either way. `DWG_IMAGE_MODE`
+# (installer/install.sh) chooses which. Pin `DWG_VERSION` to an exact
+# release rather than tracking a floating tag: this project is 0.x and says
+# plainly that minor versions may break.
 name: docker-webmail-gui
 
 services:
@@ -46,7 +54,7 @@ services:
     build:
       context: ..
       dockerfile: docker/server/Dockerfile
-    image: docker-webmail-gui-server:${DWG_VERSION:-local}
+    image: ghcr.io/arvinrahnama/docker-webmail-gui-server:${DWG_VERSION:-0.1.0}
     restart: unless-stopped
     init: true
     read_only: true
@@ -144,7 +152,7 @@ services:
     build:
       context: ..
       dockerfile: docker/broker/Dockerfile
-    image: docker-webmail-gui-broker:${DWG_VERSION:-local}
+    image: ghcr.io/arvinrahnama/docker-webmail-gui-broker:${DWG_VERSION:-0.1.0}
     restart: unless-stopped
     init: true
     read_only: true

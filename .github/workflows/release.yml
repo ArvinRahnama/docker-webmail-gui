@@ -1,0 +1,119 @@
+# Publishes the two images to GHCR when a version tag is pushed.
+#
+# Deliberately a separate workflow from `docker.yml`, for two reasons.
+#
+# `docker.yml` filters on `paths: docker/**`, and a `paths` filter applies
+# to the whole `push` event — tags included. A release tag usually points
+# at a commit that changed nothing under `docker/`, so a publish job living
+# there would silently never run. That is the worst possible failure mode
+# for a release: no error, no images, and a tag that looks published.
+#
+# And `docker.yml`'s own header describes it as "a fast build-only smoke
+# test, not a release pipeline". Keeping that true is worth one more file.
+#
+# The token is the built-in `GITHUB_TOKEN` (`github.token`), scoped to
+# `packages: write` for this workflow only. No personal access token is
+# used or needed: GHCR accepts the workflow token for packages owned by the
+# same account as the repository.
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  # Lets a failed publish be retried against an existing tag without
+  # re-tagging. `ref` must be the tag.
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    name: Publish ${{ matrix.image }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: docker-webmail-gui-server
+            dockerfile: docker/server/Dockerfile
+            title: docker-webmail-gui server
+            description: Web tier — API, auth, business logic, serves the SPA. Holds no Docker socket.
+          - image: docker-webmail-gui-broker
+            dockerfile: docker/broker/Dockerfile
+            title: docker-webmail-gui broker
+            description: Privileged tier — holds the Docker socket, speaks one closed operation vocabulary.
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Derive version from the tag
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          ref="${GITHUB_REF_NAME}"
+          case "${ref}" in
+            v*) version="${ref#v}" ;;
+            *)
+              echo "Refusing to publish: '${ref}' is not a v-prefixed version tag." >&2
+              exit 1
+              ;;
+          esac
+          # Consumers get three ways to refer to a release, narrowest first.
+          # `latest` is a convenience for trying it out; `docs/docker.md`
+          # tells operators to pin the exact version, because this project
+          # is 0.x and says plainly that minors may break.
+          minor="${version%.*}"
+          # GHCR rejects an image path containing uppercase, and this
+          # repository's owner is mixed-case ("ArvinRahnama"). Lowercasing
+          # here rather than hardcoding the name keeps the workflow correct
+          # if the repository is ever forked or transferred.
+          owner="$(echo "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "minor=${minor}" >> "$GITHUB_OUTPUT"
+          echo "owner=${owner}" >> "$GITHUB_OUTPUT"
+          echo "Publishing ghcr.io/${owner}/… ${version} (also tagging ${minor} and latest)"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      # `docker login` directly rather than a login action: one fewer
+      # third-party action in the path that holds a write-scoped token.
+      - name: Log in to GHCR
+        shell: bash
+        run: echo "${{ github.token }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Build and push
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          push: true
+          tags: |
+            ghcr.io/${{ steps.version.outputs.owner }}/${{ matrix.image }}:${{ steps.version.outputs.version }}
+            ghcr.io/${{ steps.version.outputs.owner }}/${{ matrix.image }}:${{ steps.version.outputs.minor }}
+            ghcr.io/${{ steps.version.outputs.owner }}/${{ matrix.image }}:latest
+          labels: |
+            org.opencontainers.image.title=${{ matrix.title }}
+            org.opencontainers.image.description=${{ matrix.description }}
+            org.opencontainers.image.version=${{ steps.version.outputs.version }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.url=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.documentation=${{ github.server_url }}/${{ github.repository }}/blob/${{ github.ref_name }}/docs/docker.md
+            org.opencontainers.image.licenses=Apache-2.0
+            org.opencontainers.image.vendor=${{ github.repository_owner }}
+
+      - name: Report what was published
+        shell: bash
+        run: |
+          echo "Published:"
+          for tag in "${{ steps.version.outputs.version }}" "${{ steps.version.outputs.minor }}" latest; do
+            echo "  ghcr.io/${{ steps.version.outputs.owner }}/${{ matrix.image }}:${tag}"
+          done

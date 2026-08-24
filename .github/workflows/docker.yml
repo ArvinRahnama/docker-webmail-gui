@@ -4,9 +4,14 @@
 # discovery (rather than a hardcoded matrix) means a Dockerfile added
 # anywhere else under docker/ later is picked up with no edit to this
 # file. It never pushes an image (push: false) — a fast build-only smoke
-# test, not a release pipeline. `installer.yml` is the heavier, slower
-# workflow: the actual install -> healthy -> uninstall cycle, twice,
-# against these same two images.
+# test, not a release pipeline, and it stays that way: publishing lives
+# in `release.yml`, which triggers on a version tag. That split is not
+# tidiness. This workflow filters on `paths: docker/**`, a filter that
+# applies to tag pushes too, so a publish job living here would silently
+# never run for a tag pointing at a commit that touched nothing under
+# docker/. `installer.yml` is the heavier, slower workflow: the actual
+# install -> healthy -> uninstall cycle, twice, against these same two
+# images.
 
 name: Docker
 

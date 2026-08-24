@@ -11,6 +11,16 @@ called out explicitly here.
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.1.0] - 2026-08-24
+
+First public release. Every milestone below is included; the list is in the
+order the work actually happened, which is why M16 appears before M15 —
+docker-mailserver was moved behind the broker before the final audit ran,
+because auditing a product that could not start would have audited a
+document set rather than a product.
+
 ### Added
 
 - Repository foundation: npm workspaces monorepo (`apps/server`, `apps/broker`,
@@ -468,6 +478,52 @@ called out explicitly here.
     *observed*.
 
 
+- Real-daemon verification (M17): the first time this project had a Docker
+  daemon, and the first time any of its packaging claims were observed
+  rather than reasoned about.
+  - **All nine deferred runtime verifications settled** against a live
+    `docker-mailserver` v15.1.0. Seven confirmed the design. **DKIM was
+    wrong twice over**: under `ENABLE_RSPAMD=1` — the modern default, and
+    what this project's own compose encourages — keys land in
+    `rspamd/dkim/rsa-<bits>-<selector>-<domain>.public.dns.txt` and
+    `opendkim/keys/` is never created, so the broker looked in the wrong
+    place; and the parser required RFC 1035 quoted zone-file syntax while
+    the Rspamd file is the bare record on one line. A deployment with a
+    valid DKIM key was told it had none. Both halves fixed and verified
+    against the live container.
+  - **One documented fallback fires in practice:** `socat` is not installed
+    in the DMS image, so the clamd control socket cannot be reached and
+    ClamAV reports `Unknown`. That is the design working rather than a
+    defect, and it is now a known limitation of a stock image rather than
+    an open question.
+  - **Three defects the images only revealed when built and run.** Compose
+    refused to load at all (`pids_limit` conflicting with
+    `deploy.resources.limits.pids` under Compose v5); the server image
+    shipped without `tar` and died at startup, because the runtime stage
+    assumed npm hoists every dependency to the root and npm makes no such
+    promise; and the build-time dependency check could not have caught that,
+    since it imported three packages by name. It now reads each workspace's
+    own manifest and imports every declared runtime dependency.
+  - **The privilege boundary, observed from inside the running containers:**
+    the web tier has no Docker socket on any mount path nor anywhere in its
+    filesystem, and cannot reach the Docker API; the broker holds the
+    socket, publishes nothing, and its network is `internal: true`. Both run
+    non-root on a read-only root filesystem with all capabilities dropped.
+    M13's exit criterion — install → healthy → uninstall, twice — ran in
+    full, and the panel drove a live mail server in both directions,
+    creating an account that appears in the container's own
+    `postfix-accounts.cf` with a maildir under `/var/mail`.
+  - **Rule 1 vindicated by an upstream bug nobody predicted.** On this
+    version, `setup email list` fails outright on an account with no quota.
+    A panel that read mailboxes from that command's output would have shown
+    an operator an error for an account that exists and works; this one
+    listed it correctly from `postfix-accounts.cf`, because
+    `FEATURE_MATRIX.md` §0 says reads parse state rather than the CLI's
+    decorative output.
+  - Everything captured is committed as `fixtures/live-capture.ts` with full
+    provenance — image digest, version, environment and the command behind
+    each value — and `live-capture.test.ts` holds each parser to it.
+
 - Dependency-tree integrity, and what CI found (post-M17): the first pushes
   of this project's history produced real failures, and all of them were
   invisible locally.
@@ -499,9 +555,19 @@ called out explicitly here.
 
 ### Notes
 
-- No release has been published yet and no image is published to any
-  registry. The panel starts and runs; nothing has yet been exercised
-  against a live `docker-mailserver`. The production audit is M15. See the
-  project status banner in `README.md`.
+- **Three things remain unproven, and are stated in `README.md` and
+  `AUDIT.md` §7 rather than buried here.** No mail has ever flowed through
+  a server this panel manages — every figure was read from a mail server
+  with two accounts and no delivered messages, so quota usage, spam and
+  virus counters, and Fail2ban bans are all unexercised. The packaged
+  container has never been driven through a browser; the end-to-end suite
+  runs against development harnesses, and the image was exercised over
+  HTTP. And ClamAV reports `Unknown` on a stock docker-mailserver image,
+  because `socat` is not installed there.
+- This is a `0.x` release. The public API, configuration format and
+  database schema may change between minor versions, and breaking changes
+  will be called out here. Pin the exact image version rather than a
+  floating tag — see `docs/docker.md`.
 
-[Unreleased]: https://github.com/ArvinRahnama/docker-webmail-gui/commits/main
+[unreleased]: https://github.com/ArvinRahnama/docker-webmail-gui/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/ArvinRahnama/docker-webmail-gui/releases/tag/v0.1.0

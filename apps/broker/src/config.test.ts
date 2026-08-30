@@ -14,6 +14,15 @@ describe('loadBrokerConfig — defaults', () => {
     expect(config.dms.containerName).toBe('mailserver');
     expect(config.dms.containerLabel).toBeNull();
     expect(config.sharedSecret).toBe(VALID_SECRET);
+    // Panel identities default to compose's own container_name values.
+    expect(config.panelServer).toEqual({ containerName: 'dwg-server', containerLabel: null });
+    expect(config.panelBroker).toEqual({ containerName: 'dwg-broker', containerLabel: null });
+    // Visible-service patterns default to the sensible webmail set.
+    expect(config.visibleServicePatterns).toEqual([
+      '*mailserver*',
+      'roundcube*',
+      '*docker-webmail-gui*',
+    ]);
   });
 
   it('returns a frozen object', () => {
@@ -31,6 +40,10 @@ describe('loadBrokerConfig — defaults', () => {
       DOCKER_SOCKET_PATH: '/custom/docker.sock',
       DMS_CONTAINER_NAME: 'my-mail',
       DMS_CONTAINER_LABEL: 'role=mail',
+      PANEL_SERVER_CONTAINER_NAME: 'panel-web',
+      PANEL_SERVER_CONTAINER_LABEL: 'role=server',
+      PANEL_BROKER_CONTAINER_NAME: 'panel-broker',
+      VISIBLE_SERVICE_PATTERNS: 'roundcube*, webmail-*',
     });
 
     expect(config.port).toBe(5000);
@@ -39,6 +52,12 @@ describe('loadBrokerConfig — defaults', () => {
     expect(config.dockerSocketPath).toBe('/custom/docker.sock');
     expect(config.dms.containerName).toBe('my-mail');
     expect(config.dms.containerLabel).toBe('role=mail');
+    expect(config.panelServer).toEqual({
+      containerName: 'panel-web',
+      containerLabel: 'role=server',
+    });
+    expect(config.panelBroker).toEqual({ containerName: 'panel-broker', containerLabel: null });
+    expect(config.visibleServicePatterns).toEqual(['roundcube*', 'webmail-*']);
   });
 });
 

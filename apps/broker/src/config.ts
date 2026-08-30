@@ -19,6 +19,7 @@
  * nobody configured anywhere else would be a footgun, not a convenience.
  */
 import { z } from 'zod';
+import { parseVisiblePatterns } from '@dwg/shared';
 
 const LOG_LEVELS = ['fatal', 'error', 'warn', 'info', 'debug', 'trace'] as const;
 export type BrokerLogLevel = (typeof LOG_LEVELS)[number];
@@ -74,6 +75,27 @@ const rawEnvSchema = z.object({
 
   DMS_CONTAINER_NAME: stringVar('mailserver'),
   DMS_CONTAINER_LABEL: optionalStringVar(),
+
+  // The panel's own two containers, addressed the same config-known
+  // name-or-label way as the mail container. `PANEL_SERVER_*` is what
+  // `panel.restart` resolves and restarts; `PANEL_BROKER_*` is resolved
+  // only to keep the broker *visible* in the containers list and to guard
+  // `panel.restart` from ever resolving to the broker itself. Defaults
+  // match docker/compose.yaml's `container_name:` for each service.
+  PANEL_SERVER_CONTAINER_NAME: stringVar('dwg-server'),
+  PANEL_SERVER_CONTAINER_LABEL: optionalStringVar(),
+  PANEL_BROKER_CONTAINER_NAME: stringVar('dwg-broker'),
+  PANEL_BROKER_CONTAINER_LABEL: optionalStringVar(),
+
+  // The webmail-services allowlist (FEATURE_MATRIX.md §22-26). A
+  // comma-separated glob list matched against container names and image
+  // repo tags; the mail/panel containers are additionally always visible
+  // by the identities above. Empty/unset -> the sensible defaults
+  // (`DEFAULT_VISIBLE_SERVICE_PATTERNS`, @dwg/shared). Volumes and
+  // networks are not listed here: they are derived from the visible
+  // containers' own mounts and network attachments, so they stay
+  // consistent automatically (`operations.ts`).
+  VISIBLE_SERVICE_PATTERNS: z.string().optional(),
 });
 
 export interface BrokerConfig {
@@ -86,6 +108,15 @@ export interface BrokerConfig {
     readonly containerName: string;
     readonly containerLabel: string | null;
   };
+  readonly panelServer: {
+    readonly containerName: string;
+    readonly containerLabel: string | null;
+  };
+  readonly panelBroker: {
+    readonly containerName: string;
+    readonly containerLabel: string | null;
+  };
+  readonly visibleServicePatterns: readonly string[];
 }
 
 /** Thrown by {@link loadBrokerConfig} when the environment is missing or invalid. Never carries a secret value. */
@@ -125,6 +156,15 @@ export function loadBrokerConfig(env: NodeJS.ProcessEnv = process.env): BrokerCo
       containerName: data.DMS_CONTAINER_NAME,
       containerLabel: data.DMS_CONTAINER_LABEL,
     }),
+    panelServer: Object.freeze({
+      containerName: data.PANEL_SERVER_CONTAINER_NAME,
+      containerLabel: data.PANEL_SERVER_CONTAINER_LABEL,
+    }),
+    panelBroker: Object.freeze({
+      containerName: data.PANEL_BROKER_CONTAINER_NAME,
+      containerLabel: data.PANEL_BROKER_CONTAINER_LABEL,
+    }),
+    visibleServicePatterns: Object.freeze([...parseVisiblePatterns(data.VISIBLE_SERVICE_PATTERNS)]),
   };
 
   return Object.freeze(config);

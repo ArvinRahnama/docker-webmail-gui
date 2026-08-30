@@ -40,6 +40,7 @@ describe('BROKER_OPERATIONS', () => {
       'image.prune',
       'logs.file',
       'console.exec',
+      'panel.restart',
       // M16 — the docker-mailserver vocabulary. Written out here in full
       // for the same reason as everything above it: growing the set of
       // things a compromised web tier can ask the privileged tier to do is
@@ -326,6 +327,10 @@ describe('BrokerRequestSchema — dangerous Docker fields are structurally impos
     'image.prune': { operation: 'image.prune' },
     'logs.file': { operation: 'logs.file', source: 'mail' },
     'console.exec': { operation: 'console.exec', command: 'postqueue-p' },
+    // Panel self-management — zero parameters, like `image.prune`: the
+    // target is resolved broker-side from config, so there is no field
+    // here for the poisoning test to widen.
+    'panel.restart': { operation: 'panel.restart' },
     // M16 — the docker-mailserver vocabulary (`dms.ts`). Same discipline as
     // the M9 additions above: a symbolic file key, a closed verb enum, and
     // validated leaf values (an address, a quota, an IP, a script name).

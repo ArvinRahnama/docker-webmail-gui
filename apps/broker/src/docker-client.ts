@@ -41,6 +41,16 @@ function toContainerListItem(raw: Dockerode.ContainerInfo): RawContainerListItem
     status: raw.Status,
     labels: raw.Labels,
     createdAt: raw.Created,
+    // `Mounts`/`NetworkSettings` are documented fields of `GET
+    // /containers/json` (docs/research/02-docker-api-security.md §A.1) but
+    // dockerode types some as optional and a future daemon could omit
+    // them, so both derivations fail safe to an empty list rather than
+    // throwing — a container we cannot read a mount/network for simply
+    // contributes nothing to the visible volume/network set.
+    mountVolumeNames: (raw.Mounts ?? [])
+      .filter((mount) => mount.Type === 'volume' && typeof mount.Name === 'string')
+      .map((mount) => mount.Name as string),
+    networkNames: Object.keys(raw.NetworkSettings?.Networks ?? {}),
   };
 }
 

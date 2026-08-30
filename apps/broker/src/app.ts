@@ -68,7 +68,14 @@ export function buildBrokerApp(options: BuildBrokerAppOptions): FastifyInstance 
         throw new BrokerError('VALIDATION_FAILED', 'Unknown operation or malformed request body.');
       }
 
-      const result = await handleOperation(parsed.data, { docker, dms: config.dms, logger });
+      const result = await handleOperation(parsed.data, {
+        docker,
+        dms: config.dms,
+        panelServer: config.panelServer,
+        panelBroker: config.panelBroker,
+        visibleServicePatterns: config.visibleServicePatterns,
+        logger,
+      });
 
       // Validate the broker's own output before it ever leaves the
       // process, against the same schema RealBrokerClient validates on
@@ -86,7 +93,14 @@ export function buildBrokerApp(options: BuildBrokerAppOptions): FastifyInstance 
   // routes outside the JSON `/v1/ops` contract above; see
   // `archive-routes.ts`'s own header for why they cannot be operations in
   // that closed vocabulary.
-  const operationDeps: OperationDeps = { docker, dms: config.dms, logger };
+  const operationDeps: OperationDeps = {
+    docker,
+    dms: config.dms,
+    panelServer: config.panelServer,
+    panelBroker: config.panelBroker,
+    visibleServicePatterns: config.visibleServicePatterns,
+    logger,
+  };
   registerArchiveRoutes(app, { config, docker, deps: operationDeps });
 
   return app;

@@ -40,6 +40,8 @@ function harness(stdout = ''): { deps: OperationDeps; calls: RecordedExec[] } {
     status: 'Up',
     labels: {},
     createdAt: 1_700_000_000,
+    mountVolumeNames: [],
+    networkNames: [],
   };
   const docker = {
     listContainers: async () => [managed],
@@ -57,7 +59,14 @@ function harness(stdout = ''): { deps: OperationDeps; calls: RecordedExec[] } {
   } as unknown as Logger;
 
   return {
-    deps: { docker, dms: { containerName: 'mailserver', containerLabel: null }, logger },
+    deps: {
+      docker,
+      dms: { containerName: 'mailserver', containerLabel: null },
+      panelServer: { containerName: 'dwg-server', containerLabel: null },
+      panelBroker: { containerName: 'dwg-broker', containerLabel: null },
+      visibleServicePatterns: ['*mailserver*', 'roundcube*', '*docker-webmail-gui*'],
+      logger,
+    },
     calls,
   };
 }
@@ -111,6 +120,9 @@ describe('dms.file.read — a symbolic key, never a path', () => {
     const deps: OperationDeps = {
       docker,
       dms: { containerName: 'mailserver', containerLabel: null },
+      panelServer: { containerName: 'dwg-server', containerLabel: null },
+      panelBroker: { containerName: 'dwg-broker', containerLabel: null },
+      visibleServicePatterns: ['*mailserver*', 'roundcube*', '*docker-webmail-gui*'],
       logger,
     };
 
@@ -223,7 +235,14 @@ describe('dms command operations — the broker builds the argv', () => {
 
     const result = await handleDmsCommand(
       { operation: 'dms.sieve.get', user: 'a@example.com', script: 'missing' },
-      { docker, dms: { containerName: 'mailserver', containerLabel: null }, logger },
+      {
+        docker,
+        dms: { containerName: 'mailserver', containerLabel: null },
+        panelServer: { containerName: 'dwg-server', containerLabel: null },
+        panelBroker: { containerName: 'dwg-broker', containerLabel: null },
+        visibleServicePatterns: ['*mailserver*', 'roundcube*', '*docker-webmail-gui*'],
+        logger,
+      },
     );
 
     expect(result.exitCode).toBe(68);

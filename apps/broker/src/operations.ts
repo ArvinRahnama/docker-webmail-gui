@@ -30,6 +30,11 @@ import {
   type DmsCommandOperation,
   LOGS_TAIL_DEFAULT,
   computeProtectedVolumeNames,
+  isContainerVisible,
+  isImageVisible,
+  matchesServiceIdentity,
+  type ContainerVisibility,
+  type ServiceIdentity,
   type BrokerRequest,
   type ConsoleCommand,
   type ConsoleExecResponse,
@@ -53,6 +58,7 @@ import type { DockerApi, RawContainerListItem } from './docker-types.js';
 import {
   ContainerResolutionError,
   resolveManagedContainer,
+  selectSingleMatch,
   type DmsIdentity,
   type ManagedContainerRef,
 } from './container-resolver.js';
@@ -69,7 +75,39 @@ import {
 export interface OperationDeps {
   readonly docker: DockerApi;
   readonly dms: DmsIdentity;
+  /** The panel's own server container identity — resolved for `panel.restart` and always visible in `container.list`. */
+  readonly panelServer: ServiceIdentity;
+  /** The panel's own broker container identity — always visible in `container.list`, and the guard that stops `panel.restart` ever resolving to the broker itself. */
+  readonly panelBroker: ServiceIdentity;
+  /** Glob patterns (container names / image repo tags) defining the visible webmail services beyond the three identities above. */
+  readonly visibleServicePatterns: readonly string[];
   readonly logger: Logger;
+}
+
+/** The three config-known identities plus the operator patterns — the complete definition of "which containers are visible", assembled in one place so every list handler filters identically. */
+function containerVisibility(deps: OperationDeps): ContainerVisibility {
+  return {
+    identities: [deps.dms, deps.panelServer, deps.panelBroker],
+    patterns: deps.visibleServicePatterns,
+  };
+}
+
+/**
+ * Lists **all** host containers and narrows to the visible webmail set —
+ * the single source the `image.list`/`volume.list`/`network.list` filters
+ * derive their own visible sets from (visible images = referenced by
+ * these; visible volumes/networks = mounted/attached by these). Always
+ * `all: true` so a *stopped* visible service still contributes its image,
+ * volumes and networks.
+ */
+async function listVisibleContainers(
+  deps: OperationDeps,
+): Promise<readonly RawContainerListItem[]> {
+  const all = await callDocker(deps, 'container.list', () =>
+    deps.docker.listContainers({ all: true }),
+  );
+  const visibility = containerVisibility(deps);
+  return all.filter((container) => isContainerVisible(container, visibility));
 }
 
 /** Narrows an operation name to the DMS command set, so the dispatch below can hand the whole group to one handler without losing type safety at the call site. */
@@ -131,7 +169,12 @@ async function handleContainerList(
   const raw = await callDocker(deps, 'container.list', () =>
     deps.docker.listContainers({ all: body.all ?? false }),
   );
-  return { containers: raw.map(toContainerSummary) };
+  // Narrow to the visible webmail set before the list ever leaves the
+  // broker — the web tier receives only these, so it cannot enumerate
+  // unrelated host containers at all (FEATURE_MATRIX.md §22-23).
+  const visibility = containerVisibility(deps);
+  const visible = raw.filter((container) => isContainerVisible(container, visibility));
+  return { containers: visible.map(toContainerSummary) };
 }
 
 async function handleContainerInspect(deps: OperationDeps): Promise<ContainerInspectResponse> {
@@ -229,9 +272,20 @@ async function handleSystemDf(deps: OperationDeps): Promise<SystemDfResponse> {
 }
 
 async function handleImageList(deps: OperationDeps): Promise<ImageListResponse> {
-  const raw = await callDocker(deps, 'image.list', () => deps.docker.listImages());
+  const [raw, visibleContainers] = await Promise.all([
+    callDocker(deps, 'image.list', () => deps.docker.listImages()),
+    listVisibleContainers(deps),
+  ]);
+  // Visible images = matching a pattern, or the image of a visible
+  // container (its `Image`, a repo tag or a sha id). The second rule keeps
+  // a supporting image a visible service actually runs on the list even
+  // when its repository name matches no pattern.
+  const referencedImageRefs = new Set(visibleContainers.map((container) => container.image));
+  const visible = raw.filter((image) =>
+    isImageVisible(image, deps.visibleServicePatterns, referencedImageRefs),
+  );
   return {
-    images: raw.map((image) => ({
+    images: visible.map((image) => ({
       ...image,
       repoTags: [...image.repoTags],
       labels: { ...image.labels },
@@ -240,13 +294,38 @@ async function handleImageList(deps: OperationDeps): Promise<ImageListResponse> 
 }
 
 async function handleVolumeList(deps: OperationDeps): Promise<VolumeListResponse> {
-  const raw = await callDocker(deps, 'volume.list', () => deps.docker.listVolumes());
-  return { volumes: raw.map((volume) => ({ ...volume, labels: { ...volume.labels } })) };
+  const [raw, visibleContainers] = await Promise.all([
+    callDocker(deps, 'volume.list', () => deps.docker.listVolumes()),
+    listVisibleContainers(deps),
+  ]);
+  // Visible volumes = those mounted by a visible container. Derived from
+  // the visible set rather than a separate name list, so mail/panel/
+  // roundcube volumes stay visible automatically and volumes belonging to
+  // unrelated host containers never appear (FEATURE_MATRIX.md §25).
+  const visibleVolumeNames = new Set<string>();
+  for (const container of visibleContainers) {
+    for (const name of container.mountVolumeNames) visibleVolumeNames.add(name);
+  }
+  const visible = raw.filter((volume) => visibleVolumeNames.has(volume.name));
+  return { volumes: visible.map((volume) => ({ ...volume, labels: { ...volume.labels } })) };
 }
 
 async function handleNetworkList(deps: OperationDeps): Promise<NetworkListResponse> {
-  const raw = await callDocker(deps, 'network.list', () => deps.docker.listNetworks());
-  return { networks: raw.map((network) => ({ ...network })) };
+  const [raw, visibleContainers] = await Promise.all([
+    callDocker(deps, 'network.list', () => deps.docker.listNetworks()),
+    listVisibleContainers(deps),
+  ]);
+  // Visible networks = those a visible container is attached to — so the
+  // webmail stack's own networks (the panel's frontend/broker networks,
+  // the mail server's network) appear and the host's other networks
+  // (including the default `bridge`/`host`/`none`) do not
+  // (FEATURE_MATRIX.md §26).
+  const visibleNetworkNames = new Set<string>();
+  for (const container of visibleContainers) {
+    for (const name of container.networkNames) visibleNetworkNames.add(name);
+  }
+  const visible = raw.filter((network) => visibleNetworkNames.has(network.name));
+  return { networks: visible.map((network) => ({ ...network })) };
 }
 
 // ---------------------------------------------------------------------------
@@ -391,6 +470,55 @@ async function handleConsoleExec(
   };
 }
 
+/**
+ * Restarts the panel's own **server** container — never the broker. The
+ * server identity is resolved from config exactly as the mail container
+ * is (`selectSingleMatch`, failing closed on zero/ambiguous matches), and
+ * then a second, independent check refuses if that container also matches
+ * the broker identity: restarting the broker would kill the process
+ * running this very handler mid-operation, so a misconfiguration that
+ * pointed `PANEL_SERVER_*` at the broker is refused rather than obeyed.
+ * The request that triggered this is expected to be dropped when the
+ * server goes down — the web tier polls `/api/v1/health` to reconnect
+ * (`config-page.tsx`), it does not wait on this response.
+ */
+async function handlePanelRestart(deps: OperationDeps): Promise<OperationAck> {
+  const all = await callDocker(deps, 'panel.restart', () =>
+    deps.docker.listContainers({ all: true }),
+  );
+
+  let server: ManagedContainerRef;
+  try {
+    server = selectSingleMatch(all, deps.panelServer, 'panel server');
+  } catch (err) {
+    if (err instanceof ContainerResolutionError) {
+      deps.logger.warn(
+        { reason: err.reason },
+        'Refusing panel.restart: the panel server did not resolve to exactly one allowlisted match',
+      );
+      throw new BrokerError(
+        'FORBIDDEN',
+        'The panel server container could not be resolved to a single allowlisted match.',
+      );
+    }
+    throw err;
+  }
+
+  const resolvesToBroker = all.some(
+    (container) =>
+      container.id === server.id && matchesServiceIdentity(container, deps.panelBroker),
+  );
+  if (resolvesToBroker) {
+    deps.logger.error(
+      'Refusing panel.restart: the configured panel-server identity resolves to the broker container',
+    );
+    throw new BrokerError('FORBIDDEN', 'Refusing to restart the broker container.');
+  }
+
+  await callDocker(deps, 'panel.restart', () => deps.docker.restartContainer(server.id));
+  return { ok: true };
+}
+
 export async function handleOperation(body: BrokerRequest, deps: OperationDeps): Promise<unknown> {
   switch (body.operation) {
     case 'container.list':
@@ -429,6 +557,8 @@ export async function handleOperation(body: BrokerRequest, deps: OperationDeps):
       return handleLogsFile(body, deps);
     case 'console.exec':
       return handleConsoleExec(body, deps);
+    case 'panel.restart':
+      return handlePanelRestart(deps);
     // M16 — the docker-mailserver vocabulary (`dms/handlers.ts`). The
     // three state reads are named individually; every command operation
     // shares one handler, because the thing that differs between them is

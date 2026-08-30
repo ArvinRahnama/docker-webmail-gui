@@ -49,6 +49,9 @@ function testConfig(overrides: Partial<BrokerConfig> = {}): BrokerConfig {
     sharedSecret: SECRET,
     dockerSocketPath: '/var/run/docker.sock',
     dms: { containerName: 'mailserver', containerLabel: null },
+    panelServer: { containerName: 'dwg-server', containerLabel: null },
+    panelBroker: { containerName: 'dwg-broker', containerLabel: null },
+    visibleServicePatterns: ['*mailserver*', 'roundcube*', '*docker-webmail-gui*'],
     ...overrides,
   };
 }
@@ -61,6 +64,8 @@ const MAILSERVER_CONTAINER: RawContainerListItem = {
   status: 'Up 2 hours',
   labels: {},
   createdAt: 1_700_000_000,
+  mountVolumeNames: [],
+  networkNames: [],
 };
 
 /**

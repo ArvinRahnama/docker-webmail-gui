@@ -15,6 +15,7 @@ export * from './auth.js';
 export * from './dms-validators.js';
 export * from './dms.js';
 export * from './broker.js';
+export * from './visibility.js';
 export * from './mail.js';
 export * from './security.js';
 export * from './antispam.js';

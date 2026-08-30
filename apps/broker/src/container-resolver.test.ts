@@ -11,6 +11,8 @@ function container(overrides: Partial<RawContainerListItem>): RawContainerListIt
     status: 'Up 1 hour',
     labels: {},
     createdAt: 1_700_000_000,
+    mountVolumeNames: [],
+    networkNames: [],
     ...overrides,
   };
 }

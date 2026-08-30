@@ -19,6 +19,23 @@ export interface RawContainerListItem {
   readonly labels: Readonly<Record<string, string>>;
   /** Unix seconds. */
   readonly createdAt: number;
+  /**
+   * Named volumes this container mounts — the `Name` of each `Mounts`
+   * entry whose `Type` is `volume` (from `GET /containers/json`'s own
+   * `Mounts` array). The input to deriving the *visible volume set* from
+   * the visible containers (`operations.ts`'s `volume.list` filter), so
+   * the panel never enumerates volumes belonging to unrelated host
+   * containers. Bind mounts and anonymous mounts contribute nothing here.
+   */
+  readonly mountVolumeNames: readonly string[];
+  /**
+   * Networks this container is attached to — the keys of `GET
+   * /containers/json`'s `NetworkSettings.Networks`. The input to deriving
+   * the *visible network set* from the visible containers
+   * (`operations.ts`'s `network.list` filter). Present for stopped
+   * containers too, since Docker retains their network config.
+   */
+  readonly networkNames: readonly string[];
 }
 
 /**

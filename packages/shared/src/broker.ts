@@ -67,6 +67,17 @@ export const BROKER_OPERATIONS = [
   'image.prune',
   'logs.file',
   'console.exec',
+  // Panel self-management (v0.3 — FEATURE_MATRIX.md §22). `panel.restart`
+  // restarts the panel's *own* server container, resolved broker-side
+  // from `PANEL_SERVER_CONTAINER_NAME`/`_LABEL` config exactly as
+  // `container.restart` resolves the mail container — a distinct named
+  // intent, deliberately *not* a `target` field on `container.restart`,
+  // so no lifecycle operation ever gains a caller-supplied "which
+  // container" selector. It restarts the server only, never the broker
+  // (the broker resolves the server identity and refuses if it would
+  // resolve to its own container — `apps/broker/src/operations.ts`). Zero
+  // parameters, the same as `image.prune`: it means exactly one thing.
+  'panel.restart',
   // The docker-mailserver half (M16 — `dms.ts`). Spread rather than
   // re-listed: one source for the names, the request schemas and the
   // response map, so an operation cannot exist in one and not the others.
@@ -86,12 +97,15 @@ export const BROKER_OPS_PATH = '/v1/ops';
 // Request schemas
 //
 // None of these carry a container id. Every operation below that targets
-// "the" mail container (everything except `container.list`) has its
-// target resolved broker-side from `DMS_CONTAINER_NAME`/`DMS_CONTAINER_LABEL`
-// configuration, at request time (ARCHITECTURE.md §6) — there is simply no
-// field here to put one in. `container.list` is the one operation that can
-// address containers plural, and it is read-only by construction (no
-// corresponding write/lifecycle variant that takes a target).
+// "the" mail container has its target resolved broker-side from
+// `DMS_CONTAINER_NAME`/`DMS_CONTAINER_LABEL` configuration, at request
+// time (ARCHITECTURE.md §6) — there is simply no field here to put one in.
+// `panel.restart` is resolved the identical way, from the separate
+// `PANEL_SERVER_CONTAINER_NAME`/`_LABEL` configuration — a different
+// config-known identity, still never a request field. `container.list` is
+// the one operation that can address containers plural, and it is
+// read-only by construction (no corresponding write/lifecycle variant
+// that takes a target).
 // ---------------------------------------------------------------------------
 
 export const ContainerListRequestSchema = z
@@ -220,6 +234,21 @@ export const ConsoleExecRequestSchema = z
   .strict();
 
 /**
+ * No parameters — `panel.restart` always means "restart the panel's own
+ * server container," whose identity the broker resolves from
+ * configuration (`PANEL_SERVER_CONTAINER_NAME`/`_LABEL`), never from
+ * anything in this request. There is no `target` field here, and none on
+ * `container.restart` either: the two restartable containers this product
+ * knows about are addressed by two distinct operation *names*, so a
+ * compromised web tier can only ever ask to restart the mail container or
+ * the panel server — the exact set the broker will act on — and can never
+ * name a third, nor the broker itself.
+ */
+export const PanelRestartRequestSchema = z
+  .object({ operation: z.literal('panel.restart') })
+  .strict();
+
+/**
  * Every request schema, in enum order. Exported (not just embedded in the
  * union below) so `broker.test.ts` can iterate all of them generically —
  * both to build the union and to run the "no dangerous field" security
@@ -244,6 +273,7 @@ export const BROKER_REQUEST_SCHEMAS = [
   ImagePruneRequestSchema,
   LogsFileRequestSchema,
   ConsoleExecRequestSchema,
+  PanelRestartRequestSchema,
   ...DMS_REQUEST_SCHEMAS,
 ] as const;
 
@@ -554,6 +584,7 @@ export const BROKER_RESPONSE_SCHEMAS = {
   'image.prune': ImagePruneResponseSchema,
   'logs.file': LogsFileResponseSchema,
   'console.exec': ConsoleExecResponseSchema,
+  'panel.restart': OperationAckSchema,
   ...DMS_RESPONSE_SCHEMAS,
 } satisfies Record<BrokerOperation, z.ZodTypeAny>;
 

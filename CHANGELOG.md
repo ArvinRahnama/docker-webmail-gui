@@ -13,6 +13,31 @@ called out explicitly here.
 
 Nothing yet.
 
+## [0.2.0] - 2026-08-30
+
+### Changed
+
+- Redesigned the application shell. The navigation was a single flat row of
+  24 links in the header that overflowed the screen horizontally; it is now a
+  left sidebar whose four groups (Mail, Security, Docker, Maintenance) are
+  collapsible sections, each item carrying a related icon and active-route
+  highlighting. A slim top header retains the global command palette (search),
+  the notification bell, and the account menu. The sidebar collapses to a
+  drawer on small screens. Keyboard navigation, the accessibility suite (zero
+  critical/serious axe violations across every route) and the Content Security
+  Policy are unchanged.
+- Carried a single consistent icon system (lucide-react, already a dependency)
+  from the navigation into page headers and dashboard tiles.
+
+### Added
+
+- Project branding. The application now has a logo (a Docker-whale-and-envelope
+  mark), used as the browser favicon and apple-touch-icon, the sidebar and
+  login brand mark, and in the README and docs. `index.html` previously
+  declared no favicon at all. All icon assets are derived from a single master
+  and served same-origin, so they load under the existing CSP with no external
+  host.
+
 ## [0.1.0] - 2026-08-24
 
 First public release. Every milestone below is included; the list is in the
@@ -569,5 +594,6 @@ document set rather than a product.
   will be called out here. Pin the exact image version rather than a
   floating tag — see `docs/docker.md`.
 
-[unreleased]: https://github.com/ArvinRahnama/docker-webmail-gui/compare/v0.1.0...HEAD
+[unreleased]: https://github.com/ArvinRahnama/docker-webmail-gui/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/ArvinRahnama/docker-webmail-gui/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/ArvinRahnama/docker-webmail-gui/releases/tag/v0.1.0

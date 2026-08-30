@@ -8,6 +8,7 @@ import { CommandPalette } from '@/command-palette/command-palette';
 import { NotificationBell } from '@/notifications/notification-bell';
 import { AccountMenu } from '@/layout/account-menu';
 import { Sidebar } from '@/layout/sidebar';
+import { PageIconProvider } from '@/layout/page-chrome';
 
 /**
  * Authenticated app shell (UX_ARCHITECTURE.md §5.3). A left sidebar of
@@ -70,7 +71,9 @@ export function AppLayout() {
 
         <main id="main-content" className="flex-1 px-4 py-6 md:px-6">
           <div className="mx-auto flex w-full max-w-6xl flex-col gap-6">
-            <Outlet />
+            <PageIconProvider>
+              <Outlet />
+            </PageIconProvider>
           </div>
         </main>
       </div>

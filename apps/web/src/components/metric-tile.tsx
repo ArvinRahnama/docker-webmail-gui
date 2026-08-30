@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import type { LucideIcon } from 'lucide-react';
 import { Minus, TrendingDown, TrendingUp } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { cn } from '@/lib/cn';
@@ -15,6 +16,8 @@ export interface MetricTileProps {
   /** Pre-formatted for display (e.g. "1,284", "82%") — this component doesn't own number formatting. */
   readonly value: string | number;
   readonly unit?: string;
+  /** A small, decorative glyph anchoring the tile to its subject (the same icon system as the nav and page headers). Purely visual — the label already names the metric. */
+  readonly icon?: LucideIcon | undefined;
   readonly trend?: MetricTileTrend;
   /**
    * §2 principle 2, §6.1: "A metric we cannot source is absent or
@@ -35,6 +38,7 @@ export function MetricTile({
   label,
   value,
   unit,
+  icon: Icon,
   trend,
   unknown = false,
   sparkline,
@@ -46,7 +50,10 @@ export function MetricTile({
 
   return (
     <Card className={cn('flex flex-col gap-2 p-4', className)}>
-      <span className="text-caption font-medium text-text-muted">{label}</span>
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-caption font-medium text-text-muted">{label}</span>
+        {Icon ? <Icon className="size-4 shrink-0 text-text-muted" aria-hidden="true" /> : null}
+      </div>
 
       {/* The numeric value is also expressed as one accessible string on
           this element — §7: "Value in aria-label, not just visual" — so a

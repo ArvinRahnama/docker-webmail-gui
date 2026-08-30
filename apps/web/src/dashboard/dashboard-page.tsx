@@ -1,3 +1,4 @@
+import { Database, ListOrdered, Mailbox, ShieldAlert } from 'lucide-react';
 /**
  * `/` — the dashboard (M11 — IMPLEMENTATION_PLAN.md §3's exit criterion:
  * "Dashboard renders with a subsystem down"; UX_ARCHITECTURE.md §6.1).
@@ -199,6 +200,7 @@ export function DashboardPage() {
       {/* Row 2 — four metric tiles. */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <MetricTile
+          icon={ListOrdered}
           label="Mail queue"
           value={metrics.queue.total ?? 0}
           unknown={metrics.queue.state === 'unknown'}
@@ -207,11 +209,13 @@ export function DashboardPage() {
             : {})}
         />
         <MetricTile
+          icon={ShieldAlert}
           label="Spam blocked (24h)"
           value={metrics.spamBlocked.collecting ? 'Collecting' : (metrics.spamBlocked.count ?? 0)}
           unknown={false}
         />
         <MetricTile
+          icon={Database}
           label="Docker storage"
           value={
             metrics.storage.df
@@ -221,6 +225,7 @@ export function DashboardPage() {
           unknown={metrics.storage.state === 'unknown'}
         />
         <MetricTile
+          icon={Mailbox}
           label="Mailboxes / domains"
           value={
             metrics.mail.state === 'ok'

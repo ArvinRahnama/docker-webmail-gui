@@ -10,6 +10,7 @@ import { AccountMenu } from '@/layout/account-menu';
 import { Sidebar } from '@/layout/sidebar';
 import { PageIconProvider } from '@/layout/page-chrome';
 import { BrandMark } from '@/components/brand-mark';
+import { ThemeToggle } from '@/theme/theme-toggle';
 
 /**
  * Authenticated app shell (UX_ARCHITECTURE.md §5.3). A left sidebar of
@@ -65,10 +66,11 @@ export function AppLayout() {
             {/* Brand identity on mobile, where the sidebar (which carries it
                 on desktop) is a closed drawer — hidden at md+ to avoid
                 repeating the sidebar's own mark. */}
-            <BrandMark className="size-8 md:hidden" alt="Docker Webmail GUI" />
+            <BrandMark className="h-8 md:hidden" alt="Docker Webmail GUI" />
 
             <div className="ml-auto flex items-center gap-2">
               <CommandPalette />
+              <ThemeToggle />
               <NotificationBell />
               <AccountMenu />
             </div>

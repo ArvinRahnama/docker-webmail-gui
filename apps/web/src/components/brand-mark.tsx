@@ -3,8 +3,8 @@ import { cn } from '@/lib/cn';
 
 export interface BrandMarkProps {
   /**
-   * Sizing/spacing for the plate — pass a size utility (e.g. `size-8`).
-   * The logo fills the plate minus a proportional inset.
+   * Sizing/spacing for the mark — pass a height utility (e.g. `h-9`); the
+   * width follows the logo's own aspect ratio.
    */
   readonly className?: string;
   /**
@@ -22,27 +22,18 @@ export interface BrandMarkProps {
  * optimised derivative of `public/logo.png`, imported so Vite fingerprints
  * it and serves it same-origin under the CSP's `img-src 'self'`).
  *
- * The mark sits on a fixed light plate rather than directly on the app
- * surface. That is deliberate, not decoration: the logo's envelope lines
- * are transparent cut-outs, so on a dark surface they would flip from
- * white to dark and the mark would read inverted from one theme to the
- * next. The plate keeps it one crisp, intentional tile in both themes —
- * the same reason `bg-white` is fixed here while everything else goes
- * through the theme tokens (its frame, `border-border-subtle`, still
- * does). See `docs/AGENT_BRIEF.md`'s design-pass notes.
+ * Rendered directly, with no backing plate: the logo's envelope lines are
+ * solid white pixels sitting on the blue mark (not transparent cut-outs),
+ * so it reads correctly on both the light and dark surfaces — the white
+ * lines are on the blue body, never on the page background. Verified by
+ * screenshot in both themes.
  */
 export function BrandMark({ className, alt = '' }: BrandMarkProps) {
   return (
-    <span
-      className={cn(
-        'inline-flex shrink-0 items-center justify-center overflow-hidden rounded-md border border-border-subtle bg-white shadow-sm',
-        className,
-      )}
-    >
-      {/* Percentage size (relative to the plate, unlike padding, which is
-          relative to the parent) keeps the inset proportional at every
-          plate size the caller picks. */}
-      <img src={brandLogoUrl} alt={alt} className="size-[82%] object-contain" />
-    </span>
+    <img
+      src={brandLogoUrl}
+      alt={alt}
+      className={cn('block w-auto shrink-0 object-contain', className)}
+    />
   );
 }

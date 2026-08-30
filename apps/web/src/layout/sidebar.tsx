@@ -140,7 +140,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: (() => void) | undefined 
   return (
     <div className="flex h-full flex-col bg-bg-surface">
       <div className="flex h-14 shrink-0 items-center gap-2.5 border-b border-border-subtle px-4 font-semibold text-text-primary">
-        <BrandMark className="size-8" />
+        <BrandMark className="h-9" />
         <span className="truncate">Docker Webmail GUI</span>
       </div>
       <div className="flex flex-1 flex-col gap-1 overflow-y-auto px-3 pb-4">

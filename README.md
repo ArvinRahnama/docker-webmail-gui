@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="apps/web/public/logo.png" alt="Docker Webmail GUI logo" width="120" height="120" />
+  <img src="apps/web/public/logo.png" alt="Docker Webmail GUI logo" width="180" />
 </p>
 
 # Docker Webmail GUI

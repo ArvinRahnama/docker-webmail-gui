@@ -19,12 +19,13 @@
  * actually verify, the same "prove the write landed in the fake driver's
  * own state, not just the client cache" standard Round B's specs used.
  *
- * Start/Stop are the only two buttons this page ever renders for the
- * managed container (`isManagedRunning` gates each one's `disabled`), and
- * neither has a same-named counterpart anywhere else on the page — a much
- * more precise signal than matching "running"/"exited" text, which *also*
- * always appears for the page's second, permanently-stopped, unrelated
- * fixture container ("old-webapp") regardless of the managed one's state.
+ * Start/Stop are the only two buttons this page renders for the managed
+ * container (`isManagedRunning` gates each one's `disabled`) — a more
+ * precise signal than matching "running"/"exited" text, which also appears
+ * for the other visible webmail services the list now shows (roundcube and
+ * the panel's own containers) regardless of the managed one's state. The
+ * managed container's own state is read from its row, found by name
+ * ("mailserver").
  */
 import { expect, test } from '@playwright/test';
 import { AUTH_STATE_PATH } from './env.js';

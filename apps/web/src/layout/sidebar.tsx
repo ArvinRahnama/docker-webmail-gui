@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
-import { ChevronDown, Mail } from 'lucide-react';
+import { ChevronDown } from 'lucide-react';
 import type { NavEntry, NavGroup } from '@/layout/nav-config';
 import { NAV_GROUPS } from '@/layout/nav-config';
+import { BrandMark } from '@/components/brand-mark';
 import { cn } from '@/lib/cn';
 
 /** True when `pathname` is `to` or a descendant of it — `/` matches only itself, so the dashboard never lights up under every route. */
@@ -138,8 +139,8 @@ function CollapsibleSection({
 export function Sidebar({ onNavigate }: { onNavigate?: (() => void) | undefined }) {
   return (
     <div className="flex h-full flex-col bg-bg-surface">
-      <div className="flex h-14 shrink-0 items-center gap-2 px-4 font-semibold text-text-primary">
-        <Mail className="size-5 text-accent" aria-hidden="true" />
+      <div className="flex h-14 shrink-0 items-center gap-2.5 border-b border-border-subtle px-4 font-semibold text-text-primary">
+        <BrandMark className="size-8" />
         <span className="truncate">Docker Webmail GUI</span>
       </div>
       <div className="flex flex-1 flex-col gap-1 overflow-y-auto px-3 pb-4">

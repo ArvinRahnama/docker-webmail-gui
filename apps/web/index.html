@@ -3,6 +3,27 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+    <!--
+      Brand identity. The mark is a Docker whale whose hull is an envelope —
+      "Docker + webmail". Derived from public/logo.png (1254px master) into
+      properly sized, optimised PNGs rather than wiring the 316KB master in
+      as a favicon. All same-origin, so they load under the CSP's
+      `img-src 'self'` (packages/shared/src/csp.ts) with no external host.
+    -->
+    <link rel="icon" href="/favicon-32.png" sizes="32x32" type="image/png" />
+    <link rel="icon" href="/favicon-16.png" sizes="16x16" type="image/png" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+
+    <!-- Browser chrome colour, matched to the app's light/dark surfaces. -->
+    <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#1b1e24" media="(prefers-color-scheme: dark)" />
+
+    <meta
+      name="description"
+      content="Self-hosted admin panel for docker-mailserver — mailboxes, aliases, security and container operations."
+    />
+
     <title>Docker Webmail GUI</title>
   </head>
   <body>

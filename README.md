@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="apps/web/public/logo.png" alt="Docker Webmail GUI logo" width="120" height="120" />
+</p>
+
 # Docker Webmail GUI
 
 A self-hosted web admin panel for [`docker-mailserver`](https://github.com/docker-mailserver/docker-mailserver), built so that a compromise of the web panel cannot become a compromise of your host.

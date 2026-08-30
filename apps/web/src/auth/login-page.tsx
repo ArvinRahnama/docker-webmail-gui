@@ -4,6 +4,7 @@ import { LoginRequestSchema, type LoginRequest } from '@dwg/shared';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { BrandMark } from '@/components/brand-mark';
 import { ApiError } from '@/lib/api-client';
 import { useLoginMutation } from './use-session';
 
@@ -40,7 +41,8 @@ export function LoginPage() {
   return (
     <div className="flex min-h-dvh items-center justify-center bg-bg-app px-4">
       <div className="w-full max-w-sm rounded-lg border border-border-default bg-bg-surface p-8 shadow-md">
-        <div className="mb-6 text-center">
+        <div className="mb-6 flex flex-col items-center text-center">
+          <BrandMark className="mb-3 size-14" />
           <h1 className="text-h1 font-semibold text-text-primary">Docker Webmail GUI</h1>
           <p className="mt-1 text-body-sm text-text-secondary">
             Sign in to manage your mail server.

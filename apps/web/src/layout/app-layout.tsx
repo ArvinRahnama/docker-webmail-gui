@@ -9,6 +9,7 @@ import { NotificationBell } from '@/notifications/notification-bell';
 import { AccountMenu } from '@/layout/account-menu';
 import { Sidebar } from '@/layout/sidebar';
 import { PageIconProvider } from '@/layout/page-chrome';
+import { BrandMark } from '@/components/brand-mark';
 
 /**
  * Authenticated app shell (UX_ARCHITECTURE.md §5.3). A left sidebar of
@@ -60,6 +61,11 @@ export function AppLayout() {
             >
               <Menu className="size-5" aria-hidden="true" />
             </Button>
+
+            {/* Brand identity on mobile, where the sidebar (which carries it
+                on desktop) is a closed drawer — hidden at md+ to avoid
+                repeating the sidebar's own mark. */}
+            <BrandMark className="size-8 md:hidden" alt="Docker Webmail GUI" />
 
             <div className="ml-auto flex items-center gap-2">
               <CommandPalette />

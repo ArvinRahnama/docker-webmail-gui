@@ -43,75 +43,17 @@ import {
   CommandItem,
   CommandList,
 } from '@/components/ui/command';
+import { NAV_GROUPS } from '@/layout/nav-config';
 import { useDomainsQuery } from '@/mail/use-mail-queries';
 import { fetchAliases, fetchMailboxes } from '@/lib/mail-api';
 
-export interface NavEntry {
-  readonly to: string;
-  readonly label: string;
-}
-
-export interface NavGroup {
-  readonly heading: string;
-  readonly items: readonly NavEntry[];
-}
-
-/**
- * Exhaustive over `App.tsx`'s route table — every list-level (non-
- * `:param`) route, grouped to match the nav bar's own sections
- * (`app-layout.tsx`). Exported so `command-palette.route-coverage.test.ts`
- * can check that claim against `App.tsx` directly instead of trusting
- * this comment — the claim already drifted false once (Rspamd was
- * missing here until a later commit added it back), which is exactly the
- * failure mode a doc comment alone cannot catch.
- */
-export const NAV_GROUPS: readonly NavGroup[] = [
-  { heading: 'Overview', items: [{ to: '/', label: 'Dashboard' }] },
-  {
-    heading: 'Mail',
-    items: [
-      { to: '/mail/domains', label: 'Domains' },
-      { to: '/mail/mailboxes', label: 'Mailboxes' },
-      { to: '/mail/aliases', label: 'Aliases' },
-      { to: '/mail/storage', label: 'Storage' },
-      { to: '/mail/queue', label: 'Queue' },
-    ],
-  },
-  {
-    heading: 'Security',
-    items: [
-      { to: '/security/email-auth', label: 'Email Authentication' },
-      { to: '/security/tls', label: 'TLS' },
-      { to: '/security/rspamd', label: 'Rspamd' },
-      { to: '/security/clamav', label: 'ClamAV' },
-      { to: '/security/fail2ban', label: 'Fail2ban' },
-      { to: '/security/sieve', label: 'Sieve' },
-      { to: '/security/autoresponder', label: 'Autoresponder' },
-    ],
-  },
-  {
-    heading: 'Docker',
-    items: [
-      { to: '/docker/containers', label: 'Containers' },
-      { to: '/docker/images', label: 'Images' },
-      { to: '/docker/volumes', label: 'Volumes' },
-      { to: '/docker/networks', label: 'Networks' },
-      { to: '/docker/logs', label: 'Logs' },
-      { to: '/docker/monitoring', label: 'Monitoring' },
-      { to: '/docker/health', label: 'Health' },
-      { to: '/docker/console', label: 'Console' },
-    ],
-  },
-  {
-    heading: 'Maintenance',
-    items: [
-      { to: '/maintenance/jobs', label: 'Jobs' },
-      { to: '/maintenance/backups', label: 'Backups' },
-      { to: '/maintenance/updates', label: 'Updates' },
-      { to: '/maintenance/config', label: 'Configuration' },
-    ],
-  },
-];
+// The nav model lives in one place — `@/layout/nav-config` — so the
+// sidebar and this palette cannot drift. Re-exported here because
+// `command-palette.route-coverage.test.ts` imports `NAV_GROUPS` from this
+// module's path, and that exhaustiveness check is the reason the two stay
+// in sync at all.
+export { NAV_GROUPS } from '@/layout/nav-config';
+export type { NavGroup, NavEntry } from '@/layout/nav-config';
 
 const MAX_RESULTS_PER_GROUP = 5;
 const SEARCH_DEBOUNCE_MS = 200;

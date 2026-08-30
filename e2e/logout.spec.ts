@@ -37,7 +37,11 @@ test.describe('logout', () => {
     // "/" is the dashboard (M11) — no longer a redirect to /mail/domains.
     await expect(page).toHaveURL(/\/$/);
 
-    await page.getByRole('button', { name: 'Sign out' }).click();
+    // The account menu in the header now holds Sign out (v0.1 shell). Open
+    // it by its trigger — whose accessible name is the signed-in email —
+    // then choose Sign out.
+    await page.getByRole('banner').getByRole('button', { name: email }).click();
+    await page.getByRole('menuitem', { name: 'Sign out' }).click();
     await expect(page).toHaveURL(/\/login$/);
     await expect(page.getByRole('heading', { name: 'Docker Webmail GUI' })).toBeVisible();
 

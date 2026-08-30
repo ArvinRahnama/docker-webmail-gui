@@ -103,7 +103,14 @@ test.describe('login', () => {
     // CI on all three retries, resolving to 3 elements. The banner holds
     // exactly one — the one this test's own comment above says it asserts.
     await expect(page.getByRole('banner').getByText(email)).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Sign out' })).toBeVisible();
+    // Sign out moved into a header account menu in the v0.1 design pass
+    // (a left sidebar plus a slim top bar). The trigger's own text is the
+    // signed-in email, so it doubles as the identity display asserted just
+    // above; opening it proves the sign-out affordance is really there,
+    // which is a stronger check than a bare always-visible button.
+    await page.getByRole('banner').getByRole('button', { name: email }).click();
+    await expect(page.getByRole('menuitem', { name: 'Sign out' })).toBeVisible();
+    await page.keyboard.press('Escape');
   });
 
   test('rejects an unknown address and a wrong password with an identical, generic message', async ({

@@ -9,9 +9,13 @@
 import { Readable } from 'node:stream';
 import {
   DMS_ENV_KEYS,
+  DEFAULT_VISIBLE_SERVICE_PATTERNS,
   type DmsConfigFileKey,
   type DmsExecResponse,
   computeProtectedVolumeNames,
+  isContainerVisible,
+  isImageVisible,
+  type ContainerVisibility,
   type BackupVolumeKey,
   type ConsoleCommand,
   type ConsoleExecResponse,
@@ -57,6 +61,8 @@ const FIXTURE_DMS_CONFIG_FILES: Record<DmsConfigFileKey, string> = {
 import {
   FIXTURE_CONSOLE_OUTPUTS,
   FIXTURE_CONTAINERS,
+  FIXTURE_CONTAINER_ATTACHMENTS,
+  FIXTURE_CONTAINER_ID,
   FIXTURE_CONTAINER_INSPECT_RUNNING,
   FIXTURE_CONTAINER_INSPECT_STOPPED,
   FIXTURE_CONTAINER_MOUNTS,
@@ -80,6 +86,26 @@ const FIXTURE_LOG_FILE_LINES: Readonly<Record<LogFileSource, readonly string[]>>
   fail2ban: FIXTURE_FAIL2BAN_LOG_LINES,
 };
 
+/**
+ * The fake's visibility configuration, mirroring the broker's own defaults
+ * (`DEFAULT_VISIBLE_SERVICE_PATTERNS`) and the container_name defaults the
+ * compose file ships. Applied through the exact same `isContainerVisible`/
+ * `isImageVisible` the real broker uses, so the narrowed view is faithful.
+ */
+const FAKE_VISIBILITY: ContainerVisibility = {
+  identities: [
+    { containerName: 'mailserver', containerLabel: null },
+    { containerName: 'dwg-server', containerLabel: null },
+    { containerName: 'dwg-broker', containerLabel: null },
+  ],
+  patterns: DEFAULT_VISIBLE_SERVICE_PATTERNS,
+};
+
+/** The fixture containers that pass the visibility filter — the set every derived (image/volume/network) filter is computed against, exactly as the broker derives them from an `all: true` listing. */
+const VISIBLE_FIXTURE_CONTAINERS = FIXTURE_CONTAINERS.filter((container) =>
+  isContainerVisible(container, FAKE_VISIBILITY),
+);
+
 export class FakeBrokerClient implements BrokerClient {
   /**
    * The one piece of mutable state this fake tracks: start/stop/restart
@@ -92,11 +118,19 @@ export class FakeBrokerClient implements BrokerClient {
 
   async containerList(params: ContainerListParams = {}): Promise<readonly ContainerSummary[]> {
     const all = params.all ?? false;
-    const containers = FIXTURE_CONTAINERS.map((container) => ({
-      ...container,
-      state: this.running ? container.state : 'exited',
-      status: this.running ? container.status : 'Exited (0) 2 minutes ago',
-    }));
+    // Only the managed container's state follows start/stop; the other
+    // fixture services keep their own state. Then narrow to the visible
+    // webmail set, exactly as the broker does before the list ever leaves
+    // the privileged tier.
+    const containers = VISIBLE_FIXTURE_CONTAINERS.map((container) =>
+      container.id === FIXTURE_CONTAINER_ID
+        ? {
+            ...container,
+            state: this.running ? container.state : 'exited',
+            status: this.running ? container.status : 'Exited (0) 2 minutes ago',
+          }
+        : container,
+    );
     return all ? containers : containers.filter((c) => c.state === 'running');
   }
 
@@ -114,6 +148,14 @@ export class FakeBrokerClient implements BrokerClient {
 
   async containerRestart(): Promise<void> {
     this.running = true;
+  }
+
+  async panelRestart(): Promise<void> {
+    // No-op success: the fake never restarts a real process. The point for
+    // a UI flow is that the operation is accepted (and audited server-side)
+    // and that the reconnect poll then finds the — never actually down —
+    // server healthy. Deliberately does NOT touch `this.running`, which
+    // tracks the mail container, not the panel's own server.
   }
 
   async containerStats(): Promise<ContainerStatsResponse> {
@@ -142,15 +184,32 @@ export class FakeBrokerClient implements BrokerClient {
   }
 
   async imageList(): Promise<readonly ImageSummary[]> {
-    return FIXTURE_IMAGES;
+    const referencedImageRefs = new Set(VISIBLE_FIXTURE_CONTAINERS.map((c) => c.image));
+    return FIXTURE_IMAGES.filter((image) =>
+      isImageVisible(image, DEFAULT_VISIBLE_SERVICE_PATTERNS, referencedImageRefs),
+    );
   }
 
   async volumeList(): Promise<readonly VolumeSummary[]> {
-    return FIXTURE_VOLUMES;
+    return FIXTURE_VOLUMES.filter((volume) => this.visibleAttachments().volumes.has(volume.name));
   }
 
   async networkList(): Promise<readonly NetworkSummary[]> {
-    return FIXTURE_NETWORKS;
+    return FIXTURE_NETWORKS.filter((network) =>
+      this.visibleAttachments().networks.has(network.name),
+    );
+  }
+
+  /** The union of every visible container's mounted volumes and attached networks — the derived visible volume/network sets, mirroring `operations.ts`. */
+  private visibleAttachments(): { volumes: Set<string>; networks: Set<string> } {
+    const volumes = new Set<string>();
+    const networks = new Set<string>();
+    for (const container of VISIBLE_FIXTURE_CONTAINERS) {
+      const attachments = FIXTURE_CONTAINER_ATTACHMENTS[container.names[0] ?? ''];
+      for (const name of attachments?.volumes ?? []) volumes.add(name);
+      for (const name of attachments?.networks ?? []) networks.add(name);
+    }
+    return { volumes, networks };
   }
 
   /**

@@ -81,6 +81,29 @@ export async function registerContainersRoutes(
         '/managed/restart',
         lifecycleHandler('container.restart', () => containersService.restart()),
       );
+
+      // Restart the panel's own server container. Unlike the managed-
+      // container lifecycle above, this operation takes *this* server down,
+      // dropping the very request that triggered it — so the audit is
+      // written BEFORE the broker is called, or a successful restart would
+      // leave no trace (working agreement #6). The broker refuses without
+      // restarting anything if the panel-server identity is misconfigured,
+      // and that error still reaches the client; the audit records that a
+      // restart was initiated by this admin either way. The client does not
+      // wait on this response — it reconnects by polling `/api/v1/health`.
+      containersApp.post('/panel/restart', async (request, reply) => {
+        const auth = requireAuthContext(request);
+        recordAuditEvent(db, {
+          actor: { adminId: auth.admin.id, label: auth.admin.email },
+          action: 'panel.restart',
+          target: { type: 'container', id: 'panel' },
+          result: 'success',
+          ip: request.ip,
+          userAgent: request.headers['user-agent'] ?? null,
+        });
+        await containersService.restartPanel();
+        void reply.send(OperationAckSchema.parse({ ok: true }));
+      });
     },
     { prefix: '/api/v1/docker/containers' },
   );

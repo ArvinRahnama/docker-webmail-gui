@@ -72,6 +72,7 @@ export const AUDIT_ACTIONS = [
   'container.start',
   'container.stop',
   'container.restart',
+  'panel.restart',
   'volume.remove',
   'image.prune',
   'console.exec',

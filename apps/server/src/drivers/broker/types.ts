@@ -97,6 +97,15 @@ export interface BrokerClient {
   containerStart(): Promise<void>;
   containerStop(): Promise<void>;
   containerRestart(): Promise<void>;
+  /**
+   * Restarts the panel's own server container (`panel.restart`), resolved
+   * broker-side from config — there is no container-id parameter, exactly
+   * as with the managed-container lifecycle above. The request is expected
+   * to be dropped when the server goes down; the caller reconnects by
+   * polling `/api/v1/health`, it must not depend on this promise
+   * resolving. The broker restarts the server only, never itself.
+   */
+  panelRestart(): Promise<void>;
   containerStats(): Promise<ContainerStatsResponse>;
   containerLogs(params?: ContainerLogsParams): Promise<readonly ContainerLogLine[]>;
   systemPing(): Promise<SystemPingResponse>;

@@ -103,6 +103,7 @@ const ACTION_LABELS: Readonly<Record<string, string>> = {
   'container.start': 'Container started',
   'container.stop': 'Container stopped',
   'container.restart': 'Container restarted',
+  'panel.restart': 'Panel restarted',
   'volume.remove': 'Volume removed',
   'image.prune': 'Images pruned',
   'console.exec': 'Console command run',

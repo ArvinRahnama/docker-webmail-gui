@@ -95,13 +95,14 @@ describe('FakeBrokerClient — deterministic, in-memory, stateful across its own
     const inspect = await client.containerInspect();
     expect(inspect.state.running).toBe(false);
 
-    // Fixture world has a second, always-stopped, non-managed container
-    // (`FIXTURE_OTHER_CONTAINER_ID` — containers.ts) alongside the managed
-    // one, so "running only" is asserted by content, and the managed
-    // container's own entry is found by id rather than assumed to be at a
-    // particular array position/length.
+    // Only the managed container's state follows start/stop; the other
+    // visible webmail services (containers.ts) keep running. So after a
+    // stop the managed container has left the running-only list while the
+    // others remain — asserted by content, finding the managed entry by id
+    // rather than by position.
     const runningOnly = await client.containerList();
-    expect(runningOnly).toHaveLength(0);
+    expect(runningOnly.some((c) => c.id === inspect.id)).toBe(false);
+    expect(runningOnly.length).toBeGreaterThan(0);
 
     const all = await client.containerList({ all: true });
     const managed = all.find((c) => c.id === inspect.id);
@@ -128,5 +129,56 @@ describe('FakeBrokerClient — deterministic, in-memory, stateful across its own
     const first = await client.systemVersion();
     const second = await client.systemVersion();
     expect(first).toEqual(second);
+  });
+});
+
+describe('FakeBrokerClient — visibility filter mirrors the broker', () => {
+  it('containerList shows only webmail services, never unrelated host containers', async () => {
+    const client = new FakeBrokerClient();
+    const names = (await client.containerList({ all: true })).flatMap((c) => c.names);
+    expect(names).toEqual(
+      expect.arrayContaining([
+        'mailserver',
+        'dwg-server',
+        'dwg-broker',
+        'roundcube',
+        'roundcube-db',
+      ]),
+    );
+    expect(names).not.toContain('nginx-proxy-manager');
+    expect(names).not.toContain('owner-website');
+  });
+
+  it('imageList shows pattern/referenced images, hides unrelated and dangling', async () => {
+    const client = new FakeBrokerClient();
+    const images = await client.imageList();
+    const tags = images.flatMap((i) => i.repoTags);
+    // mariadb has no pattern match — it is visible only because roundcube-db runs it.
+    expect(tags.some((t) => t.startsWith('mariadb'))).toBe(true);
+    expect(tags.some((t) => t.includes('nginx-proxy-manager'))).toBe(false);
+    expect(images.map((i) => i.id)).not.toContain('sha256:dangling000000');
+  });
+
+  it('volumeList and networkList are derived from the visible containers', async () => {
+    const client = new FakeBrokerClient();
+    const volumes = (await client.volumeList()).map((v) => v.name);
+    expect(volumes).toEqual(
+      expect.arrayContaining(['dms-mail-data', 'dwg-server-data', 'roundcube-db-data']),
+    );
+    expect(volumes).not.toContain('npm-data');
+    expect(volumes).not.toContain('site-data');
+
+    const networks = (await client.networkList()).map((n) => n.name);
+    expect(networks).toEqual(
+      expect.arrayContaining(['mailserver_net', 'dwg-frontend', 'dwg-broker']),
+    );
+    expect(networks).not.toContain('npm_default');
+    expect(networks).not.toContain('bridge');
+  });
+
+  it('panelRestart resolves and does not change the mail container state', async () => {
+    const client = new FakeBrokerClient();
+    await client.panelRestart();
+    expect((await client.containerInspect()).state.running).toBe(true);
   });
 });

@@ -147,6 +147,10 @@ export class RealBrokerClient implements BrokerClient {
     await this.call({ operation: 'container.restart' }, OperationAckSchema);
   }
 
+  async panelRestart(): Promise<void> {
+    await this.call({ operation: 'panel.restart' }, OperationAckSchema);
+  }
+
   async containerStats(): Promise<ContainerStatsResponse> {
     return this.call({ operation: 'container.stats' }, ContainerStatsResponseSchema);
   }

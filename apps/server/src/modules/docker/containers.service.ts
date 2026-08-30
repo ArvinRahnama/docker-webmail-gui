@@ -35,4 +35,15 @@ export class ContainersService {
   async restart(): Promise<void> {
     await this.broker.containerRestart();
   }
+
+  /**
+   * Restarts the panel's own server container (`panel.restart`). The
+   * broker resolves the server identity and restarts the server only,
+   * never itself. The server process is expected to be dropped mid-request
+   * as it goes down, so the UI reconnects by polling `/api/v1/health`
+   * rather than waiting on this call.
+   */
+  async restartPanel(): Promise<void> {
+    await this.broker.panelRestart();
+  }
 }

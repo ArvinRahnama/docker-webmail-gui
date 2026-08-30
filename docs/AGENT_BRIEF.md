@@ -21,7 +21,9 @@ packages/shared  Zod schemas shared by server, broker and web
 
 Read/write access to `/var/run/docker.sock` **is root on the host**. One `POST /containers/create` with a bind mount or `Privileged: true` ends the discussion.
 
-So the web tier holds **no socket and no Docker vocabulary**. It sends _named intents_ (`container.restart`, `container.logs`, `dms.email.add` — 47 in total, the full list is `BROKER_OPERATIONS` in `packages/shared/src/broker.ts`, whose DMS half lives in `dms.ts`) to the broker over an internal-only network. **There is no protocol field anywhere that can carry a bind mount, a capability, a `HostConfig`, or a container specification.** Full RCE in the web tier yields the broker's allowlist and nothing more.
+So the web tier holds **no socket and no Docker vocabulary**. It sends _named intents_ (`container.restart`, `container.logs`, `dms.email.add` — 48 in total, the full list is `BROKER_OPERATIONS` in `packages/shared/src/broker.ts`, whose DMS half lives in `dms.ts`) to the broker over an internal-only network. **There is no protocol field anywhere that can carry a bind mount, a capability, a `HostConfig`, or a container specification.** Full RCE in the web tier yields the broker's allowlist and nothing more.
+
+The v0.3 additions kept to this shape: `panel.restart` is a distinct **zero-parameter** operation that restarts the panel's own server container (resolved from `PANEL_SERVER_CONTAINER_NAME`/`_LABEL`, server-only, the broker refuses to resolve itself) — deliberately not a `target` field on `container.restart`. And the `container.list`/`image.list`/`volume.list`/`network.list` results are **filtered broker-side** to the visible webmail set (config-known identities + `VISIBLE_SERVICE_PATTERNS`; volumes/networks derived from the visible containers' attachments), so the web tier cannot enumerate unrelated host resources — the shared matcher is `packages/shared/src/visibility.ts`.
 
 Consequences you must preserve:
 

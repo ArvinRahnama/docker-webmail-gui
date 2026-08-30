@@ -55,6 +55,12 @@ services:
       context: ..
       dockerfile: docker/server/Dockerfile
     image: ghcr.io/arvinrahnama/docker-webmail-gui-server:${DWG_VERSION:-0.1.0}
+    # A fixed, predictable name so the broker can resolve this container for
+    # `panel.restart` and keep it visible in the filtered container list. The
+    # compose service is still reachable as `server` on its networks (compose
+    # keeps the service-name alias regardless of container_name), so
+    # `http://broker:4000` and the like are unaffected.
+    container_name: dwg-server
     restart: unless-stopped
     init: true
     read_only: true
@@ -153,6 +159,11 @@ services:
       context: ..
       dockerfile: docker/broker/Dockerfile
     image: ghcr.io/arvinrahnama/docker-webmail-gui-broker:${DWG_VERSION:-0.1.0}
+    # Fixed name so `panel.restart` can never resolve the panel-server
+    # identity to the broker (the broker refuses that outright regardless),
+    # and so the broker appears in its own filtered container list. Still
+    # reachable as `broker` on the internal network.
+    container_name: dwg-broker
     restart: unless-stopped
     init: true
     read_only: true
@@ -173,6 +184,18 @@ services:
       DOCKER_SOCKET_PATH: /var/run/docker.sock
       DMS_CONTAINER_NAME: ${DMS_CONTAINER_NAME:-mailserver}
       DMS_CONTAINER_LABEL: ${DMS_CONTAINER_LABEL:-}
+      # The panel's own two containers, so `panel.restart` restarts the
+      # server (never the broker) and both stay visible in the filtered
+      # list. Defaults match the container_name values above.
+      PANEL_SERVER_CONTAINER_NAME: ${PANEL_SERVER_CONTAINER_NAME:-dwg-server}
+      PANEL_SERVER_CONTAINER_LABEL: ${PANEL_SERVER_CONTAINER_LABEL:-}
+      PANEL_BROKER_CONTAINER_NAME: ${PANEL_BROKER_CONTAINER_NAME:-dwg-broker}
+      PANEL_BROKER_CONTAINER_LABEL: ${PANEL_BROKER_CONTAINER_LABEL:-}
+      # Which non-panel/mail services the panel may see (glob list matched
+      # against container names and image repo tags). Empty -> the sensible
+      # webmail defaults. Add other webmail GUIs here, e.g.
+      # "roundcube*,*mailserver*,snappymail*".
+      VISIBLE_SERVICE_PATTERNS: ${VISIBLE_SERVICE_PATTERNS:-}
     volumes:
       # The one bind mount `docker-socket-isolation.security.test.ts`
       # (M12) and this file's own header promise never appears on

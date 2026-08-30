@@ -280,7 +280,9 @@ Live streaming (SSE), search, severity/time filtering, download, pause/resume, b
 
 ## 22. Container status · 23. Start / Stop / Restart — **Constrained**
 
-Status, health, uptime, image, ports and resource usage via Docker inspect/stats. Every container on the host is **listed** for visibility, but start, stop and restart target only **"the" managed mail container**, whose identity the broker resolves from its own configuration at request time. This is stronger than an allowlist: no broker request schema has a field a container could be named in at all, so there is no per-row lifecycle action for any other container and nothing to refuse.
+Status, health, uptime, image, ports and resource usage via Docker inspect/stats. The container list is **filtered to the webmail stack** — the mail server, the panel's own server and broker, and any service matching the configured `VISIBLE_SERVICE_PATTERNS` (default: roundcube and other mail/panel images). The filtering happens **broker-side**, before the list ever reaches the web tier, so unrelated host containers are not merely hidden in the UI but are never enumerable by the web tier at all — this _narrows_ the boundary rather than loosening it. Start, stop and restart still target only **"the" managed mail container**, whose identity the broker resolves from its own configuration at request time: no broker request schema has a field a container could be named in, so there is no per-row lifecycle action for any other container and nothing to refuse.
+
+**Restart panel** is a real capability (`panel.restart`), offered on the Settings page alongside **Restart mail server**. It is a distinct named broker operation with **no parameters** — deliberately not a "which container" selector on `container.restart` — and it resolves the panel's own **server** container from `PANEL_SERVER_CONTAINER_NAME`/`_LABEL`, restarting the server only, never the broker (the broker refuses if that identity resolves to itself, which would kill the actor mid-operation). Because the restart takes the server down, it drops the request that triggered it: the UI shows a reconnecting overlay and polls `/api/v1/health` until the server answers, and the audit entry is written before dispatch so a successful restart is never left untraced.
 
 **Recreate does not ship, and is not planned while the broker looks like this.** "Recreate" is not a Docker API operation — it decomposes into stop → remove → **create** → start, and `POST /containers/create` is the exact call that grants host root (arbitrary bind mounts, `Privileged`, `PidMode: host`). Withholding that call is the entire reason the broker exists, so `container.create`, `container.remove` and any recreate composite are absent from the broker's operation vocabulary (`packages/shared/src/broker.ts`) — not permission-gated, not admin-only, simply not expressible over the protocol. A server-side-stored container specification would not change this: the panel would still have to make the `create` call to use it. **No recreate control appears anywhere in the UI** (see also §28, §31). Recreating the container stays a host-side operation done with your own deployment tooling.
 
@@ -290,7 +292,7 @@ Lifecycle actions are **Tier 2** confirmations stating the operational consequen
 
 ## 24. Docker images — **Full (list and dangling cleanup; no pull)**
 
-List with tag, ID, size, created date, and which containers use them. Cleanup is offered for **dangling images only**: the broker's `image.prune` operation takes no parameters at all, so "an image in use by any container — running or stopped — can never be selected" holds because there is no selection to make, not merely because the UI declines to offer one.
+List with tag, ID, size, created date, and which containers use them. Like the container list, images are **filtered broker-side to the webmail stack** — an image is shown if its repo tag matches `VISIBLE_SERVICE_PATTERNS` or it is the image of a visible container (so a supporting image a visible service runs, e.g. a webmail GUI's database, appears without needing a pattern). Dangling (untagged) images are treated as unrelated host cruft and hidden from the list; `image.prune` still reclaims them host-wide. Cleanup is offered for **dangling images only**: the broker's `image.prune` operation takes no parameters at all, so "an image in use by any container — running or stopped — can never be selected" holds because there is no selection to make, not merely because the UI declines to offer one.
 
 **There is no pull.** `image.pull` is absent from the broker's operation vocabulary, because an image this panel pulled is an image it could never deploy — deploying it needs the `container.create` the broker deliberately withholds (§22). Pulling would spend registry egress and host disk to reach a state indistinguishable from doing nothing, so the update page reports the newer digest and leaves the pull to the deployment tooling that can act on it (§31).
 
@@ -298,7 +300,7 @@ List with tag, ID, size, created date, and which containers use them. Cleanup is
 
 ## 25. Volumes — **Constrained**
 
-List, inspect, mountpoint, container relationships, and size via `GET /system/df` (flagged as an expensive call and cached).
+List, inspect, mountpoint, container relationships, and size via `GET /system/df` (flagged as an expensive call and cached). The list is **filtered broker-side** to volumes mounted by a visible container — **derived** from the visible set rather than a second name list, so the mail/panel/roundcube volumes stay visible automatically and volumes belonging to unrelated host containers never appear.
 
 **Deletion of a volume holding mail data is blocked outright, not merely confirmed.** The four DMS volumes — `mail-data` (`/var/mail`), `mail-state`, `mail-logs`, `config` (`/tmp/docker-mailserver`) — are identified from the container's mounts and marked protected. For any other volume, deletion is **Tier 3** and refuses while a container references it. This is the single most dangerous operation in the product and is treated accordingly.
 
@@ -306,7 +308,7 @@ List, inspect, mountpoint, container relationships, and size via `GET /system/df
 
 ## 26. Networks — **Full (read-only)**
 
-List and inspect: driver, scope, connected containers, IPAM. **No create, delete, connect or disconnect** — network mutation offers no value to a mail admin panel and expands the attack surface (`NetworkMode: host` is an escalation vector). Read-only by design, stated in the UI.
+List and inspect: driver, scope, connected containers, IPAM. The list is **filtered broker-side** to networks a visible container is attached to (again derived from the visible set), so the webmail stack's own networks appear and the host's other networks — including the default `bridge`/`host`/`none` — do not. **No create, delete, connect or disconnect** — network mutation offers no value to a mail admin panel and expands the attack surface (`NetworkMode: host` is an escalation vector). Read-only by design, stated in the UI.
 
 ---
 

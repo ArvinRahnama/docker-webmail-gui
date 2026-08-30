@@ -73,7 +73,7 @@ export function ImagesPage() {
   if (query.isError) {
     return (
       <div className="flex flex-col gap-6">
-        <PageHeader title="Images" description="Every image pulled onto this Docker host." />
+        <PageHeader title="Images" description="Images used by your webmail stack." />
         <ErrorState
           message="Could not load the image list."
           errorId={
@@ -91,7 +91,7 @@ export function ImagesPage() {
     <div className="flex flex-col gap-6">
       <PageHeader
         title="Images"
-        description="Every image pulled onto this Docker host."
+        description="Images used by your webmail stack."
         action={
           <Button type="button" variant="secondary" onClick={() => setConfirmPrune(true)}>
             <Trash2 className="size-3.5" aria-hidden="true" />
@@ -107,12 +107,12 @@ export function ImagesPage() {
           data={query.data ?? []}
           columns={columns}
           getRowId={(row) => row.id}
-          caption="Every image on this Docker host"
+          caption="Images used by your webmail stack"
           emptyState={
             <EmptyState
               variant="first-run"
               title="No images"
-              description="Nothing has been pulled onto this Docker host yet."
+              description="No webmail images are visible on this host yet."
             />
           }
         />

@@ -27,7 +27,10 @@ export function NetworksPage() {
   if (query.isError) {
     return (
       <div className="flex flex-col gap-6">
-        <PageHeader title="Networks" description="Every Docker network on this host. Read-only." />
+        <PageHeader
+          title="Networks"
+          description="Networks used by your webmail stack. Read-only."
+        />
         <ErrorState
           message="Could not load the network list."
           errorId={
@@ -43,7 +46,7 @@ export function NetworksPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <PageHeader title="Networks" description="Every Docker network on this host. Read-only." />
+      <PageHeader title="Networks" description="Networks used by your webmail stack. Read-only." />
       {query.isLoading ? (
         <Skeleton className="h-64 w-full" />
       ) : (
@@ -51,7 +54,7 @@ export function NetworksPage() {
           data={query.data ?? []}
           columns={columns}
           getRowId={(row) => row.id}
-          caption="Every Docker network on this host"
+          caption="Networks used by your webmail stack"
           emptyState={
             <EmptyState
               variant="first-run"

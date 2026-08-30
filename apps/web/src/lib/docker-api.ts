@@ -66,6 +66,32 @@ export async function restartManagedContainer(): Promise<void> {
   });
 }
 
+/**
+ * Restarts the panel's own server container. Expect this request to be
+ * dropped as the server goes down — a rejection here is normal, not a
+ * failure. The caller confirms recovery by polling {@link pingHealth},
+ * never by waiting on this promise.
+ */
+export async function restartPanel(): Promise<void> {
+  await request('/api/v1/docker/containers/panel/restart', OperationAckSchema, {
+    method: 'POST',
+  });
+}
+
+/** A single, unauthenticated liveness probe against the public health endpoint — `true` iff the server answered 2xx. Never throws: a network error while the server is restarting resolves to `false`, which is exactly what the reconnect poll treats as "not back yet". */
+export async function pingHealth(): Promise<boolean> {
+  try {
+    const response = await fetch('/api/v1/health', {
+      method: 'GET',
+      headers: { accept: 'application/json' },
+      cache: 'no-store',
+    });
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Images (§24) — `prune` never takes an id; there is no by-id removal call.
 // ---------------------------------------------------------------------------

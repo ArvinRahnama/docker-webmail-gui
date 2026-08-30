@@ -83,7 +83,7 @@ export function VolumesPage() {
   if (query.isError) {
     return (
       <div className="flex flex-col gap-6">
-        <PageHeader title="Volumes" description="Every Docker volume on this host." />
+        <PageHeader title="Volumes" description="Volumes used by your webmail stack." />
         <ErrorState
           message="Could not load the volume list."
           errorId={
@@ -101,7 +101,7 @@ export function VolumesPage() {
     <div className="flex flex-col gap-6">
       <PageHeader
         title="Volumes"
-        description="Every Docker volume on this host. Volumes backing mail data are protected and can never be removed here."
+        description="Volumes used by your webmail stack. Volumes backing mail data are protected and can never be removed here."
       />
 
       {query.isLoading ? (
@@ -111,7 +111,7 @@ export function VolumesPage() {
           data={query.data ?? []}
           columns={columns}
           getRowId={(row) => row.name}
-          caption="Every Docker volume on this host"
+          caption="Volumes used by your webmail stack"
           emptyState={
             <EmptyState
               variant="first-run"

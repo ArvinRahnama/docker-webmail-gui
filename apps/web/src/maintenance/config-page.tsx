@@ -45,6 +45,7 @@ import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ApiClientError, ApiError } from '@/lib/api-client';
 import { formatDateTime } from '@/lib/format';
+import { ServerControls } from './server-controls';
 import {
   useApplyConfigMutation,
   useConfigSettingsQuery,
@@ -295,6 +296,8 @@ export function ConfigPage() {
           </Button>
         }
       />
+
+      <ServerControls />
 
       {settingsQuery.isLoading ? (
         <Skeleton className="h-64 w-full" />

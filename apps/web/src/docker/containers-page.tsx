@@ -31,13 +31,15 @@ function statusForContainerState(state: string): Status {
 }
 
 /**
- * `/docker/containers` (M9 — FEATURE_MATRIX.md §22-23). Every container
- * Docker knows about is listed for visibility; lifecycle actions (start/
- * stop/restart) only ever target "the" managed mail container — there is
- * no per-row action for any other container, matching the broker's own
- * container-identity resolution (ARCHITECTURE.md §6). **Recreate does not
- * ship** — it needs `container.create`, which the broker deliberately
- * lacks, so no such control appears here.
+ * `/docker/containers` (M9/v0.3 — FEATURE_MATRIX.md §22-23). Lists the
+ * webmail stack's containers only — the broker filters the list to the
+ * visible service set before it ever reaches the web tier, so unrelated
+ * host containers are neither shown nor enumerable here. Lifecycle actions
+ * (start/stop/restart) only ever target "the" managed mail container —
+ * there is no per-row action for any other container, matching the
+ * broker's own container-identity resolution (ARCHITECTURE.md §6).
+ * **Recreate does not ship** — it needs `container.create`, which the
+ * broker deliberately lacks, so no such control appears here.
  */
 export function ContainersPage() {
   const containersQuery = useContainersQuery();
@@ -69,7 +71,7 @@ export function ContainersPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <PageHeader title="Containers" description="Every container Docker knows about." />
+      <PageHeader title="Containers" description="Containers in your webmail stack on this host." />
 
       <Card>
         <CardHeader>
@@ -167,12 +169,12 @@ export function ContainersPage() {
           data={containersQuery.data ?? []}
           columns={columns}
           getRowId={(row) => row.id}
-          caption="Every container on this Docker host"
+          caption="Containers in your webmail stack"
           emptyState={
             <EmptyState
               variant="first-run"
               title="No containers"
-              description="No containers exist on this Docker host yet."
+              description="No webmail containers are visible on this host yet."
             />
           }
         />

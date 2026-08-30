@@ -13,6 +13,45 @@ called out explicitly here.
 
 Nothing yet.
 
+## [0.3.0] - 2026-08-30
+
+### Added
+
+- Two restart controls on the Settings page, each behind a confirmation.
+  "Restart mail server" restarts the managed docker-mailserver container.
+  "Restart panel" is a new broker capability (`panel.restart`) that restarts
+  the panel's own server container — a distinct named operation resolved
+  broker-side from configuration, never a container id from the web tier, and
+  refused if the identity resolves to the broker itself. Because restarting
+  the panel drops the request that triggered it, the UI shows a reconnecting
+  overlay and polls health until the server returns; the audit entry is
+  written before dispatch so a successful restart is never untraced.
+- A light/dark/system theme toggle in the header. The default follows the
+  device (`prefers-color-scheme`); an explicit choice persists, and "System"
+  remains a first-class option so following the device is reversible.
+
+### Changed
+
+- Containers, Images, Volumes, Networks, Monitoring, the Health centre and the
+  dashboard container/volume counts now show only webmail-related services and
+  hide every other container on the host. Filtering happens broker-side, before
+  the list leaves the privileged tier, driven by configuration
+  (`VISIBLE_SERVICE_PATTERNS` plus the managed and panel container identities);
+  volumes and networks are derived from the visible containers' own mounts and
+  attachments. Genuinely host-wide figures (total disk, image count from the
+  Docker system API) remain labelled "Docker host" rather than presented as a
+  per-service number that cannot be computed.
+- Refreshed the project logo (tighter crop, rendered without a background
+  plate and slightly larger) and re-derived the favicon and app-icon assets.
+
+### Note
+
+- `docker/compose.yaml` now sets explicit `container_name` values
+  (`dwg-server`, `dwg-broker`) for deterministic broker-side identity
+  resolution. Existing deployments recreate those two containers under the new
+  names on upgrade; a reverse proxy that targets the old container name must be
+  repointed.
+
 ## [0.2.0] - 2026-08-30
 
 ### Changed
@@ -594,6 +633,7 @@ document set rather than a product.
   will be called out here. Pin the exact image version rather than a
   floating tag — see `docs/docker.md`.
 
-[unreleased]: https://github.com/ArvinRahnama/docker-webmail-gui/compare/v0.2.0...HEAD
+[unreleased]: https://github.com/ArvinRahnama/docker-webmail-gui/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/ArvinRahnama/docker-webmail-gui/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/ArvinRahnama/docker-webmail-gui/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/ArvinRahnama/docker-webmail-gui/releases/tag/v0.1.0

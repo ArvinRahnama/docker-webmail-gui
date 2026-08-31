@@ -37,10 +37,12 @@ describe('runMigrations', () => {
       // comment for why it exists alongside 001's already-present `jobs`/
       // `backups` tables.
       'config_snapshots',
+      // M13 addition (migration 005) — the single-row scheduled-backup policy.
+      'backup_schedule',
     ]) {
       expect(tables).toContain(expected);
     }
-    expect(appliedVersions(db)).toEqual([1, 2, 3, 4]);
+    expect(appliedVersions(db)).toEqual([1, 2, 3, 4, 5]);
     db.close();
   });
 

@@ -27,6 +27,7 @@ import { request } from 'undici';
 import { AppError } from '../../../platform/errors.js';
 import {
   backupIdFromKey,
+  backupObjectKey,
   type BackupDestination,
   type RemoteBackup,
   type UploadParams,
@@ -96,6 +97,10 @@ export class S3Destination implements BackupDestination {
 
   get describe(): string {
     return `s3://${this.config.bucket}/${this.config.prefix}`;
+  }
+
+  keyForBackup(backupId: string): string {
+    return backupObjectKey(this.config.prefix, backupId);
   }
 
   private get credentials(): SigV4Credentials {

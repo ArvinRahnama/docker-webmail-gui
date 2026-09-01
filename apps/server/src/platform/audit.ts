@@ -84,6 +84,9 @@ export const AUDIT_ACTIONS = [
   'backup.delete',
   'backup.download',
   'backup.restore',
+  // M13 — remote destinations (upload as a distinct retryable step; remote retention pruning).
+  'backup.upload',
+  'backup.remote_prune',
   'config.apply',
   'config.reveal_secret',
   'update.apply_refused',

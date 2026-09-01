@@ -221,4 +221,20 @@ export class BackupsRepository {
       `SELECT * FROM backups WHERE upload_status = 'uploaded' ORDER BY created_at DESC`,
     );
   }
+
+  getRowByRemoteKey(remoteKey: string): BackupRow | null {
+    return (
+      this.db.get<BackupRow>('SELECT * FROM backups WHERE remote_key = ?', [remoteKey]) ?? null
+    );
+  }
+
+  /** Resets a backup to local-only pending — used when its remote copy is pruned by retention but the local archive still exists. */
+  clearUpload(id: string): void {
+    this.db.run(
+      `UPDATE backups
+          SET upload_status = 'pending', upload_destination = NULL, remote_key = NULL, uploaded_at = NULL, upload_error = NULL
+        WHERE id = ?`,
+      [id],
+    );
+  }
 }

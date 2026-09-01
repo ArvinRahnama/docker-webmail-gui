@@ -37,6 +37,9 @@ export interface BackupDestination {
   /** A credential-free description for logs and the UI, e.g. `s3://bucket/prefix`. Never contains a key or password. */
   readonly describe: string;
 
+  /** The remote key this destination would store `backupId` under — its own prefix applied. Keeps prefix knowledge inside the destination. */
+  keyForBackup(backupId: string): string;
+
   /** Verifies the destination is reachable and the credentials work. Throws on failure; resolves on success. */
   testConnection(): Promise<void>;
 

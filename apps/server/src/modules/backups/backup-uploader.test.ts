@@ -301,3 +301,105 @@ describe('BackupUploader.reconcile', () => {
     expect(auditRows('backup.remote_prune')).toHaveLength(2);
   });
 });
+
+/** Produces a real archive's bytes without inserting a DB row (for foreign-import tests). */
+async function realArchiveBytes(id: string): Promise<Buffer> {
+  const created = await createBackupArchive(
+    {
+      broker: new FakeBrokerClient(),
+      backupDir,
+      backupId: id,
+      mode: 'warm',
+      createdBy: { adminId: null, label: 'test' },
+      dmsImageDigest: null,
+    },
+    silentCtx(),
+  );
+  const bytes = await readFile(created.filePath);
+  await rm(created.filePath, { force: true });
+  return bytes;
+}
+
+describe('BackupUploader.importFromRemote', () => {
+  it('throws when no destination is configured', async () => {
+    await expect(makeUploader(null).importFromRemote('bkp_x')).rejects.toThrow(/No remote/);
+  });
+
+  it('imports a foreign backup: verifies, registers it as a local + uploaded backup', async () => {
+    const stub = new StubDestination();
+    const bytes = await realArchiveBytes('source');
+    stub.objects.set(stub.keyForBackup('bkp_foreign'), bytes);
+
+    const outcome = await makeUploader(stub).importFromRemote('bkp_foreign');
+
+    expect(outcome).toEqual({ status: 'imported' });
+    const summary = repo.getSummaryById('bkp_foreign');
+    expect(summary).not.toBeNull();
+    expect(summary?.localPresent).toBe(true);
+    expect(summary?.uploadStatus).toBe('uploaded');
+    expect(existsSync(join(backupDir, 'bkp_foreign.tar'))).toBe(true);
+  });
+
+  it('refuses a corrupt remote archive: fails verification, registers nothing, leaves no staged file', async () => {
+    const stub = new StubDestination();
+    stub.objects.set(stub.keyForBackup('bkp_bad'), Buffer.from('this is not a valid tar archive'));
+
+    await expect(makeUploader(stub).importFromRemote('bkp_bad')).rejects.toThrow(
+      /unreadable|failed verification/i,
+    );
+    expect(repo.getSummaryById('bkp_bad')).toBeNull();
+    expect(existsSync(join(backupDir, 'bkp_bad.tar'))).toBe(false);
+  });
+
+  it('detects tampering against the panel-stored manifest and refuses', async () => {
+    // A backup the panel created and reclaimed locally, whose remote copy has
+    // since been tampered with — verification against the stored manifest fails.
+    await createRealBackup('bkp_known');
+    const good = await readFile(join(backupDir, 'bkp_known.tar'));
+    const tampered = Buffer.from(good);
+    tampered[Math.floor(tampered.length / 2)] =
+      (tampered[Math.floor(tampered.length / 2)]! + 1) % 256;
+
+    const stub = new StubDestination();
+    stub.objects.set(stub.keyForBackup('bkp_known'), tampered);
+    repo.markUploaded('bkp_known', {
+      destination: stub.describe,
+      remoteKey: stub.keyForBackup('bkp_known'),
+      uploadedAt: 'x',
+    });
+    // Simulate local reclaimed so import will actually pull.
+    await rm(join(backupDir, 'bkp_known.tar'), { force: true });
+    repo.markLocalReclaimed('bkp_known');
+
+    await expect(makeUploader(stub).importFromRemote('bkp_known')).rejects.toThrow(
+      /failed verification/i,
+    );
+    expect(repo.getSummaryById('bkp_known')?.localPresent).toBe(false); // unchanged
+  });
+
+  it('re-imports a reclaimed panel backup, flipping it back to locally present', async () => {
+    await createRealBackup('bkp_known');
+    const good = await readFile(join(backupDir, 'bkp_known.tar'));
+    const stub = new StubDestination();
+    stub.objects.set(stub.keyForBackup('bkp_known'), good);
+    repo.markUploaded('bkp_known', {
+      destination: stub.describe,
+      remoteKey: stub.keyForBackup('bkp_known'),
+      uploadedAt: 'x',
+    });
+    await rm(join(backupDir, 'bkp_known.tar'), { force: true });
+    repo.markLocalReclaimed('bkp_known');
+
+    const outcome = await makeUploader(stub).importFromRemote('bkp_known');
+    expect(outcome).toEqual({ status: 'imported' });
+    expect(repo.getSummaryById('bkp_known')?.localPresent).toBe(true);
+  });
+
+  it('is a no-op when the backup is already local', async () => {
+    await createRealBackup('bkp_local');
+    const stub = new StubDestination();
+    expect(await makeUploader(stub).importFromRemote('bkp_local')).toEqual({
+      status: 'already-local',
+    });
+  });
+});

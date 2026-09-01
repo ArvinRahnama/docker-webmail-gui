@@ -206,6 +206,11 @@ export class BackupsRepository {
     this.db.run('UPDATE backups SET local_present = 0 WHERE id = ?', [id]);
   }
 
+  /** Flags a backup as locally present again — called after a verified import pulls a remote-only backup back down to staging. */
+  markLocalRestored(id: string): void {
+    this.db.run('UPDATE backups SET local_present = 1 WHERE id = ?', [id]);
+  }
+
   /** Backups that still hold a local archive and are awaiting (or retrying) upload — oldest first, the order a reconcile drains them. */
   listUploadCandidates(): readonly BackupRow[] {
     return this.db.all<BackupRow>(

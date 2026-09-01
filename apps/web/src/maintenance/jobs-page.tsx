@@ -52,6 +52,8 @@ const JOB_TYPE_LABELS: Readonly<Record<JobType, string>> = {
   'backup.create': 'Create backup',
   'backup.verify': 'Verify backup',
   'backup.restore': 'Restore backup',
+  'backup.upload': 'Upload backup to remote',
+  'backup.import': 'Import backup from remote',
 };
 
 const JOB_STATUS_LABELS: Readonly<Record<JobStatus, string>> = {

@@ -77,6 +77,11 @@ async function computeSha256(filePath: string): Promise<string> {
   return hash.digest('hex');
 }
 
+/** Public SHA-256 of a whole archive file — used by remote import to record a foreign backup's checksum. */
+export async function hashBackupArchiveSha256(filePath: string): Promise<string> {
+  return computeSha256(filePath);
+}
+
 /** Consumes one tar entry's full content, resolving with its SHA-256 and byte length. Attaches listeners synchronously so `tar.list`'s default "resume immediately after `onentry` returns" behaviour still delivers every byte to this consumer. */
 function collectEntryDigest(entry: ReadEntry): Promise<{ sha256: string; size: number }> {
   return new Promise((resolve, reject) => {
@@ -228,7 +233,8 @@ export async function createBackupArchive(
   }
 }
 
-async function readManifestFromArchive(filePath: string): Promise<BackupManifest> {
+/** Reads an archive's own `manifest.json` — the reference manifest for verifying a foreign backup imported from a remote (there is no panel-stored manifest for one the panel never created). */
+export async function readManifestFromArchive(filePath: string): Promise<BackupManifest> {
   let manifestText: string | null = null;
   await tar.list({
     file: filePath,

@@ -19,7 +19,16 @@ import { JsonValueSchema } from './api.js';
  * before anything is ever enqueued (`modules/updates/updates.service.ts`)
  * rather than modelled as a job that could never finish.
  */
-export const JOB_TYPES = ['backup.create', 'backup.verify', 'backup.restore'] as const;
+export const JOB_TYPES = [
+  'backup.create',
+  'backup.verify',
+  'backup.restore',
+  // M13 — remote destinations: uploading a finished backup (also used for the
+  // reconcile sweep) and importing/pulling one back from the remote. Both are
+  // whole-archive transfers, so they run as jobs like create/verify/restore.
+  'backup.upload',
+  'backup.import',
+] as const;
 export type JobType = (typeof JOB_TYPES)[number];
 export const JobTypeSchema = z.enum(JOB_TYPES);
 

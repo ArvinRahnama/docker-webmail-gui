@@ -26,13 +26,17 @@
  * non-secret summaries — the destination never puts a signed URL or credential
  * in an error message.
  */
-import { mkdir, rm, unlink } from 'node:fs/promises';
+import { mkdir, rm, stat, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { Logger } from 'pino';
 import { recordAuditEvent, type AuditAction, type AuditResult } from '../../platform/audit.js';
 import type { Database } from '../../platform/db.js';
 import { AppError, generateId } from '../../platform/errors.js';
-import { verifyBackupArchive } from './backup-archive.js';
+import {
+  hashBackupArchiveSha256,
+  readManifestFromArchive,
+  verifyBackupArchive,
+} from './backup-archive.js';
 import { selectBackupsForDeletion, type RetentionPolicy } from './backup-retention.js';
 import type { BackupsRepository } from './backups.repository.js';
 import { backupIdFromKey, type BackupDestination } from './destinations/destination.js';
@@ -48,6 +52,8 @@ export type UploadOutcome =
   | { readonly status: 'uploaded' }
   | { readonly status: 'skipped'; readonly reason: 'no-destination' | 'not-local' }
   | { readonly status: 'failed'; readonly error: string };
+
+export type ImportOutcome = { readonly status: 'imported' } | { readonly status: 'already-local' };
 
 export interface ReconcileSummary {
   readonly skipped: boolean;
@@ -131,6 +137,93 @@ export class BackupUploader {
     const pruned = await this.applyRemoteRetention(destination, actor);
     const reclaimed = await this.reclaimLocalStaging();
     return { skipped: false, uploaded, failed, pruned, reclaimed };
+  }
+
+  /**
+   * Restore-from-remote, step one: pull a backup down from the remote and
+   * **verify its manifest checksums before it is registered or ever
+   * restorable** — a truncated or corrupt remote archive fails here and is
+   * discarded, never imported. Once imported it is an ordinary local backup;
+   * the admin then restores it through the existing four-tier restore flow
+   * (preflight gates, confirm, backup-gate), which is left untouched.
+   *
+   * `backupId` is a symbolic selector, not a path: the caller validated its
+   * charset, and here it must also match a key the destination's own `list()`
+   * returns. The local staging path is derived server-side from it.
+   */
+  async importFromRemote(backupId: string): Promise<ImportOutcome> {
+    const destination = this.deps.destinationProvider();
+    if (destination === null) {
+      throw new AppError('CONFLICT', 'No remote destination is configured.');
+    }
+
+    // If it is already on the VPS, there is nothing to import — checked before
+    // any remote listing, since the local copy is authoritative.
+    const existing = this.deps.backupsRepository.getRowById(backupId);
+    if (existing !== null && existing.local_present === 1) {
+      return { status: 'already-local' };
+    }
+
+    const key = destination.keyForBackup(backupId);
+    const remote = await destination.list();
+    if (!remote.some((backup) => backup.key === key)) {
+      throw new AppError('NOT_FOUND', `No backup "${backupId}" exists on the remote.`);
+    }
+
+    await mkdir(this.deps.backupDir, { recursive: true });
+    const stagingPath = join(this.deps.backupDir, `${backupId}.tar`);
+    await destination.download(key, stagingPath);
+
+    try {
+      // Prefer the panel's stored manifest (detects any drift from what we
+      // uploaded); fall back to the archive's own for a foreign backup.
+      const storedManifest = this.deps.backupsRepository.getManifestById(backupId);
+      let expectedManifest = storedManifest;
+      if (expectedManifest === null) {
+        try {
+          expectedManifest = await readManifestFromArchive(stagingPath);
+        } catch {
+          throw new AppError(
+            'UPSTREAM_UNAVAILABLE',
+            'The remote archive is unreadable or malformed and was not imported.',
+          );
+        }
+      }
+
+      const verify = await verifyBackupArchive(stagingPath, expectedManifest);
+      if (!verify.ok) {
+        throw new AppError(
+          'UPSTREAM_UNAVAILABLE',
+          `The remote archive failed verification and was not imported: ${verify.reason ?? 'unknown reason'}`,
+        );
+      }
+
+      if (existing !== null) {
+        this.deps.backupsRepository.markLocalRestored(backupId);
+      } else {
+        const sizeBytes = (await stat(stagingPath)).size;
+        const checksum = await hashBackupArchiveSha256(stagingPath);
+        this.deps.backupsRepository.insert({
+          id: backupId,
+          createdByAdminId: null,
+          filePath: stagingPath,
+          sizeBytes,
+          checksum,
+          manifest: expectedManifest,
+        });
+        this.deps.backupsRepository.markUploaded(backupId, {
+          destination: destination.describe,
+          remoteKey: key,
+          uploadedAt: this.nowFn().toISOString(),
+        });
+      }
+      this.deps.logger.info({ backupId }, 'Imported and verified a backup from the remote');
+      return { status: 'imported' };
+    } catch (error) {
+      // Never leave a corrupt or unverified download staged on disk.
+      await rm(stagingPath, { force: true });
+      throw error;
+    }
   }
 
   // -------------------------------------------------------------------------
@@ -273,4 +366,33 @@ export class BackupUploader {
       details,
     });
   }
+}
+
+export interface BackupReconcilerHandle {
+  stop(): void;
+}
+
+/** How often the background reconcile sweep runs — uploads any pending backups, applies retention, reclaims staging. */
+const DEFAULT_RECONCILE_INTERVAL_MS = 5 * 60 * 1000;
+
+/**
+ * Arms the periodic reconcile sweep — the "upload-after-create" and steady-
+ * state staging enforcement. `enabled()` gates it on the operator's
+ * upload-to-remote toggle (a manual "Upload to remote" action still works when
+ * it is off; this only governs the automatic sweep). The timer is `.unref()`d
+ * so it never keeps the process alive, and `reconcile` is itself a no-op when
+ * no destination is configured.
+ */
+export function startBackupReconciler(
+  deps: { uploader: BackupUploader; enabled: () => boolean; logger: Logger },
+  intervalMs: number = DEFAULT_RECONCILE_INTERVAL_MS,
+): BackupReconcilerHandle {
+  const timer = setInterval(() => {
+    if (!deps.enabled()) return;
+    void deps.uploader.reconcile().catch((err: unknown) => {
+      deps.logger.warn({ err }, 'Background remote reconcile failed');
+    });
+  }, intervalMs);
+  timer.unref();
+  return { stop: () => clearInterval(timer) };
 }

@@ -93,6 +93,14 @@ import { registerJobsRoutes } from './modules/jobs/jobs.routes.js';
 import { BackupsRepository } from './modules/backups/backups.repository.js';
 import { BackupsService } from './modules/backups/backups.service.js';
 import { registerBackupsRoutes } from './modules/backups/backups.routes.js';
+import { BackupScheduleRepository } from './modules/backups/backup-schedule.repository.js';
+import { BackupScheduleService } from './modules/backups/backup-schedule.service.js';
+import { startBackupScheduler } from './modules/backups/backup-scheduler.js';
+import { BackupDestinationConfigRepository } from './modules/backups/backup-destination-config.repository.js';
+import { BackupDestinationConfigService } from './modules/backups/backup-destination-config.service.js';
+import { DestinationService } from './modules/backups/destinations/destination.service.js';
+import { BackupUploader, startBackupReconciler } from './modules/backups/backup-uploader.js';
+import { registerBackupsAutomationRoutes } from './modules/backups/backups-automation.routes.js';
 import { ConfigRepository } from './modules/config/config.repository.js';
 import { ConfigService } from './modules/config/config.service.js';
 import { registerConfigRoutes } from './modules/config/config.routes.js';
@@ -166,6 +174,10 @@ export interface BuildAppOptions {
   readonly registryClient?: RegistryClientPort;
   /** Same override rationale as `rspamdSampleIntervalMs` — the default is long enough never to fire during a test's lifetime. */
   readonly notificationsEvaluateIntervalMs?: number;
+  /** Cadence for the scheduled-backup tick (M13). Tests omit it; the default checks often enough to fire a due backup promptly, but every tick is a no-op unless a schedule is enabled. */
+  readonly backupSchedulerIntervalMs?: number;
+  /** Cadence for the background remote-reconcile sweep (M13). Same override rationale; a no-op unless a destination is configured and auto-upload is on. */
+  readonly backupReconcileIntervalMs?: number;
 }
 
 const REQUEST_ID_HEADER = 'request-id';
@@ -428,6 +440,56 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     config.backupDir,
   );
 
+  // M13 — scheduled backups + remote destinations. The schedule and the
+  // destination config are live DB rows re-read on every use, so both survive a
+  // restart and take effect immediately. The uploader reads the destination
+  // through the factory (so a mid-session config change is picked up) and the
+  // retention numbers from the schedule row.
+  const backupScheduleRepository = new BackupScheduleRepository(db);
+  const backupScheduleService = new BackupScheduleService(backupScheduleRepository);
+  const backupDestinationConfigRepository = new BackupDestinationConfigRepository(db);
+  const backupDestinationConfigService = new BackupDestinationConfigService(
+    backupDestinationConfigRepository,
+    db,
+  );
+  const destinationService = new DestinationService({
+    resolve: () => backupDestinationConfigService.resolve(),
+  });
+  const backupUploader = new BackupUploader({
+    db,
+    backupsRepository,
+    destinationProvider: () => destinationService.current(),
+    retentionPolicy: () => {
+      const schedule = backupScheduleRepository.get();
+      return { keep: schedule.retentionKeep, maxAgeDays: schedule.retentionMaxAgeDays };
+    },
+    backupDir: config.backupDir,
+    logger,
+  });
+
+  // Re-armed from the DB on every startup (both timers are `.unref()`d and
+  // stopped on close): the scheduler fires due backups, the reconciler sweeps
+  // local backups to the remote when auto-upload is on. Each tick is a no-op
+  // until the operator enables the corresponding feature.
+  const backupScheduler = startBackupScheduler(
+    { db, scheduleRepository: backupScheduleRepository, backupsService, logger },
+    options.backupSchedulerIntervalMs,
+  );
+  app.addHook('onClose', () => {
+    backupScheduler.stop();
+  });
+  const backupReconciler = startBackupReconciler(
+    {
+      uploader: backupUploader,
+      enabled: () => backupScheduleRepository.get().uploadToRemote,
+      logger,
+    },
+    options.backupReconcileIntervalMs,
+  );
+  app.addHook('onClose', () => {
+    backupReconciler.stop();
+  });
+
   // Config/environment editor (FEATURE_MATRIX.md §28-29).
   const configRepository = new ConfigRepository(db);
   const configService = new ConfigService(configRepository, db, config);
@@ -494,6 +556,16 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   await registerConsoleRoutes(app, { db, consoleService, middleware });
   await registerJobsRoutes(app, { db, jobsService, middleware });
   await registerBackupsRoutes(app, { db, backupsService, middleware });
+  await registerBackupsAutomationRoutes(app, {
+    db,
+    scheduleService: backupScheduleService,
+    destinationConfigService: backupDestinationConfigService,
+    destinationService,
+    uploader: backupUploader,
+    backupsRepository,
+    jobRunner,
+    middleware,
+  });
   await registerConfigRoutes(app, { db, configService, middleware });
   await registerUpdatesRoutes(app, { db, updatesService, middleware });
   await registerDashboardRoutes(app, { dashboardService, middleware });

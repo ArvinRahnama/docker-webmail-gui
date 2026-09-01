@@ -173,3 +173,32 @@ export const BackupDestinationSecretResponseSchema = z.object({
   value: z.string().nullable(),
 });
 export type BackupDestinationSecretResponse = z.infer<typeof BackupDestinationSecretResponseSchema>;
+
+// ---------------------------------------------------------------------------
+// Remote browse + restore-from-remote import. The browse list is the set of
+// backups the server sees under its own prefix; `import` selects one by its
+// backup id (a symbolic selector, charset-restricted), which the server
+// re-derives into a key and confirms against its own listing before pulling.
+// ---------------------------------------------------------------------------
+
+export const RemoteBackupItemSchema = z.object({
+  backupId: z.string(),
+  /** The remote object key, for display only — the client selects by `backupId`, never by supplying this back. */
+  key: z.string(),
+  sizeBytes: z.number().nonnegative(),
+  lastModified: z.string(),
+  /** Whether this backup already exists on the local (VPS) disk. */
+  alreadyLocal: z.boolean(),
+});
+export type RemoteBackupItem = z.infer<typeof RemoteBackupItemSchema>;
+
+export const RemoteBackupListResponseSchema = z.object({
+  backups: z.array(RemoteBackupItemSchema),
+});
+export type RemoteBackupListResponse = z.infer<typeof RemoteBackupListResponseSchema>;
+
+/** `POST /remote/import` — pull one remote backup down and verify it. `backupId` charset is restricted so it can never become a traversal path server-side. */
+export const BackupImportRequestSchema = z.object({
+  backupId: z.string().regex(/^[A-Za-z0-9._-]+$/, 'Invalid backup id.'),
+});
+export type BackupImportRequest = z.infer<typeof BackupImportRequestSchema>;

@@ -42,7 +42,8 @@ describe('runMigrations', () => {
     ]) {
       expect(tables).toContain(expected);
     }
-    expect(appliedVersions(db)).toEqual([1, 2, 3, 4, 5]);
+    // Migration 006 adds columns to `backups` (per-backup upload state), no new table.
+    expect(appliedVersions(db)).toEqual([1, 2, 3, 4, 5, 6]);
     db.close();
   });
 

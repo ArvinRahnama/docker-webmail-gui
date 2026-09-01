@@ -19,10 +19,11 @@ import {
   BackupManifestSchema,
   type BackupManifest,
   type BackupSummary,
+  type BackupUploadStatus,
   type BackupVerificationStatus,
 } from '@dwg/shared';
 
-interface BackupRow {
+export interface BackupRow {
   readonly id: string;
   readonly created_at: string;
   readonly created_by_admin_id: string | null;
@@ -32,6 +33,13 @@ interface BackupRow {
   readonly manifest: string;
   readonly verification_status: string;
   readonly verified_at: string | null;
+  // M13 — per-backup remote-upload state (migration 006).
+  readonly upload_status: string;
+  readonly upload_destination: string | null;
+  readonly remote_key: string | null;
+  readonly uploaded_at: string | null;
+  readonly upload_error: string | null;
+  readonly local_present: number;
 }
 
 function parseManifest(raw: string): BackupManifest {
@@ -55,6 +63,11 @@ function toSummary(row: BackupRow): BackupSummary {
     })),
     verificationStatus: row.verification_status as BackupVerificationStatus,
     verifiedAt: row.verified_at,
+    uploadStatus: row.upload_status as BackupUploadStatus,
+    uploadDestination: row.upload_destination,
+    uploadedAt: row.uploaded_at,
+    uploadError: row.upload_error,
+    localPresent: row.local_present !== 0,
   };
 }
 
@@ -69,6 +82,9 @@ export interface InsertBackupParams {
 }
 
 const DEFAULT_LIST_LIMIT = 100;
+
+/** Upload failure summaries are display-only; cap the length so a verbose upstream error can't bloat the row. */
+const MAX_UPLOAD_ERROR_LENGTH = 500;
 
 export class BackupsRepository {
   constructor(private readonly db: Database) {}
@@ -146,5 +162,63 @@ export class BackupsRepository {
 
   delete(id: string): void {
     this.db.run('DELETE FROM backups WHERE id = ?', [id]);
+  }
+
+  // -------------------------------------------------------------------------
+  // M13 — remote-upload state transitions. Each is a single named UPDATE, so
+  // the upload state machine's every move is auditable by reading this file.
+  // -------------------------------------------------------------------------
+
+  markUploading(id: string): void {
+    this.db.run(
+      `UPDATE backups SET upload_status = 'uploading', upload_error = NULL WHERE id = ?`,
+      [id],
+    );
+  }
+
+  /** Records a completed, remote-verified upload. Clears any prior error and stamps where/when it landed. */
+  markUploaded(
+    id: string,
+    params: {
+      readonly destination: string;
+      readonly remoteKey: string;
+      readonly uploadedAt: string;
+    },
+  ): void {
+    this.db.run(
+      `UPDATE backups
+          SET upload_status = 'uploaded', upload_destination = ?, remote_key = ?, uploaded_at = ?, upload_error = NULL
+        WHERE id = ?`,
+      [params.destination, params.remoteKey, params.uploadedAt, id],
+    );
+  }
+
+  /** Records a failed upload attempt. `errorMessage` is a safe summary only — callers never pass a signed URL or credential (see migration 006). */
+  markUploadFailed(id: string, errorMessage: string): void {
+    this.db.run(`UPDATE backups SET upload_status = 'failed', upload_error = ? WHERE id = ?`, [
+      errorMessage.slice(0, MAX_UPLOAD_ERROR_LENGTH),
+      id,
+    ]);
+  }
+
+  /** Flags the local archive as reclaimed — called only after the remote copy is verified. The row remains, now describing a remote-only backup. */
+  markLocalReclaimed(id: string): void {
+    this.db.run('UPDATE backups SET local_present = 0 WHERE id = ?', [id]);
+  }
+
+  /** Backups that still hold a local archive and are awaiting (or retrying) upload — oldest first, the order a reconcile drains them. */
+  listUploadCandidates(): readonly BackupRow[] {
+    return this.db.all<BackupRow>(
+      `SELECT * FROM backups
+        WHERE upload_status IN ('pending', 'failed') AND local_present = 1
+        ORDER BY created_at ASC`,
+    );
+  }
+
+  /** Backups the panel believes are uploaded and remote-verified — newest first, the input to remote retention. */
+  listUploaded(): readonly BackupRow[] {
+    return this.db.all<BackupRow>(
+      `SELECT * FROM backups WHERE upload_status = 'uploaded' ORDER BY created_at DESC`,
+    );
   }
 }

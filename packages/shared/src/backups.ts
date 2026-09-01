@@ -60,6 +60,29 @@ export type BackupVerificationStatus = (typeof BACKUP_VERIFICATION_STATUSES)[num
 export const BackupVerificationStatusSchema = z.enum(BACKUP_VERIFICATION_STATUSES);
 
 // ---------------------------------------------------------------------------
+// Remote-upload state (M13). A backup's local archive is a *staging* copy;
+// once it is uploaded to a configured remote AND the remote copy is checksum-
+// verified, the local copy is reclaimed. This four-state machine is tracked
+// per backup so the Backups page can show where each one lives and offer
+// "Upload"/"Retry upload":
+//   pending   — not yet uploaded (no remote configured, or awaiting upload)
+//   uploading — an upload attempt is in progress
+//   uploaded  — present AND checksum-verified on the remote
+//   failed    — an attempt failed; the local copy is kept for re-upload
+// ---------------------------------------------------------------------------
+
+export const BACKUP_UPLOAD_STATUSES = ['pending', 'uploading', 'uploaded', 'failed'] as const;
+export type BackupUploadStatus = (typeof BACKUP_UPLOAD_STATUSES)[number];
+export const BackupUploadStatusSchema = z.enum(BACKUP_UPLOAD_STATUSES);
+
+export const BACKUP_UPLOAD_STATUS_LABELS: Readonly<Record<BackupUploadStatus, string>> = {
+  pending: 'Not uploaded',
+  uploading: 'Uploading',
+  uploaded: 'Uploaded',
+  failed: 'Upload failed',
+};
+
+// ---------------------------------------------------------------------------
 // Manifest — written as `manifest.json` inside every backup archive
 // (uncompressed `tar`, so `tar -xf backup.tar manifest.json` reads it with
 // no panel involved at all) and duplicated into the `backups.manifest`
@@ -152,6 +175,16 @@ export const BackupSummarySchema = z.object({
   volumes: z.array(BackupVolumeSummarySchema),
   verificationStatus: BackupVerificationStatusSchema,
   verifiedAt: z.string().nullable(),
+  /** Remote-upload state (M13). `pending` when no remote is configured or the backup is simply not yet uploaded. */
+  uploadStatus: BackupUploadStatusSchema,
+  /** Credential-free description of the destination the backup was uploaded to (e.g. `s3://bucket/prefix`), or `null`. Never a URL or key. */
+  uploadDestination: z.string().nullable(),
+  /** ISO timestamp the remote copy was verified present, or `null`. Distinct from `verifiedAt` (which is the local archive's own integrity check). */
+  uploadedAt: z.string().nullable(),
+  /** Safe, non-secret summary of the last upload failure for a `failed` backup, or `null`. Never a signed URL or credential. */
+  uploadError: z.string().nullable(),
+  /** Whether the archive still exists on local (VPS) disk. `false` once a verified remote copy let staging reclaim the space — the backup then lives only on the remote. */
+  localPresent: z.boolean(),
 });
 export type BackupSummary = z.infer<typeof BackupSummarySchema>;
 

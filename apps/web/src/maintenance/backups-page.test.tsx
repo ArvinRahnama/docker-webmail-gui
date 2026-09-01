@@ -44,6 +44,11 @@ function makeBackup(overrides: Partial<BackupSummary> & { readonly id: string })
     ],
     verificationStatus: 'unverified',
     verifiedAt: null,
+    uploadStatus: 'pending',
+    uploadDestination: null,
+    uploadedAt: null,
+    uploadError: null,
+    localPresent: true,
     ...overrides,
   };
 }

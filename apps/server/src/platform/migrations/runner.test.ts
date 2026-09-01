@@ -39,11 +39,14 @@ describe('runMigrations', () => {
       'config_snapshots',
       // M13 addition (migration 005) — the single-row scheduled-backup policy.
       'backup_schedule',
+      // M13 addition (migration 007) — the remote destination config and its pre-change snapshots.
+      'backup_destination',
+      'backup_destination_snapshots',
     ]) {
       expect(tables).toContain(expected);
     }
     // Migration 006 adds columns to `backups` (per-backup upload state), no new table.
-    expect(appliedVersions(db)).toEqual([1, 2, 3, 4, 5, 6]);
+    expect(appliedVersions(db)).toEqual([1, 2, 3, 4, 5, 6, 7]);
     db.close();
   });
 

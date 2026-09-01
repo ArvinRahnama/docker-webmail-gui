@@ -106,3 +106,70 @@ export const BackupScheduleUpdateSchema = z.object({
   uploadToRemote: z.boolean(),
 });
 export type BackupScheduleUpdate = z.infer<typeof BackupScheduleUpdateSchema>;
+
+// ---------------------------------------------------------------------------
+// Remote destination configuration (M13). Configured in Settings. The secret
+// (S3 secret access key; FTP password later) is masked on read, revealed only
+// through an explicit audited endpoint, and never leaves the server in a
+// response body, log or bundle. `s3` in the status is the *non-secret* view —
+// the access key id (an identifier, not the secret) is shown, and only a
+// boolean says whether a secret is stored.
+// ---------------------------------------------------------------------------
+
+export const BACKUP_DESTINATION_TYPES = ['none', 's3'] as const; // 'ftp' lands with the FTP chunk
+export type BackupDestinationType = (typeof BACKUP_DESTINATION_TYPES)[number];
+export const BackupDestinationTypeSchema = z.enum(BACKUP_DESTINATION_TYPES);
+
+/** Prefix/key characters we allow through to a remote — a conservative set so a stored prefix can never smuggle exotic path characters into an object key. */
+const SAFE_PREFIX = /^[A-Za-z0-9._/-]*$/;
+
+export const BackupDestinationS3StatusSchema = z.object({
+  endpoint: z.string(),
+  region: z.string(),
+  bucket: z.string(),
+  prefix: z.string(),
+  /** The access key id — an identifier, deliberately shown. Never the secret. */
+  accessKeyId: z.string(),
+  /** Whether a secret access key is stored. The value itself is never in this response. */
+  secretAccessKeySet: z.boolean(),
+});
+export type BackupDestinationS3Status = z.infer<typeof BackupDestinationS3StatusSchema>;
+
+export const BackupDestinationStatusSchema = z.object({
+  type: BackupDestinationTypeSchema,
+  configured: z.boolean(),
+  /** Credential-free description, e.g. `s3://bucket/prefix`, or `null` when unconfigured. */
+  describe: z.string().nullable(),
+  s3: BackupDestinationS3StatusSchema.nullable(),
+});
+export type BackupDestinationStatus = z.infer<typeof BackupDestinationStatusSchema>;
+
+export const BackupDestinationStatusResponseSchema = z.object({
+  destination: BackupDestinationStatusSchema,
+});
+export type BackupDestinationStatusResponse = z.infer<typeof BackupDestinationStatusResponseSchema>;
+
+/**
+ * Update the destination config. For S3, `secretAccessKey` is optional: omit it
+ * to keep the stored secret unchanged (the form never round-trips the real
+ * secret back down to be re-submitted), or provide a new one to replace it.
+ */
+export const BackupDestinationUpdateSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('none') }),
+  z.object({
+    type: z.literal('s3'),
+    endpoint: z.string().url(),
+    region: z.string().min(1),
+    bucket: z.string().min(1),
+    prefix: z.string().regex(SAFE_PREFIX, 'Prefix may contain only letters, digits, . _ - and /.'),
+    accessKeyId: z.string().min(1),
+    secretAccessKey: z.string().min(1).optional(),
+  }),
+]);
+export type BackupDestinationUpdate = z.infer<typeof BackupDestinationUpdateSchema>;
+
+/** `POST /destination/reveal-secret` — the unmasked secret, plus the audit event this call writes. `null` when none is stored. */
+export const BackupDestinationSecretResponseSchema = z.object({
+  value: z.string().nullable(),
+});
+export type BackupDestinationSecretResponse = z.infer<typeof BackupDestinationSecretResponseSchema>;

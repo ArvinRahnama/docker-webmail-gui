@@ -21,17 +21,27 @@ import {
   type BackupMode,
   type BackupSchedule,
 } from '@dwg/shared';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { StatusBadge } from '@/components/status/status-badge';
 import { ApiError } from '@/lib/api-client';
-import { formatDateTime } from '@/lib/format';
+import { formatBytes, formatDateTime } from '@/lib/format';
 import {
   useBackupDestinationQuery,
   useBackupScheduleQuery,
+  useImportRemoteBackupMutation,
+  useRemoteBackupsQuery,
   useRevealBackupDestinationSecretMutation,
   useTestBackupDestinationMutation,
   useUpdateBackupDestinationMutation,
@@ -481,5 +491,90 @@ export function BackupScheduleCard() {
         </div>
       </CardContent>
     </Card>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Browse remote + import (restore-from-remote, step one). Importing pulls the
+// archive down and verifies it server-side; the backup then appears in the
+// local list, where the normal four-tier Restore takes over. The two steps are
+// deliberately separate so restore keeps every one of its confirmation gates.
+// ---------------------------------------------------------------------------
+
+export interface RemoteBrowseDialogProps {
+  readonly open: boolean;
+  readonly onOpenChange: (open: boolean) => void;
+  /** Called with the import job id when an import starts, so the page can show its progress. */
+  readonly onImportStarted: (jobId: string) => void;
+}
+
+export function RemoteBrowseDialog({
+  open,
+  onOpenChange,
+  onImportStarted,
+}: RemoteBrowseDialogProps) {
+  const remoteQuery = useRemoteBackupsQuery(open);
+  const importMutation = useImportRemoteBackupMutation();
+  const backups = remoteQuery.data ?? [];
+
+  const startImport = (backupId: string) => {
+    importMutation.mutate(backupId, {
+      onSuccess: (jobId) => {
+        onOpenChange(false);
+        onImportStarted(jobId);
+        toast.success('Import started — the backup will appear in the list once verified');
+      },
+      onError: (error) => toast.error(errorMessageOf(error, 'Could not import this backup')),
+    });
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Backups on the remote</DialogTitle>
+          <DialogDescription>
+            Import a backup to pull it down and verify it. It then joins the list below, where you
+            can restore it through the usual confirmation.
+          </DialogDescription>
+        </DialogHeader>
+
+        {remoteQuery.isError ? (
+          <p className="text-body-sm text-status-critical-fg">Could not list the remote backups.</p>
+        ) : remoteQuery.isLoading ? (
+          <p className="text-body-sm text-text-muted">Loading…</p>
+        ) : backups.length === 0 ? (
+          <p className="text-body-sm text-text-muted">
+            No backups on the remote yet — nothing has been uploaded.
+          </p>
+        ) : (
+          <ul className="flex flex-col divide-y divide-border-subtle">
+            {backups.map((backup) => (
+              <li key={backup.key} className="flex items-center justify-between gap-3 py-2">
+                <div className="flex min-w-0 flex-col">
+                  <span className="font-mono-sm truncate text-text-primary">{backup.backupId}</span>
+                  <span className="text-caption text-text-muted">
+                    {formatBytes(backup.sizeBytes)} · {formatDateTime(backup.lastModified)}
+                  </span>
+                </div>
+                {backup.alreadyLocal ? (
+                  <Badge variant="neutral">Already local</Badge>
+                ) : (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="secondary"
+                    pending={importMutation.isPending}
+                    onClick={() => startImport(backup.backupId)}
+                  >
+                    Import
+                  </Button>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+      </DialogContent>
+    </Dialog>
   );
 }

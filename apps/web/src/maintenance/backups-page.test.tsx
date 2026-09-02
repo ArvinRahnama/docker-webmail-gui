@@ -1,16 +1,26 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router-dom';
-import type { BackupSummary, RestorePreflightResponse } from '@dwg/shared';
+import type {
+  BackupDestinationStatus,
+  BackupSchedule,
+  BackupSummary,
+  RestorePreflightResponse,
+} from '@dwg/shared';
 import { BackupsPage } from './backups-page';
 import {
   createBackup,
   deleteBackup,
+  fetchBackupDestination,
+  fetchBackupSchedule,
   fetchBackups,
+  fetchRemoteBackups,
   fetchRestorePreflight,
+  importRemoteBackup,
   restoreBackup,
+  uploadBackup,
   verifyBackup,
 } from '@/lib/maintenance-api';
 
@@ -26,7 +36,52 @@ vi.mock('@/lib/maintenance-api', async (importOriginal) => ({
   deleteBackup: vi.fn(),
   fetchRestorePreflight: vi.fn(),
   restoreBackup: vi.fn(),
+  fetchBackupDestination: vi.fn(),
+  fetchBackupSchedule: vi.fn(),
+  uploadBackup: vi.fn(),
+  fetchRemoteBackups: vi.fn(),
+  importRemoteBackup: vi.fn(),
 }));
+
+const S3_DESTINATION: BackupDestinationStatus = {
+  type: 's3',
+  configured: true,
+  describe: 's3://bucket/backups',
+  s3: {
+    endpoint: 'https://s3.example.com',
+    region: 'us-east-1',
+    bucket: 'bucket',
+    prefix: 'backups',
+    accessKeyId: 'AKIAEXAMPLE',
+    secretAccessKeySet: true,
+  },
+};
+
+// The remote/schedule cards this page now renders each fetch their own state;
+// default them to "nothing configured / off" so existing assertions about the
+// backup list are unaffected. A test that cares sets its own values.
+const NO_DESTINATION: BackupDestinationStatus = {
+  type: 'none',
+  configured: false,
+  describe: null,
+  s3: null,
+};
+const OFF_SCHEDULE: BackupSchedule = {
+  frequency: 'off',
+  enabled: false,
+  mode: 'warm',
+  retentionKeep: 3,
+  retentionMaxAgeDays: null,
+  uploadToRemote: false,
+  lastRunAt: null,
+  nextRunAt: null,
+  updatedAt: '2026-09-02T00:00:00.000Z',
+};
+
+beforeEach(() => {
+  vi.mocked(fetchBackupDestination).mockResolvedValue(NO_DESTINATION);
+  vi.mocked(fetchBackupSchedule).mockResolvedValue(OFF_SCHEDULE);
+});
 
 function makeBackup(overrides: Partial<BackupSummary> & { readonly id: string }): BackupSummary {
   return {
@@ -432,5 +487,68 @@ describe('BackupsPage — Restore is withheld on mobile, visibly (§8)', () => {
       name: 'Restore — needs a larger screen',
     });
     expect(disabled).toHaveAttribute('data-disabled');
+  });
+});
+
+describe('BackupsPage — remote destination (M13)', () => {
+  it('renders the per-backup upload status and the remote-only hint', async () => {
+    vi.mocked(fetchBackups).mockResolvedValue([
+      makeBackup({ id: 'backup-remote', uploadStatus: 'uploaded', localPresent: false }),
+    ]);
+
+    renderPage();
+
+    await waitFor(() => expect(screen.getByText('backup-remote')).toBeInTheDocument());
+    expect(screen.getByText('Uploaded')).toBeInTheDocument();
+    expect(screen.getByText('Remote only')).toBeInTheDocument();
+  });
+
+  it('offers "Upload to remote" only when a destination is configured, and starts an upload job', async () => {
+    vi.mocked(fetchBackupDestination).mockResolvedValue(S3_DESTINATION);
+    vi.mocked(fetchBackups).mockResolvedValue([
+      makeBackup({ id: 'backup-1', uploadStatus: 'pending', localPresent: true }),
+    ]);
+    vi.mocked(uploadBackup).mockResolvedValue('job-upload-1');
+    const user = userEvent.setup();
+
+    renderPage();
+
+    await waitFor(() => expect(screen.getByText('backup-1')).toBeInTheDocument());
+    await openRowMenu(user, 'backup-1');
+    await user.click(await screen.findByRole('menuitem', { name: 'Upload to remote' }));
+
+    await waitFor(() => expect(vi.mocked(uploadBackup)).toHaveBeenCalledWith('backup-1'));
+  });
+
+  it('browses the remote and imports a backup that is not already local', async () => {
+    vi.mocked(fetchBackupDestination).mockResolvedValue(S3_DESTINATION);
+    vi.mocked(fetchBackups).mockResolvedValue([]);
+    vi.mocked(fetchRemoteBackups).mockResolvedValue([
+      {
+        backupId: 'bkp_remote',
+        key: 'backups/bkp_remote.tar',
+        sizeBytes: 2048,
+        lastModified: '2026-08-20T09:00:00.000Z',
+        alreadyLocal: false,
+      },
+    ]);
+    vi.mocked(importRemoteBackup).mockResolvedValue('job-import-1');
+    const user = userEvent.setup();
+
+    renderPage();
+
+    await user.click(await screen.findByRole('button', { name: /Browse remote/ }));
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByText('bkp_remote')).toBeInTheDocument();
+
+    await user.click(within(dialog).getByRole('button', { name: 'Import' }));
+    await waitFor(() => expect(vi.mocked(importRemoteBackup)).toHaveBeenCalledWith('bkp_remote'));
+  });
+
+  it('does not offer Browse remote when no destination is configured', async () => {
+    vi.mocked(fetchBackups).mockResolvedValue([makeBackup({ id: 'backup-1' })]);
+    renderPage();
+    await waitFor(() => expect(screen.getByText('backup-1')).toBeInTheDocument());
+    expect(screen.queryByRole('button', { name: /Browse remote/ })).not.toBeInTheDocument();
   });
 });

@@ -21,14 +21,16 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
-import { Download, MoreHorizontal } from 'lucide-react';
+import { CloudUpload, Download, MoreHorizontal } from 'lucide-react';
 import {
+  BACKUP_UPLOAD_STATUS_LABELS,
   BACKUP_VOLUME_CONTAINER_PATHS,
   BACKUP_VOLUME_KEYS,
   BACKUP_VOLUME_LABELS,
   isActiveJobStatus,
   type BackupMode,
   type BackupSummary,
+  type BackupUploadStatus,
   type BackupVerificationStatus,
   type Job,
   type RestorePreflightResponse,
@@ -64,7 +66,14 @@ import { ApiClientError, ApiError } from '@/lib/api-client';
 import { formatBytes, formatDateTime } from '@/lib/format';
 import { JobProgress } from './jobs-page';
 import {
+  BackupScheduleCard,
+  RemoteBrowseDialog,
+  RemoteDestinationCard,
+} from './backup-remote-settings';
+import {
   backupDownloadUrl,
+  useBackupDestinationQuery,
+  useBackupScheduleQuery,
   useBackupsQuery,
   useCreateBackupMutation,
   useDeleteBackupMutation,
@@ -72,6 +81,7 @@ import {
   useJobStream,
   useRestoreBackupMutation,
   useRestorePreflightQuery,
+  useUploadBackupMutation,
   useVerifyBackupMutation,
 } from './use-maintenance-queries';
 
@@ -121,6 +131,18 @@ const VERIFICATION_TONE: Readonly<Record<BackupVerificationStatus, Status>> = {
   failed: 'critical',
 };
 
+/**
+ * Upload state -> the status vocabulary (§3.3). `pending` is grey `unknown`
+ * (a backup nobody has uploaded yet is not "wrong"), `uploading` is the
+ * spinner, `uploaded` healthy, `failed` critical.
+ */
+const UPLOAD_TONE: Readonly<Record<BackupUploadStatus, Status>> = {
+  pending: 'unknown',
+  uploading: 'pending',
+  uploaded: 'healthy',
+  failed: 'critical',
+};
+
 function errorIdOf(error: unknown): string {
   return error instanceof ApiError || error instanceof ApiClientError ? error.errorId : 'unknown';
 }
@@ -141,12 +163,14 @@ function backupLabel(backup: BackupSummary): string {
 }
 
 /** The job kinds this page starts, so the progress card can say which one is running instead of "a job". */
-type StartedJobKind = 'create' | 'verify' | 'restore';
+type StartedJobKind = 'create' | 'verify' | 'restore' | 'upload' | 'import';
 
 const STARTED_JOB_LABELS: Readonly<Record<StartedJobKind, string>> = {
   create: 'Creating backup',
   verify: 'Verifying backup',
   restore: 'Restoring backup',
+  upload: 'Uploading to remote',
+  import: 'Importing from remote',
 };
 
 interface StartedJob {
@@ -237,7 +261,13 @@ export function BackupsPage() {
   const createMutation = useCreateBackupMutation();
   const verifyMutation = useVerifyBackupMutation();
   const deleteMutation = useDeleteBackupMutation();
+  const uploadMutation = useUploadBackupMutation();
+  const destinationQuery = useBackupDestinationQuery();
+  const scheduleQuery = useBackupScheduleQuery();
+  const remoteConfigured = destinationQuery.data?.configured ?? false;
+  const schedule = scheduleQuery.data;
 
+  const [browseOpen, setBrowseOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   // `null`, not `'warm'`: the mode dialog opens with neither option chosen
   // and Create stays refused until the admin picks one.
@@ -350,6 +380,22 @@ export function BackupsPage() {
         ),
       },
       {
+        id: 'upload',
+        header: 'Remote',
+        sortValue: (row) => row.uploadStatus,
+        cell: (row) => (
+          <div className="flex flex-col gap-1">
+            <StatusBadge
+              status={UPLOAD_TONE[row.uploadStatus]}
+              label={BACKUP_UPLOAD_STATUS_LABELS[row.uploadStatus]}
+            />
+            {!row.localPresent ? (
+              <span className="text-caption text-text-muted">Remote only</span>
+            ) : null}
+          </div>
+        ),
+      },
+      {
         id: 'createdBy',
         header: 'Created by',
         sortValue: (row) => row.createdByLabel,
@@ -382,6 +428,16 @@ export function BackupsPage() {
         toast.success('Verification started');
       },
       onError: (error) => toast.error(errorMessageOf(error, 'Could not start verification')),
+    });
+  };
+
+  const startUpload = (backup: BackupSummary) => {
+    uploadMutation.mutate(backup.id, {
+      onSuccess: (jobId) => {
+        setStartedJob({ id: jobId, kind: 'upload' });
+        toast.success(backup.uploadStatus === 'failed' ? 'Retrying upload' : 'Upload started');
+      },
+      onError: (error) => toast.error(errorMessageOf(error, 'Could not start the upload')),
     });
   };
 
@@ -440,7 +496,17 @@ export function BackupsPage() {
       <PageHeader
         title="Backups"
         description="Archives of the four mail data volumes. Creating, verifying and restoring all run as background jobs."
-        action={<Button onClick={() => setCreateOpen(true)}>Create backup</Button>}
+        action={
+          <div className="flex flex-wrap gap-2">
+            {remoteConfigured ? (
+              <Button variant="secondary" onClick={() => setBrowseOpen(true)}>
+                <CloudUpload className="size-4" aria-hidden="true" />
+                Browse remote
+              </Button>
+            ) : null}
+            <Button onClick={() => setCreateOpen(true)}>Create backup</Button>
+          </div>
+        }
       />
 
       {/*
@@ -456,7 +522,7 @@ export function BackupsPage() {
         a larger screen to restore. Everything else here works normally.
       </p>
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <MetricTile label="Backups" value={totals.count} />
         <MetricTile label="Total size" value={formatBytes(totals.sizeBytes)} />
         <MetricTile
@@ -465,6 +531,25 @@ export function BackupsPage() {
             totals.mostRecentVerified === null ? 'None' : formatDateTime(totals.mostRecentVerified)
           }
         />
+        <MetricTile
+          label="Next scheduled backup"
+          value={
+            schedule === undefined || !schedule.enabled || schedule.nextRunAt === null
+              ? 'Off'
+              : formatDateTime(schedule.nextRunAt)
+          }
+        />
+      </div>
+
+      {/*
+        Remote destination + schedule. Kept below the summary tiles and above
+        the list so configuring where backups go, and how often, is discoverable
+        without dominating the page. The two components own their own loading,
+        save and secret-reveal behaviour (see backup-remote-settings.tsx).
+      */}
+      <div className="grid gap-4 lg:grid-cols-2">
+        <RemoteDestinationCard />
+        <BackupScheduleCard />
       </div>
 
       {startedJob !== null && runningJob !== null ? (
@@ -548,6 +633,15 @@ export function BackupsPage() {
                       Download archive
                     </a>
                   </DropdownMenuItem>
+
+                  {remoteConfigured &&
+                  row.localPresent &&
+                  (row.uploadStatus === 'pending' || row.uploadStatus === 'failed') ? (
+                    <DropdownMenuItem onClick={() => startUpload(row)}>
+                      <CloudUpload className="size-4" aria-hidden="true" />
+                      {row.uploadStatus === 'failed' ? 'Retry upload' : 'Upload to remote'}
+                    </DropdownMenuItem>
+                  ) : null}
 
                   <DropdownMenuSeparator />
                   <DropdownMenuLabel>Destructive</DropdownMenuLabel>
@@ -739,6 +833,17 @@ export function BackupsPage() {
         confirmLabel="Restore"
         pending={restoreMutation.isPending}
         onConfirm={confirmRestore}
+      />
+
+      {/*
+        Browse-remote + import (restore-from-remote, step one). Importing pulls
+        and verifies the archive server-side; it then joins the list above,
+        where the four-tier Restore takes over — restore keeps every gate.
+      */}
+      <RemoteBrowseDialog
+        open={browseOpen}
+        onOpenChange={setBrowseOpen}
+        onImportStarted={(jobId) => setStartedJob({ id: jobId, kind: 'import' })}
       />
     </div>
   );

@@ -212,13 +212,22 @@ export default defineConfig({
       testIgnore: [
         /restart-container\.spec\.ts$/,
         /backup-and-restore\.spec\.ts$/,
+        /backup-remote\.spec\.ts$/,
         /security\/.*\.spec\.ts$/,
       ],
     },
     {
       name: 'chromium-serial',
       use: { ...devices['Desktop Chrome'] },
-      testMatch: [/restart-container\.spec\.ts$/, /backup-and-restore\.spec\.ts$/],
+      // backup-remote.spec.ts joins the serial project (M13): it also drives the
+      // backups module and the one global destination-config row on the shared
+      // server, so it must never race backup-and-restore.spec (whose first test
+      // asserts an empty backup list). One worker, in order, keeps them apart.
+      testMatch: [
+        /restart-container\.spec\.ts$/,
+        /backup-and-restore\.spec\.ts$/,
+        /backup-remote\.spec\.ts$/,
+      ],
       // See "Two projects (Round D)" above for why both the file split and
       // this limit are required together.
       fullyParallel: false,

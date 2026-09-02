@@ -10,6 +10,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   JobStreamEventSchema,
   type BackupMode,
+  type BackupScheduleUpdate,
   type ConfigChangeSet,
   type Job,
   type JobLogEntry,
@@ -23,17 +24,27 @@ import {
   createBackup,
   deleteBackup,
   fetchBackup,
+  fetchBackupDestination,
+  fetchBackupSchedule,
   fetchBackups,
   fetchConfigSettings,
   fetchConfigSnapshots,
   fetchJob,
   fetchJobs,
+  fetchRemoteBackups,
   fetchRestorePreflight,
   fetchUpdateStatus,
+  importRemoteBackup,
   jobStreamUrl,
+  reconcileRemote,
   restoreBackup,
+  revealBackupDestinationSecret,
   revealConfigSetting,
   rollbackConfig,
+  testBackupDestination,
+  updateBackupDestination,
+  updateBackupSchedule,
+  uploadBackup,
   validateConfig,
   verifyBackup,
 } from '@/lib/maintenance-api';
@@ -220,6 +231,98 @@ export function useRestoreBackupMutation(backupId: string) {
 
 /** Re-exported so a page can build the download anchor's `href` without importing the fetch layer directly, the way every other route here is reached through this module. */
 export { backupDownloadUrl };
+
+// ---------------------------------------------------------------------------
+// Backup automation (M13) — scheduled backups + remote destinations. Upload/
+// import/reconcile answer with a job id, so they invalidate the job list the
+// caller is about to watch, plus the backup and remote lists whose state they
+// change.
+// ---------------------------------------------------------------------------
+
+export const backupScheduleKey = ['maintenance', 'backups', 'schedule'] as const;
+export const backupDestinationKey = ['maintenance', 'backups', 'destination'] as const;
+export const remoteBackupsKey = ['maintenance', 'backups', 'remote'] as const;
+
+export function useBackupScheduleQuery() {
+  return useQuery({ queryKey: backupScheduleKey, queryFn: fetchBackupSchedule });
+}
+
+export function useUpdateBackupScheduleMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (update: BackupScheduleUpdate) => updateBackupSchedule(update),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: backupScheduleKey });
+    },
+  });
+}
+
+export function useBackupDestinationQuery() {
+  return useQuery({ queryKey: backupDestinationKey, queryFn: fetchBackupDestination });
+}
+
+export function useUpdateBackupDestinationMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: updateBackupDestination,
+    // A destination change can turn remote browse on/off and kick a reconcile,
+    // so the remote list and backup list are both invalidated.
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: backupDestinationKey });
+      void queryClient.invalidateQueries({ queryKey: remoteBackupsKey });
+      void queryClient.invalidateQueries({ queryKey: backupsKey });
+    },
+  });
+}
+
+/** A mutation despite being a connectivity check — a `POST` action with no cache key, run only on an explicit click. */
+export function useTestBackupDestinationMutation() {
+  return useMutation({ mutationFn: testBackupDestination });
+}
+
+/** A mutation, not a query: revealing the secret is an audited `POST`, so it must be explicit and never re-run by a refetch (mirrors `useRevealConfigSettingMutation`). */
+export function useRevealBackupDestinationSecretMutation() {
+  return useMutation({ mutationFn: revealBackupDestinationSecret });
+}
+
+export function useRemoteBackupsQuery(enabled: boolean) {
+  return useQuery({ queryKey: remoteBackupsKey, queryFn: fetchRemoteBackups, enabled });
+}
+
+export function useUploadBackupMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (backupId: string) => uploadBackup(backupId),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: jobsKey });
+      void queryClient.invalidateQueries({ queryKey: backupsKey });
+      void queryClient.invalidateQueries({ queryKey: remoteBackupsKey });
+    },
+  });
+}
+
+export function useImportRemoteBackupMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (backupId: string) => importRemoteBackup(backupId),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: jobsKey });
+      void queryClient.invalidateQueries({ queryKey: backupsKey });
+    },
+  });
+}
+
+export function useReconcileRemoteMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: reconcileRemote,
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: jobsKey });
+      void queryClient.invalidateQueries({ queryKey: backupsKey });
+      void queryClient.invalidateQueries({ queryKey: remoteBackupsKey });
+    },
+  });
+}
 
 // ---------------------------------------------------------------------------
 // Updates (IMPLEMENTATION_PLAN.md §2.2)

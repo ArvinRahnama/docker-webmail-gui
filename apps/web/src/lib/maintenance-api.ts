@@ -13,15 +13,22 @@
 import {
   ApplyConfigRequestSchema,
   ApplyConfigResponseSchema,
+  BackupDestinationSecretResponseSchema,
+  BackupDestinationStatusResponseSchema,
+  BackupDestinationUpdateSchema,
   BackupDetailResponseSchema,
+  BackupImportRequestSchema,
   BackupJobAckSchema,
   BackupListResponseSchema,
+  BackupScheduleResponseSchema,
+  BackupScheduleUpdateSchema,
   ConfigSettingsResponseSchema,
   ConfigSnapshotListResponseSchema,
   CreateBackupRequestSchema,
   JobDetailResponseSchema,
   JobListResponseSchema,
   OperationAckSchema,
+  RemoteBackupListResponseSchema,
   RestoreBackupRequestSchema,
   RestorePreflightResponseSchema,
   RevealSettingResponseSchema,
@@ -30,14 +37,20 @@ import {
   ValidateConfigRequestSchema,
   ValidateConfigResponseSchema,
   type ApplyConfigResponse,
+  type BackupDestinationSecretResponse,
+  type BackupDestinationStatus,
+  type BackupDestinationUpdate,
   type BackupDetailResponse,
   type BackupMode,
+  type BackupSchedule,
+  type BackupScheduleUpdate,
   type BackupSummary,
   type ConfigChangeSet,
   type ConfigSetting,
   type ConfigSnapshotSummary,
   type Job,
   type JobDetailResponse,
+  type RemoteBackupItem,
   type RestoreBackupRequest,
   type RestorePreflightResponse,
   type RevealSettingResponse,
@@ -147,6 +160,95 @@ export async function restoreBackup(
     BackupJobAckSchema,
     { method: 'POST', body },
   );
+  return jobId;
+}
+
+// ---------------------------------------------------------------------------
+// Backup automation (M13) — scheduled backups + remote destinations. The
+// schedule and destination config are normal reads/writes; upload/import/
+// reconcile answer with a job id, like create/verify/restore. Revealing the
+// destination secret is a `POST` because it is an audited write.
+// ---------------------------------------------------------------------------
+
+export async function fetchBackupSchedule(): Promise<BackupSchedule> {
+  const { schedule } = await request('/api/v1/backups/schedule', BackupScheduleResponseSchema, {
+    method: 'GET',
+  });
+  return schedule;
+}
+
+export async function updateBackupSchedule(update: BackupScheduleUpdate): Promise<BackupSchedule> {
+  const body = BackupScheduleUpdateSchema.parse(update);
+  const { schedule } = await request('/api/v1/backups/schedule', BackupScheduleResponseSchema, {
+    method: 'PUT',
+    body,
+  });
+  return schedule;
+}
+
+export async function fetchBackupDestination(): Promise<BackupDestinationStatus> {
+  const { destination } = await request(
+    '/api/v1/backups/destination',
+    BackupDestinationStatusResponseSchema,
+    { method: 'GET' },
+  );
+  return destination;
+}
+
+export async function updateBackupDestination(
+  update: BackupDestinationUpdate,
+): Promise<BackupDestinationStatus> {
+  const body = BackupDestinationUpdateSchema.parse(update);
+  const { destination } = await request(
+    '/api/v1/backups/destination',
+    BackupDestinationStatusResponseSchema,
+    { method: 'PUT', body },
+  );
+  return destination;
+}
+
+export async function testBackupDestination(): Promise<void> {
+  await request('/api/v1/backups/destination/test', OperationAckSchema, { method: 'POST' });
+}
+
+/** The one path that returns the real secret — an audited `POST`, never cached, only ever run by an explicit reveal action. */
+export async function revealBackupDestinationSecret(): Promise<BackupDestinationSecretResponse> {
+  return request(
+    '/api/v1/backups/destination/reveal-secret',
+    BackupDestinationSecretResponseSchema,
+    { method: 'POST' },
+  );
+}
+
+export async function fetchRemoteBackups(): Promise<readonly RemoteBackupItem[]> {
+  const { backups } = await request('/api/v1/backups/remote', RemoteBackupListResponseSchema, {
+    method: 'GET',
+  });
+  return backups;
+}
+
+export async function uploadBackup(backupId: string): Promise<string> {
+  const { jobId } = await request(
+    `/api/v1/backups/${encodeURIComponent(backupId)}/upload`,
+    BackupJobAckSchema,
+    { method: 'POST' },
+  );
+  return jobId;
+}
+
+export async function importRemoteBackup(backupId: string): Promise<string> {
+  const body = BackupImportRequestSchema.parse({ backupId });
+  const { jobId } = await request('/api/v1/backups/remote/import', BackupJobAckSchema, {
+    method: 'POST',
+    body,
+  });
+  return jobId;
+}
+
+export async function reconcileRemote(): Promise<string> {
+  const { jobId } = await request('/api/v1/backups/reconcile', BackupJobAckSchema, {
+    method: 'POST',
+  });
   return jobId;
 }
 

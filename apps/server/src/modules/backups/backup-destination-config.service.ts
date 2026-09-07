@@ -1,8 +1,10 @@
 /**
  * The destination config's read/update surface, with the secrets discipline
- * the guardrail requires:
- *  - **masked reads**: `getStatus` never carries the secret access key — only
- *    a boolean saying one is stored, plus the non-secret access key id.
+ * the guardrail requires (the secret is the S3 secret access key, or the FTP
+ * password, depending on type):
+ *  - **masked reads**: `getStatus` never carries the secret — only a boolean
+ *    saying one is stored, plus the non-secret identifier (S3 access key id, or
+ *    FTP host/user).
  *  - **audited reveal**: `revealSecret` is the one path that returns the real
  *    secret, and it writes a `config.reveal_secret` audit row.
  *  - **pre-change snapshot**: every `update` first snapshots the full prior
@@ -10,7 +12,7 @@
  *    the change as `config.apply`.
  *
  * `resolve()` is the server-internal accessor the destination factory uses; it
- * returns the secret because the signer needs it, and is never a response body.
+ * returns the secret because the signer/client needs it, never a response body.
  */
 import type {
   BackupDestinationStatus,
@@ -50,9 +52,26 @@ export class BackupDestinationConfigService {
           accessKeyId: stored.s3.accessKeyId,
           secretAccessKeySet: stored.s3.secretAccessKey !== '',
         },
+        ftp: null,
       };
     }
-    return { type: 'none', configured: false, describe: null, s3: null };
+    if (stored.type === 'ftp' && stored.ftp !== null) {
+      return {
+        type: 'ftp',
+        configured: stored.ftp.password !== '',
+        describe: `ftp://${stored.ftp.host}/${stored.ftp.path}`,
+        s3: null,
+        ftp: {
+          host: stored.ftp.host,
+          port: stored.ftp.port,
+          path: stored.ftp.path,
+          user: stored.ftp.user,
+          secure: stored.ftp.secure,
+          passwordSet: stored.ftp.password !== '',
+        },
+      };
+    }
+    return { type: 'none', configured: false, describe: null, s3: null, ftp: null };
   }
 
   /** Server-internal: the resolved settings the destination factory builds from. Includes the secret; never a response body. */
@@ -60,6 +79,9 @@ export class BackupDestinationConfigService {
     const stored = this.repository.get();
     if (stored.type === 's3' && stored.s3 !== null && stored.s3.secretAccessKey !== '') {
       return { type: 's3', s3: { ...stored.s3 } };
+    }
+    if (stored.type === 'ftp' && stored.ftp !== null && stored.ftp.password !== '') {
+      return { type: 'ftp', ftp: { ...stored.ftp } };
     }
     return { type: 'none' };
   }
@@ -70,7 +92,7 @@ export class BackupDestinationConfigService {
 
     if (update.type === 'none') {
       this.repository.setNone();
-    } else {
+    } else if (update.type === 's3') {
       const existing = this.repository.get();
       const existingSecret = existing.s3?.secretAccessKey ?? '';
       // Omitting the secret keeps the stored one; it must resolve to something.
@@ -86,6 +108,22 @@ export class BackupDestinationConfigService {
         secretAccessKey,
         prefix: update.prefix,
       });
+    } else {
+      const existing = this.repository.get();
+      const existingPassword = existing.ftp?.password ?? '';
+      // Omitting the password keeps the stored one, exactly like the S3 secret.
+      const password = update.password ?? existingPassword;
+      if (password === '') {
+        throw new AppError('VALIDATION_FAILED', 'A password is required for FTP.');
+      }
+      this.repository.setFtp({
+        host: update.host,
+        port: update.port,
+        user: update.user,
+        password,
+        secure: update.secure,
+        path: update.path,
+      });
     }
 
     recordAuditEvent(this.db, {
@@ -99,10 +137,10 @@ export class BackupDestinationConfigService {
     });
   }
 
-  /** The one path that returns the real secret — audited as a secret reveal. */
+  /** The one path that returns the real secret (S3 secret key or FTP password) — audited as a secret reveal. */
   revealSecret(actor: DestinationConfigActor): BackupDestinationSecretResponse {
     const stored = this.repository.get();
-    const value = stored.s3?.secretAccessKey ?? null;
+    const value = stored.s3?.secretAccessKey ?? stored.ftp?.password ?? null;
 
     recordAuditEvent(this.db, {
       actor: { adminId: actor.adminId, label: actor.label },

@@ -45,8 +45,9 @@ describe('runMigrations', () => {
     ]) {
       expect(tables).toContain(expected);
     }
-    // Migration 006 adds columns to `backups` (per-backup upload state), no new table.
-    expect(appliedVersions(db)).toEqual([1, 2, 3, 4, 5, 6, 7]);
+    // Migrations 006 and 008 add columns (upload state; FTP destination fields),
+    // no new tables.
+    expect(appliedVersions(db)).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
     db.close();
   });
 

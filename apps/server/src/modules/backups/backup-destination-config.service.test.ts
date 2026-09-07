@@ -6,6 +6,7 @@ import { BackupDestinationConfigService } from './backup-destination-config.serv
 
 const ACTOR = { adminId: null, label: 'admin@example.com' };
 const SECRET = 'super-secret-access-key';
+const FTP_PASSWORD = 'super-secret-ftp-password';
 
 function setUp(): { db: Database; service: BackupDestinationConfigService } {
   const db = createDatabase(':memory:');
@@ -26,6 +27,18 @@ function s3Update(secret?: string): Parameters<BackupDestinationConfigService['u
   };
 }
 
+function ftpUpdate(password?: string): Parameters<BackupDestinationConfigService['update']>[0] {
+  return {
+    type: 'ftp',
+    host: 'ftp.example.com',
+    port: 21,
+    path: 'backups',
+    user: 'backup-user',
+    secure: true,
+    ...(password !== undefined ? { password } : {}),
+  };
+}
+
 function auditActions(db: Database, action: string): number {
   return db.all('SELECT id FROM audit_log WHERE action = ?', [action]).length;
 }
@@ -38,6 +51,7 @@ describe('BackupDestinationConfigService', () => {
       configured: false,
       describe: null,
       s3: null,
+      ftp: null,
     });
     expect(service.resolve()).toEqual({ type: 'none' });
   });
@@ -108,5 +122,66 @@ describe('BackupDestinationConfigService', () => {
     service.update({ type: 'none' }, ACTOR);
     expect(service.resolve()).toEqual({ type: 'none' });
     expect(service.getStatus().configured).toBe(false);
+  });
+
+  it('stores an FTP config, masks the password in status, but resolves it internally', () => {
+    const { service } = setUp();
+    service.update(ftpUpdate(FTP_PASSWORD), ACTOR);
+
+    const status = service.getStatus();
+    expect(status).toMatchObject({
+      type: 'ftp',
+      configured: true,
+      describe: 'ftp://ftp.example.com/backups',
+      s3: null,
+      ftp: {
+        host: 'ftp.example.com',
+        port: 21,
+        user: 'backup-user',
+        secure: true,
+        passwordSet: true,
+      },
+    });
+    // The password must never appear in the masked status.
+    expect(JSON.stringify(status)).not.toContain(FTP_PASSWORD);
+
+    const resolved = service.resolve();
+    expect(resolved.type).toBe('ftp');
+    expect(resolved.type === 'ftp' && resolved.ftp.password).toBe(FTP_PASSWORD);
+  });
+
+  it('keeps the stored FTP password when an update omits it', () => {
+    const { service } = setUp();
+    service.update(ftpUpdate(FTP_PASSWORD), ACTOR);
+    service.update(
+      { ...ftpUpdate(), host: 'ftp2.example.com' } as ReturnType<typeof ftpUpdate>,
+      ACTOR,
+    );
+    const resolved = service.resolve();
+    expect(resolved.type === 'ftp' && resolved.ftp.host).toBe('ftp2.example.com');
+    expect(resolved.type === 'ftp' && resolved.ftp.password).toBe(FTP_PASSWORD);
+  });
+
+  it('refuses a first-time FTP config with no password', () => {
+    const { service } = setUp();
+    expect(() => service.update(ftpUpdate(), ACTOR)).toThrow(/password is required/i);
+  });
+
+  it('reveals the FTP password only through the audited reveal path', () => {
+    const { db, service } = setUp();
+    service.update(ftpUpdate(FTP_PASSWORD), ACTOR);
+    const before = auditActions(db, 'config.reveal_secret');
+    expect(service.revealSecret(ACTOR)).toEqual({ value: FTP_PASSWORD });
+    expect(auditActions(db, 'config.reveal_secret')).toBe(before + 1);
+  });
+
+  it('switching from S3 to FTP clears the S3 fields', () => {
+    const { service } = setUp();
+    service.update(s3Update(SECRET), ACTOR);
+    service.update(ftpUpdate(FTP_PASSWORD), ACTOR);
+    const status = service.getStatus();
+    expect(status.type).toBe('ftp');
+    expect(status.s3).toBeNull();
+    expect(JSON.stringify(status)).not.toContain(SECRET);
   });
 });

@@ -7,6 +7,7 @@ import { migration004Maintenance } from './004_maintenance.js';
 import { migration005BackupSchedule } from './005_backup_schedule.js';
 import { migration006BackupRemoteUpload } from './006_backup_remote_upload.js';
 import { migration007BackupDestination } from './007_backup_destination.js';
+import { migration008BackupDestinationFtp } from './008_backup_destination_ftp.js';
 
 export const migrations: readonly Migration[] = [
   migration001Initial,
@@ -16,6 +17,7 @@ export const migrations: readonly Migration[] = [
   migration005BackupSchedule,
   migration006BackupRemoteUpload,
   migration007BackupDestination,
+  migration008BackupDestinationFtp,
 ];
 
 export { runMigrations, MigrationError, type Migration } from './runner.js';

@@ -116,7 +116,7 @@ export type BackupScheduleUpdate = z.infer<typeof BackupScheduleUpdateSchema>;
 // boolean says whether a secret is stored.
 // ---------------------------------------------------------------------------
 
-export const BACKUP_DESTINATION_TYPES = ['none', 's3'] as const; // 'ftp' lands with the FTP chunk
+export const BACKUP_DESTINATION_TYPES = ['none', 's3', 'ftp'] as const;
 export type BackupDestinationType = (typeof BACKUP_DESTINATION_TYPES)[number];
 export const BackupDestinationTypeSchema = z.enum(BACKUP_DESTINATION_TYPES);
 
@@ -135,12 +135,26 @@ export const BackupDestinationS3StatusSchema = z.object({
 });
 export type BackupDestinationS3Status = z.infer<typeof BackupDestinationS3StatusSchema>;
 
+export const BackupDestinationFtpStatusSchema = z.object({
+  host: z.string(),
+  port: z.number().int(),
+  path: z.string(),
+  /** The FTP username — an identifier, deliberately shown. Never the password. */
+  user: z.string(),
+  /** FTPS (explicit TLS) enabled. */
+  secure: z.boolean(),
+  /** Whether a password is stored. The value itself is never in this response. */
+  passwordSet: z.boolean(),
+});
+export type BackupDestinationFtpStatus = z.infer<typeof BackupDestinationFtpStatusSchema>;
+
 export const BackupDestinationStatusSchema = z.object({
   type: BackupDestinationTypeSchema,
   configured: z.boolean(),
-  /** Credential-free description, e.g. `s3://bucket/prefix`, or `null` when unconfigured. */
+  /** Credential-free description, e.g. `s3://bucket/prefix` or `ftp://host/path`, or `null` when unconfigured. */
   describe: z.string().nullable(),
   s3: BackupDestinationS3StatusSchema.nullable(),
+  ftp: BackupDestinationFtpStatusSchema.nullable(),
 });
 export type BackupDestinationStatus = z.infer<typeof BackupDestinationStatusSchema>;
 
@@ -164,6 +178,17 @@ export const BackupDestinationUpdateSchema = z.discriminatedUnion('type', [
     prefix: z.string().regex(SAFE_PREFIX, 'Prefix may contain only letters, digits, . _ - and /.'),
     accessKeyId: z.string().min(1),
     secretAccessKey: z.string().min(1).optional(),
+  }),
+  z.object({
+    type: z.literal('ftp'),
+    host: z.string().min(1),
+    port: z.number().int().min(1).max(65535),
+    path: z.string().regex(SAFE_PREFIX, 'Path may contain only letters, digits, . _ - and /.'),
+    user: z.string().min(1),
+    /** FTPS (explicit TLS). Off is plaintext FTP — allowed, but the UI should warn. */
+    secure: z.boolean(),
+    /** Optional: omit to keep the stored password unchanged (never round-tripped to the client). */
+    password: z.string().min(1).optional(),
   }),
 ]);
 export type BackupDestinationUpdate = z.infer<typeof BackupDestinationUpdateSchema>;

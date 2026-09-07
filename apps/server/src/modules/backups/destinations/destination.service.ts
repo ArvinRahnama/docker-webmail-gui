@@ -13,6 +13,7 @@
 import { AppError } from '../../../platform/errors.js';
 import type { BackupDestination } from './destination.js';
 import { S3Destination, type S3DestinationConfig } from './s3-destination.js';
+import { FtpDestination } from './ftp-destination.js';
 
 export interface S3DestinationSettings {
   readonly endpoint: string;
@@ -23,9 +24,20 @@ export interface S3DestinationSettings {
   readonly prefix: string;
 }
 
+export interface FtpDestinationSettings {
+  readonly host: string;
+  readonly port: number;
+  readonly user: string;
+  readonly password: string;
+  readonly secure: boolean;
+  readonly path: string;
+}
+
 /** The destination the operator has configured, resolved from settings. `none` means the VPS is the only storage. */
 export type ResolvedDestination =
-  { readonly type: 's3'; readonly s3: S3DestinationSettings } | { readonly type: 'none' };
+  | { readonly type: 's3'; readonly s3: S3DestinationSettings }
+  | { readonly type: 'ftp'; readonly ftp: FtpDestinationSettings }
+  | { readonly type: 'none' };
 
 /** Non-user construction overrides — a small multipart part size and an injected clock, for tests. */
 export type S3ConstructionOverrides = Partial<
@@ -45,6 +57,9 @@ export class DestinationService {
     const settings = this.deps.resolve();
     if (settings.type === 's3') {
       return new S3Destination({ ...settings.s3, ...(this.deps.s3Overrides ?? {}) });
+    }
+    if (settings.type === 'ftp') {
+      return new FtpDestination({ ...settings.ftp });
     }
     return null;
   }

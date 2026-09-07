@@ -27,6 +27,7 @@ const NONE_STATUS: BackupDestinationStatus = {
   configured: false,
   describe: null,
   s3: null,
+  ftp: null,
 };
 
 const S3_STATUS: BackupDestinationStatus = {
@@ -41,6 +42,7 @@ const S3_STATUS: BackupDestinationStatus = {
     accessKeyId: 'AKIAEXAMPLE',
     secretAccessKeySet: true,
   },
+  ftp: null,
 };
 
 const SCHEDULE: BackupSchedule = {

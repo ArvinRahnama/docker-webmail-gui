@@ -55,6 +55,7 @@ const S3_DESTINATION: BackupDestinationStatus = {
     accessKeyId: 'AKIAEXAMPLE',
     secretAccessKeySet: true,
   },
+  ftp: null,
 };
 
 // The remote/schedule cards this page now renders each fetch their own state;
@@ -65,6 +66,7 @@ const NO_DESTINATION: BackupDestinationStatus = {
   configured: false,
   describe: null,
   s3: null,
+  ftp: null,
 };
 const OFF_SCHEDULE: BackupSchedule = {
   frequency: 'off',

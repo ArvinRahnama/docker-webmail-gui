@@ -45,6 +45,21 @@ const S3_STATUS: BackupDestinationStatus = {
   ftp: null,
 };
 
+const FTP_STATUS: BackupDestinationStatus = {
+  type: 'ftp',
+  configured: true,
+  describe: 'ftp://ftp.example.com/backups',
+  s3: null,
+  ftp: {
+    host: 'ftp.example.com',
+    port: 21,
+    path: 'backups',
+    user: 'backup-user',
+    secure: true,
+    passwordSet: true,
+  },
+};
+
 const SCHEDULE: BackupSchedule = {
   frequency: 'daily',
   enabled: true,
@@ -112,6 +127,84 @@ describe('RemoteDestinationCard', () => {
     await user.click(screen.getByRole('button', { name: 'Reveal stored secret' }));
     await waitFor(() => expect(screen.getByText('REVEALED-SECRET-XYZ')).toBeInTheDocument());
     expect(vi.mocked(revealBackupDestinationSecret)).toHaveBeenCalledTimes(1);
+  });
+
+  it('seeds the FTP fields from an ftp status, keeps the password masked, reveals on demand', async () => {
+    vi.mocked(fetchBackupDestination).mockResolvedValue(FTP_STATUS);
+    vi.mocked(revealBackupDestinationSecret).mockResolvedValue({ value: 'REVEALED-FTP-PW' });
+    const user = userEvent.setup();
+    renderCard(<RemoteDestinationCard />);
+
+    await waitFor(() => expect(screen.getByText('Configured')).toBeInTheDocument());
+
+    expect((screen.getByLabelText('Host') as HTMLInputElement).value).toBe('ftp.example.com');
+    expect((screen.getByLabelText('Username') as HTMLInputElement).value).toBe('backup-user');
+    const password = screen.getByLabelText('Password') as HTMLInputElement;
+    expect(password.value).toBe('');
+    expect(screen.queryByText('REVEALED-FTP-PW')).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Reveal stored password' }));
+    await waitFor(() => expect(screen.getByText('REVEALED-FTP-PW')).toBeInTheDocument());
+  });
+
+  it('switching to FTP shows the FTP fields, and turning FTPS off warns about plaintext', async () => {
+    vi.mocked(fetchBackupDestination).mockResolvedValue(NONE_STATUS);
+    const user = userEvent.setup();
+    renderCard(<RemoteDestinationCard />);
+
+    await waitFor(() => expect(screen.getByText('Not configured')).toBeInTheDocument());
+
+    await user.selectOptions(screen.getByLabelText('Destination'), 'ftp');
+    expect(screen.getByLabelText('Host')).toBeInTheDocument();
+    // FTPS defaults on -> no warning yet.
+    expect(screen.queryByText(/Plaintext FTP/)).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('switch', { name: 'Use FTPS (explicit TLS)' }));
+    expect(screen.getByText(/Plaintext FTP/)).toBeInTheDocument();
+  });
+
+  it('submitting an FTP edit with a blank password keeps the stored one (omits it)', async () => {
+    vi.mocked(fetchBackupDestination).mockResolvedValue(FTP_STATUS);
+    vi.mocked(updateBackupDestination).mockResolvedValue(FTP_STATUS);
+    const user = userEvent.setup();
+    renderCard(<RemoteDestinationCard />);
+
+    await waitFor(() => expect(screen.getByText('Configured')).toBeInTheDocument());
+
+    await user.clear(screen.getByLabelText('Host'));
+    await user.type(screen.getByLabelText('Host'), 'ftp2.example.com');
+    await user.click(screen.getByRole('button', { name: 'Save destination' }));
+
+    await waitFor(() => expect(vi.mocked(updateBackupDestination)).toHaveBeenCalled());
+    const arg = vi.mocked(updateBackupDestination).mock.calls[0]![0];
+    expect(arg).toMatchObject({ type: 'ftp', host: 'ftp2.example.com', user: 'backup-user' });
+    expect(arg).not.toHaveProperty('password');
+  });
+
+  it('configures FTP from scratch and saves the entered fields including the password', async () => {
+    vi.mocked(fetchBackupDestination).mockResolvedValue(NONE_STATUS);
+    vi.mocked(updateBackupDestination).mockResolvedValue(FTP_STATUS);
+    const user = userEvent.setup();
+    renderCard(<RemoteDestinationCard />);
+
+    await waitFor(() => expect(screen.getByText('Not configured')).toBeInTheDocument());
+
+    await user.selectOptions(screen.getByLabelText('Destination'), 'ftp');
+    await user.type(screen.getByLabelText('Host'), 'ftp.example.com');
+    await user.type(screen.getByLabelText('Username'), 'backup-user');
+    await user.type(screen.getByLabelText('Path (optional)'), 'backups');
+    await user.type(screen.getByLabelText('Password'), 'the-ftp-password');
+    await user.click(screen.getByRole('button', { name: 'Save destination' }));
+
+    await waitFor(() => expect(vi.mocked(updateBackupDestination)).toHaveBeenCalled());
+    expect(vi.mocked(updateBackupDestination).mock.calls[0]![0]).toMatchObject({
+      type: 'ftp',
+      host: 'ftp.example.com',
+      user: 'backup-user',
+      path: 'backups',
+      secure: true,
+      password: 'the-ftp-password',
+    });
   });
 });
 

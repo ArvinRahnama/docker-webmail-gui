@@ -58,6 +58,21 @@ const S3_DESTINATION: BackupDestinationStatus = {
   ftp: null,
 };
 
+const FTP_DESTINATION: BackupDestinationStatus = {
+  type: 'ftp',
+  configured: true,
+  describe: 'ftp://ftp.example.com/backups',
+  s3: null,
+  ftp: {
+    host: 'ftp.example.com',
+    port: 21,
+    path: 'backups',
+    user: 'backup-user',
+    secure: true,
+    passwordSet: true,
+  },
+};
+
 // The remote/schedule cards this page now renders each fetch their own state;
 // default them to "nothing configured / off" so existing assertions about the
 // backup list are unaffected. A test that cares sets its own values.
@@ -552,5 +567,13 @@ describe('BackupsPage — remote destination (M13)', () => {
     renderPage();
     await waitFor(() => expect(screen.getByText('backup-1')).toBeInTheDocument());
     expect(screen.queryByRole('button', { name: /Browse remote/ })).not.toBeInTheDocument();
+  });
+
+  it('treats an FTP-configured destination like S3 — Browse remote is offered', async () => {
+    vi.mocked(fetchBackupDestination).mockResolvedValue(FTP_DESTINATION);
+    vi.mocked(fetchBackups).mockResolvedValue([makeBackup({ id: 'backup-1' })]);
+    renderPage();
+    await waitFor(() => expect(screen.getByText('backup-1')).toBeInTheDocument());
+    expect(await screen.findByRole('button', { name: /Browse remote/ })).toBeInTheDocument();
   });
 });

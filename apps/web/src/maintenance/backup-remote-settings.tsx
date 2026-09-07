@@ -65,22 +65,34 @@ function errorMessageOf(error: unknown, fallback: string): string {
 // ---------------------------------------------------------------------------
 
 interface DestinationForm {
-  readonly type: 'none' | 's3';
+  readonly type: 'none' | 's3' | 'ftp';
+  // S3
   readonly endpoint: string;
   readonly region: string;
   readonly bucket: string;
   readonly prefix: string;
   readonly accessKeyId: string;
+  // FTP
+  readonly host: string;
+  readonly port: number;
+  readonly path: string;
+  readonly user: string;
+  readonly secure: boolean;
 }
 
 function seedForm(status: BackupDestinationStatus): DestinationForm {
   return {
-    type: status.type === 's3' ? 's3' : 'none',
+    type: status.type === 's3' ? 's3' : status.type === 'ftp' ? 'ftp' : 'none',
     endpoint: status.s3?.endpoint ?? '',
     region: status.s3?.region ?? '',
     bucket: status.s3?.bucket ?? '',
     prefix: status.s3?.prefix ?? '',
     accessKeyId: status.s3?.accessKeyId ?? '',
+    host: status.ftp?.host ?? '',
+    port: status.ftp?.port ?? 21,
+    path: status.ftp?.path ?? '',
+    user: status.ftp?.user ?? '',
+    secure: status.ftp?.secure ?? true,
   };
 }
 
@@ -115,53 +127,67 @@ export function RemoteDestinationCard() {
     );
   }
 
-  const secretStored = status.s3?.secretAccessKeySet ?? false;
+  // Whether a secret/password is already stored FOR THE CURRENTLY SELECTED
+  // type. Switching type (e.g. S3 -> FTP) means nothing is stored for the new
+  // type yet, so the secret must be entered.
+  const storedForCurrentType =
+    form.type === 's3' && status.type === 's3'
+      ? (status.s3?.secretAccessKeySet ?? false)
+      : form.type === 'ftp' && status.type === 'ftp'
+        ? (status.ftp?.passwordSet ?? false)
+        : false;
+
+  const onSaved = (next: BackupDestinationStatus, message: string) => {
+    setForm(seedForm(next));
+    setSecretInput('');
+    setRevealedSecret(null);
+    toast.success(message);
+  };
+  const onSaveError = (error: unknown) =>
+    toast.error(errorMessageOf(error, 'Could not save the destination'));
 
   const save = () => {
     if (form.type === 'none') {
       updateMutation.mutate(
         { type: 'none' },
-        {
-          onSuccess: (next) => {
-            setForm(seedForm(next));
-            setSecretInput('');
-            setRevealedSecret(null);
-            toast.success('Remote destination removed');
-          },
-          onError: (error) =>
-            toast.error(errorMessageOf(error, 'Could not update the destination')),
-        },
+        { onSuccess: (next) => onSaved(next, 'Remote destination removed'), onError: onSaveError },
       );
       return;
     }
 
-    if (secretInput.length === 0 && !secretStored) {
-      toast.error('Enter the secret access key.');
+    if (secretInput.length === 0 && !storedForCurrentType) {
+      toast.error(form.type === 's3' ? 'Enter the secret access key.' : 'Enter the password.');
       return;
     }
 
-    updateMutation.mutate(
-      {
-        type: 's3',
-        endpoint: form.endpoint,
-        region: form.region,
-        bucket: form.bucket,
-        prefix: form.prefix,
-        accessKeyId: form.accessKeyId,
-        // Empty means "keep the stored secret"; the server treats an omitted
-        // secret that way, so it is left off rather than sent blank.
-        ...(secretInput.length > 0 ? { secretAccessKey: secretInput } : {}),
-      },
-      {
-        onSuccess: (next) => {
-          setForm(seedForm(next));
-          setSecretInput('');
-          setRevealedSecret(null);
-          toast.success('Remote destination saved');
-        },
-        onError: (error) => toast.error(errorMessageOf(error, 'Could not save the destination')),
-      },
-    );
+    // Empty means "keep the stored secret" — omitted rather than sent blank, so
+    // the server keeps what it has.
+    const secretField = secretInput.length > 0 ? secretInput : undefined;
+    const update =
+      form.type === 's3'
+        ? {
+            type: 's3' as const,
+            endpoint: form.endpoint,
+            region: form.region,
+            bucket: form.bucket,
+            prefix: form.prefix,
+            accessKeyId: form.accessKeyId,
+            ...(secretField !== undefined ? { secretAccessKey: secretField } : {}),
+          }
+        : {
+            type: 'ftp' as const,
+            host: form.host,
+            port: form.port,
+            path: form.path,
+            user: form.user,
+            secure: form.secure,
+            ...(secretField !== undefined ? { password: secretField } : {}),
+          };
+
+    updateMutation.mutate(update, {
+      onSuccess: (next) => onSaved(next, 'Remote destination saved'),
+      onError: onSaveError,
+    });
   };
 
   const test = () => {
@@ -200,12 +226,18 @@ export function RemoteDestinationCard() {
             id="destination-type"
             className={SELECT_CLASS}
             value={form.type}
-            onChange={(event) =>
-              setForm({ ...form, type: event.target.value === 's3' ? 's3' : 'none' })
-            }
+            onChange={(event) => {
+              const value = event.target.value;
+              setForm({
+                ...form,
+                type: value === 's3' ? 's3' : value === 'ftp' ? 'ftp' : 'none',
+              });
+              setRevealedSecret(null);
+            }}
           >
             <option value="none">None — keep backups on the VPS only</option>
             <option value="s3">Amazon S3 (or S3-compatible)</option>
+            <option value="ftp">FTP / FTPS</option>
           </select>
         </div>
 
@@ -264,9 +296,11 @@ export function RemoteDestinationCard() {
                 value={secretInput}
                 onChange={(event) => setSecretInput(event.target.value)}
                 autoComplete="off"
-                placeholder={secretStored ? 'Stored — leave blank to keep' : 'Secret access key'}
+                placeholder={
+                  storedForCurrentType ? 'Stored — leave blank to keep' : 'Secret access key'
+                }
               />
-              {secretStored ? (
+              {storedForCurrentType ? (
                 <div className="flex items-center gap-2">
                   <Button
                     type="button"
@@ -288,11 +322,98 @@ export function RemoteDestinationCard() {
           </div>
         ) : null}
 
+        {form.type === 'ftp' ? (
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="ftp-host">Host</Label>
+              <Input
+                id="ftp-host"
+                value={form.host}
+                onChange={(event) => setForm({ ...form, host: event.target.value })}
+                placeholder="ftp.example.com"
+              />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="ftp-port">Port</Label>
+              <Input
+                id="ftp-port"
+                type="number"
+                min={1}
+                max={65535}
+                value={form.port}
+                onChange={(event) =>
+                  setForm({ ...form, port: Math.max(1, Number(event.target.value) || 21) })
+                }
+              />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="ftp-user">Username</Label>
+              <Input
+                id="ftp-user"
+                value={form.user}
+                onChange={(event) => setForm({ ...form, user: event.target.value })}
+                autoComplete="off"
+              />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="ftp-path">Path (optional)</Label>
+              <Input
+                id="ftp-path"
+                value={form.path}
+                onChange={(event) => setForm({ ...form, path: event.target.value })}
+                placeholder="backups"
+              />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="ftp-password">Password</Label>
+              <Input
+                id="ftp-password"
+                type="password"
+                value={secretInput}
+                onChange={(event) => setSecretInput(event.target.value)}
+                autoComplete="off"
+                placeholder={storedForCurrentType ? 'Stored — leave blank to keep' : 'Password'}
+              />
+              {storedForCurrentType ? (
+                <div className="flex items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    pending={revealMutation.isPending}
+                    onClick={reveal}
+                  >
+                    Reveal stored password
+                  </Button>
+                  {revealedSecret !== null ? (
+                    <code className="font-mono-sm break-all text-text-secondary">
+                      {revealedSecret === '' ? '(none)' : revealedSecret}
+                    </code>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
+            <label className="flex items-center gap-2 text-body-sm text-text-primary sm:col-span-2">
+              <Switch
+                checked={form.secure}
+                onCheckedChange={(checked) => setForm({ ...form, secure: checked })}
+              />
+              Use FTPS (explicit TLS)
+            </label>
+            {!form.secure ? (
+              <p className="text-body-sm text-status-warning-fg sm:col-span-2">
+                Plaintext FTP sends the password and backup data unencrypted. Enable FTPS unless the
+                server genuinely does not support it.
+              </p>
+            ) : null}
+          </div>
+        ) : null}
+
         <div className="flex flex-wrap items-center gap-2">
           <Button type="button" pending={updateMutation.isPending} onClick={save}>
             Save destination
           </Button>
-          {form.type === 's3' ? (
+          {form.type !== 'none' ? (
             <Button
               type="button"
               variant="secondary"

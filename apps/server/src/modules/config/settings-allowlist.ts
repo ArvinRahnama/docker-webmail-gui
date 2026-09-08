@@ -36,7 +36,11 @@
  * claim to, change this process's running behaviour immediately.
  */
 import type { AppConfig } from '../../platform/config.js';
-import type { ConfigSetting, ConfigSettingClassification } from '@dwg/shared';
+import type {
+  ConfigSetting,
+  ConfigSettingClassification,
+  ConfigSettingValueType,
+} from '@dwg/shared';
 
 export interface SettingDefinition {
   readonly key: string;
@@ -44,6 +48,13 @@ export interface SettingDefinition {
   readonly description: string;
   readonly classification: ConfigSettingClassification;
   readonly secret: boolean;
+  /**
+   * `'boolean'` iff this key's valid domain is exactly `{"true","false"}` —
+   * drives whether the editor offers a toggle switch (never inferred from
+   * the current value; declared once, here, per key). Defaults to
+   * `'string'` when omitted, since almost every setting is one.
+   */
+  readonly valueType?: ConfigSettingValueType;
   /** Reads the setting's *currently running* value (never the pending, unapplied override) straight from the live `AppConfig` — see the module header on why "running" and "saved" can legitimately differ here. */
   readonly getValue: (config: AppConfig) => string | null;
 }
@@ -95,6 +106,7 @@ export const SETTINGS_ALLOWLIST: readonly SettingDefinition[] = [
       'Enables the allowlisted diagnostic command console (FEATURE_MATRIX.md §32). Off by default — exec into the mail container is a meaningful capability even restricted to a fixed command set.',
     classification: 'needs-restart',
     secret: false,
+    valueType: 'boolean',
     getValue: (config) => boolToString(config.enableExecConsole),
   },
   {
@@ -104,6 +116,7 @@ export const SETTINGS_ALLOWLIST: readonly SettingDefinition[] = [
       'Sends Strict-Transport-Security on responses. Turn off only for a plain-HTTP LAN install, where forcing HTTPS would lock an administrator out rather than protect them.',
     classification: 'needs-restart',
     secret: false,
+    valueType: 'boolean',
     getValue: (config) => boolToString(config.enableHsts),
   },
   {
@@ -113,6 +126,7 @@ export const SETTINGS_ALLOWLIST: readonly SettingDefinition[] = [
       'Whether the session cookie carries the Secure attribute. Turn off only for a plain-HTTP LAN install, where forcing it would silently stop the browser from ever sending the cookie back.',
     classification: 'needs-restart',
     secret: false,
+    valueType: 'boolean',
     getValue: (config) => boolToString(config.cookieSecure),
   },
   {
@@ -180,5 +194,6 @@ export function describeSetting(
     secret: definition.secret,
     masked,
     value: masked ? null : rawValue,
+    valueType: definition.valueType ?? 'string',
   };
 }

@@ -33,6 +33,7 @@ function makeSetting(overrides: Partial<ConfigSetting> = {}): ConfigSetting {
     secret: false,
     masked: false,
     value: 'info',
+    valueType: 'string',
     ...overrides,
   };
 }
@@ -354,5 +355,66 @@ describe('ConfigPage — apply', () => {
       expect(vi.mocked(applyConfig)).toHaveBeenCalled();
     });
     expect(await screen.findByDisplayValue('debug')).toBeInTheDocument();
+  });
+
+  it('toggles a strictly-boolean setting via the Switch, and the change survives Review → Apply', async () => {
+    const user = userEvent.setup();
+    vi.mocked(fetchConfigSettings).mockResolvedValue([
+      makeSetting({
+        key: 'ENABLE_HSTS',
+        label: 'HTTP Strict Transport Security',
+        value: 'true',
+        valueType: 'boolean',
+      }),
+    ]);
+    vi.mocked(fetchConfigSnapshots).mockResolvedValue([]);
+    vi.mocked(validateConfig).mockResolvedValue(
+      makeValidation({
+        changes: [
+          {
+            key: 'ENABLE_HSTS',
+            allowed: true,
+            reason: null,
+            classification: 'needs-restart',
+            currentValue: 'true',
+            proposedValue: 'false',
+          },
+        ],
+      }),
+    );
+    vi.mocked(applyConfig).mockResolvedValue({
+      applied: ['ENABLE_HSTS'],
+      snapshotId: 'snapshot-1',
+    });
+
+    renderPage();
+
+    // A boolean setting renders a labelled switch, not a free-text field —
+    // no textbox at all for this key.
+    const toggle = await screen.findByRole('switch', { name: 'HTTP Strict Transport Security' });
+    expect(toggle).toBeChecked();
+    expect(
+      screen.queryByRole('textbox', { name: 'HTTP Strict Transport Security' }),
+    ).not.toBeInTheDocument();
+
+    await user.click(toggle);
+    expect(toggle).not.toBeChecked();
+
+    await user.click(screen.getByRole('button', { name: /1 change/ }));
+
+    // The wire representation is still the literal string "false" — the
+    // same convention the server's own `boolToString` uses — not a JS
+    // boolean and not a different format the Review → Apply pipeline would
+    // have to special-case.
+    await waitFor(() => {
+      expect(vi.mocked(validateConfig)).toHaveBeenCalledWith({ ENABLE_HSTS: 'false' });
+    });
+
+    const dialog = await screen.findByRole('alertdialog');
+    await user.click(within(dialog).getByRole('button', { name: 'Apply' }));
+
+    await waitFor(() => {
+      expect(vi.mocked(applyConfig)).toHaveBeenCalledWith({ ENABLE_HSTS: 'false' });
+    });
   });
 });

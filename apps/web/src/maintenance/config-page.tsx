@@ -43,6 +43,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Switch } from '@/components/ui/switch';
 import { ApiClientError, ApiError } from '@/lib/api-client';
 import { formatDateTime } from '@/lib/format';
 import { ServerControls } from './server-controls';
@@ -323,7 +324,29 @@ export function ConfigPage() {
                 </CardHeader>
 
                 <CardContent className="flex flex-col gap-3 text-body-sm">
-                  {editable ? (
+                  {editable && setting.valueType === 'boolean' ? (
+                    // A strictly boolean setting's domain is exactly
+                    // {"true","false"} (server-declared via `valueType`,
+                    // never guessed from today's value) — a toggle switch
+                    // can represent it completely, so it replaces the free
+                    // text field rather than sitting alongside it. The
+                    // stored/wire representation is unchanged: the switch
+                    // reads and writes the literal strings "true"/"false",
+                    // exactly what `boolToString` already produces
+                    // server-side and what the Review → Apply pipeline
+                    // already expects.
+                    <div className="flex flex-col gap-1.5">
+                      <Label htmlFor={inputId}>{setting.label}</Label>
+                      <Switch
+                        id={inputId}
+                        checked={fieldValue === 'true'}
+                        onCheckedChange={(checked) => {
+                          const next = checked ? 'true' : 'false';
+                          setEdits((previous) => ({ ...previous, [setting.key]: next }));
+                        }}
+                      />
+                    </div>
+                  ) : editable ? (
                     <div className="flex flex-col gap-1.5">
                       <Label htmlFor={inputId}>{setting.label}</Label>
                       <div className="flex flex-wrap items-center gap-2">

@@ -36,6 +36,21 @@ export type ConfigSettingClassification = (typeof CONFIG_SETTING_CLASSIFICATIONS
 export const ConfigSettingClassificationSchema = z.enum(CONFIG_SETTING_CLASSIFICATIONS);
 
 /**
+ * Every setting's value is transported as a string (`ConfigChangeSet` is
+ * `Record<string, string>` — env vars have no richer wire type), but a
+ * setting's *valid domain* can still be exactly `{"true","false"}`. This is
+ * a server-declared fact, never inferred client-side from today's value
+ * (a string field that happens to read `"true"` right now is not thereby
+ * boolean) — it is what lets the editor render a toggle switch instead of a
+ * free-text field for exactly the settings that are safely one, and no
+ * others. `'string'` covers everything else: enums, numbers-as-text, URLs,
+ * names, secrets — anything whose domain a switch cannot represent.
+ */
+export const CONFIG_SETTING_VALUE_TYPES = ['string', 'boolean'] as const;
+export type ConfigSettingValueType = (typeof CONFIG_SETTING_VALUE_TYPES)[number];
+export const ConfigSettingValueTypeSchema = z.enum(CONFIG_SETTING_VALUE_TYPES);
+
+/**
  * One allowlisted setting's current state. `value` is `null` for a secret
  * the caller may not reveal (masked) and for an unset variable; masking is
  * applied server-side before this ever reaches a response body — see
@@ -50,6 +65,8 @@ export const ConfigSettingSchema = z.object({
   /** `true` when a secret's real value is currently masked in this response — always `false` for a non-secret setting. */
   masked: z.boolean(),
   value: z.string().nullable(),
+  /** `'boolean'` iff this key's valid domain is exactly `{"true","false"}` — see {@link ConfigSettingValueType}. A boolean setting is also never `secret` in practice, but the two are independent facts. */
+  valueType: ConfigSettingValueTypeSchema,
 });
 export type ConfigSetting = z.infer<typeof ConfigSettingSchema>;
 

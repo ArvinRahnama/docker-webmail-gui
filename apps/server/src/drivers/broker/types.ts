@@ -27,6 +27,7 @@ import type {
   ImageSummary,
   LogFileSource,
   NetworkSummary,
+  PanelSelfUpdateCheckResponse,
   SystemDfResponse,
   SystemInfoResponse,
   SystemPingResponse,
@@ -168,4 +169,24 @@ export interface BrokerClient {
   dmsDkimRecordRead(domain: string, selector: string): Promise<string | null>;
   /** Runs one named DMS operation. Resolves with the result whatever the exit code — interpreting a non-zero exit is the driver's job. */
   dmsCommand(request: DmsCommandRequest): Promise<DmsExecResponse>;
+
+  // ---------------------------------------------------------------------
+  // Panel self-update (docs/design/self-update.md — SU-C). Two methods,
+  // mirroring `panel.selfUpdateCheck`/`panel.selfUpdateApply` exactly —
+  // `panelSelfUpdateApply` takes only a bare semver `targetVersion`, never
+  // an image reference, matching `PanelSelfUpdateApplyRequestSchema`'s own
+  // single field. Both are consumed only by
+  // `modules/updates/panel-self-update.service.ts`.
+  // ---------------------------------------------------------------------
+
+  /** What the panel's own two containers are currently running, and whether a recreate is even possible for this install (§9.8) — see `PanelSelfUpdateCheckResponseSchema`'s own doc comment (`@dwg/shared`). Says nothing about whether a *newer* version exists; that comparison is `PanelSelfUpdateService.getStatus`'s job, layered on top via `SelfUpdateReleaseSourcePort`. */
+  panelSelfUpdateCheck(): Promise<PanelSelfUpdateCheckResponse>;
+  /**
+   * Launches the detached updater and returns once it has started — the
+   * real outcome (success, rolled back, or failed) is never known
+   * synchronously (docs/design/self-update.md §6), so this resolves to
+   * `void`; the caller reads the eventual verdict from the status file
+   * instead (`panel-self-update-status.ts`'s `readAndClearSelfUpdateResult`).
+   */
+  panelSelfUpdateApply(targetVersion: string): Promise<void>;
 }

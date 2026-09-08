@@ -14,7 +14,12 @@
  * `execContainer`, …) throws — this fake proves it is never called down
  * an unexpected path rather than silently returning a placeholder.
  */
-import type { DockerApi, RawContainerListItem, RawContainerRecreateSpec } from '../docker-types.js';
+import type {
+  DockerApi,
+  RawContainerListItem,
+  RawContainerRecreateSpec,
+  RawImage,
+} from '../docker-types.js';
 
 export interface FakeContainerSeed {
   readonly id: string;
@@ -158,7 +163,32 @@ export class FakeDockerApi implements DockerApi {
   statsContainer = (): ReturnType<DockerApi['statsContainer']> =>
     notUsedByThisFake('statsContainer');
   logsContainer = (): ReturnType<DockerApi['logsContainer']> => notUsedByThisFake('logsContainer');
-  listImages = (): ReturnType<DockerApi['listImages']> => notUsedByThisFake('listImages');
+
+  /**
+   * Derived from the seeded/created containers' own `image` values —
+   * this fake's containers are seeded with a full `repo:version`
+   * reference as their `image` (mirroring how `operations.test.ts`'s own
+   * fixtures already model it), so treating each unique one as its own
+   * "image" with `id === image` and `repoTags: [image]` is enough for
+   * `updater.ts`'s `resolveFromVersion` join to work without a separate
+   * synthetic-digest registry.
+   */
+  async listImages(): Promise<readonly RawImage[]> {
+    const seen = new Map<string, RawImage>();
+    for (const container of this.containers.values()) {
+      if (!seen.has(container.image)) {
+        seen.set(container.image, {
+          id: container.image,
+          repoTags: [container.image],
+          sizeBytes: 0,
+          createdAt: 0,
+          labels: {},
+        });
+      }
+    }
+    return [...seen.values()];
+  }
+
   listVolumes = (): ReturnType<DockerApi['listVolumes']> => notUsedByThisFake('listVolumes');
   listNetworks = (): ReturnType<DockerApi['listNetworks']> => notUsedByThisFake('listNetworks');
   removeVolume = (): Promise<void> => notUsedByThisFake('removeVolume');

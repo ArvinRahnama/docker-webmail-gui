@@ -13,11 +13,28 @@ import { JsonValueSchema } from './api.js';
 
 /**
  * Every long-running operation this product runs through the job runner.
- * `update.apply` is deliberately absent — applying an update needs
- * `container.create`/recreate, which the broker does not have
- * (docs/research/02-docker-api-security.md §A.1), so that step is refused
- * before anything is ever enqueued (`modules/updates/updates.service.ts`)
- * rather than modelled as a job that could never finish.
+ * `update.apply` (the docker-mailserver comparison) is deliberately
+ * absent — applying *that* update needs `container.create`/recreate,
+ * which the broker does not expose as a general operation
+ * (docs/research/02-docker-api-security.md §A.1), so that step is
+ * refused before anything is ever enqueued
+ * (`modules/updates/updates.service.ts`) rather than modelled as a job
+ * that could never finish.
+ *
+ * `panel.selfUpdate` is a genuinely different case, not an exception to
+ * the rule above: it never asks the broker for `container.create`/
+ * `container.remove` directly (those remain absent from
+ * `BROKER_OPERATIONS` — `broker.ts`). It calls the one broker operation
+ * that *does* exist for this, `panel.selfUpdateApply`, which launches a
+ * detached updater that performs the recreate internally
+ * (docs/design/self-update.md §1) — the same "named intent, no passthrough
+ * spec" discipline every other operation in this protocol already
+ * follows, just for the one operation whose job is to recreate a
+ * container. This job type's `execute()` therefore *can* finish (or, in
+ * production, simply never gets the chance to report back before its own
+ * process is replaced — `modules/updates/panel-self-update.service.ts`'s
+ * own header, and this file's `JOB_ACTIVE_STATUSES` doc comment on why
+ * that is expected, not a bug).
  */
 export const JOB_TYPES = [
   'backup.create',
@@ -28,6 +45,10 @@ export const JOB_TYPES = [
   // whole-archive transfers, so they run as jobs like create/verify/restore.
   'backup.upload',
   'backup.import',
+  // Panel self-update (docs/design/self-update.md — SU-C). See this
+  // constant's own header for why this one *is* modelled as a job despite
+  // `update.apply`'s neighbouring absence.
+  'panel.selfUpdate',
 ] as const;
 export type JobType = (typeof JOB_TYPES)[number];
 export const JobTypeSchema = z.enum(JOB_TYPES);
@@ -41,7 +62,18 @@ export const JOB_STATUSES = ['queued', 'running', 'succeeded', 'failed', 'cancel
 export type JobStatus = (typeof JOB_STATUSES)[number];
 export const JobStatusSchema = z.enum(JOB_STATUSES);
 
-/** Statuses a job can still be cancelled from, and the set the startup recovery sweep (`job-runner.ts`) treats as "interrupted by a process restart". */
+/**
+ * Statuses a job can still be cancelled from, and the set the startup
+ * recovery sweep (`job-runner.ts`) treats as "interrupted by a process
+ * restart". Ordinarily accurate for every job type — but a
+ * `panel.selfUpdate` job left `running` here is *expected*, even on a
+ * fully successful self-update: the server process reporting it is
+ * deliberately about to be replaced (docs/design/self-update.md §6), so
+ * this sweep marking that row `failed: interrupted` describes what
+ * genuinely happened to *that request*, but is never the self-update's
+ * real verdict — see `modules/updates/panel-self-update.service.ts`'s own
+ * header for where that verdict actually comes from instead.
+ */
 export const JOB_ACTIVE_STATUSES: ReadonlySet<JobStatus> = new Set(['queued', 'running']);
 export function isActiveJobStatus(status: JobStatus): boolean {
   return JOB_ACTIVE_STATUSES.has(status);

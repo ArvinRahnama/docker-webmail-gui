@@ -90,6 +90,17 @@ export const AUDIT_ACTIONS = [
   'config.apply',
   'config.reveal_secret',
   'update.apply_refused',
+  // Panel self-update (docs/design/self-update.md §7 — SU-C). `started` is
+  // recorded when the job is enqueued (`panel-self-update.routes.ts`); the
+  // other three are recorded later, server-side, whenever the outcome is
+  // *discovered* through the status-file read (never broker-side —
+  // `dwg-broker` has no database, SECURITY.md §4.1 — and never from the
+  // job's own terminal status, which `jobs.ts`'s `JOB_ACTIVE_STATUSES` doc
+  // comment explains is not the same thing).
+  'update.self_update_started',
+  'update.self_update_succeeded',
+  'update.self_update_rolled_back',
+  'update.self_update_failed',
 ] as const;
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];
 

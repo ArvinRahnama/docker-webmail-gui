@@ -31,6 +31,9 @@ import {
   LogsFileResponseSchema,
   NetworkListResponseSchema,
   OperationAckSchema,
+  PanelSelfUpdateCheckResponseSchema,
+  PanelSelfUpdateApplyResponseSchema,
+  type PanelSelfUpdateCheckResponse,
   SystemDfResponseSchema,
   SystemInfoResponseSchema,
   SystemPingResponseSchema,
@@ -244,6 +247,22 @@ export class RealBrokerClient implements BrokerClient {
 
   async dmsCommand(request: DmsCommandRequest): Promise<DmsExecResponse> {
     return this.call(request, DmsExecResponseSchema);
+  }
+
+  // -------------------------------------------------------------------------
+  // Panel self-update (docs/design/self-update.md — SU-C). See `types.ts`'s
+  // doc comments on both methods.
+  // -------------------------------------------------------------------------
+
+  async panelSelfUpdateCheck(): Promise<PanelSelfUpdateCheckResponse> {
+    return this.call({ operation: 'panel.selfUpdateCheck' }, PanelSelfUpdateCheckResponseSchema);
+  }
+
+  async panelSelfUpdateApply(targetVersion: string): Promise<void> {
+    await this.call(
+      { operation: 'panel.selfUpdateApply', targetVersion },
+      PanelSelfUpdateApplyResponseSchema,
+    );
   }
 
   // -------------------------------------------------------------------------

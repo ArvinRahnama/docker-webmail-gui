@@ -54,6 +54,7 @@ const JOB_TYPE_LABELS: Readonly<Record<JobType, string>> = {
   'backup.restore': 'Restore backup',
   'backup.upload': 'Upload backup to remote',
   'backup.import': 'Import backup from remote',
+  'panel.selfUpdate': 'Panel self-update',
 };
 
 const JOB_STATUS_LABELS: Readonly<Record<JobStatus, string>> = {

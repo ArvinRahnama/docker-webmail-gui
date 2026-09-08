@@ -36,6 +36,11 @@
  *  5. Both healthy -> success.
  */
 import type { DockerApi, RawContainerRecreateSpec } from '../docker-types.js';
+import {
+  PANEL_SERVER_REPOSITORY,
+  extractPanelVersion,
+  versionFromReference,
+} from './image-refs.js';
 
 /** Matches `server-controls.tsx`'s `RECONNECT_TIMEOUT_MS` (the same "how long do we wait for the panel to come back" bound, applied on the other side of the same event) — docs/design/self-update.md §4 on why this is deliberately one number, not two that could drift. */
 export const HEALTH_POLL_TIMEOUT_MS = 90_000;
@@ -48,6 +53,49 @@ export interface UpdaterTarget {
   readonly serverImageRef: string;
   readonly brokerImageRef: string;
 }
+
+/**
+ * The durable record `updater-entrypoint.ts` writes to
+ * `/app/data/self-update-result.json` on the `server-data` volume
+ * (docs/design/self-update.md §4, §6) — the one channel the outcome ever
+ * reaches the new `dwg-server` process through, since nothing survives to
+ * report it synchronously (§6's own reasoning: the process that would
+ * report it is deliberately about to be replaced).
+ *
+ * Two phases of the *same* file, written in this order:
+ *
+ *  - `'in-progress'`, written once — right after both containers' specs
+ *    are captured, before either is touched — carries the full rollback
+ *    plan for both. This is docs/design/self-update.md §9.7's "write the
+ *    rollback plan to the status file before any teardown": if the
+ *    updater process itself crashes from this point on, this is what is
+ *    left behind for a human to finish the job by hand (v1 has no
+ *    automatic resume — §9.7).
+ *  - `'done'`, written once, overwriting the above, once the sequence
+ *    concludes one way or another. This is the shape the server's
+ *    read-and-clear endpoint (SU-C) actually surfaces to an admin; it
+ *    never reads or acts on an `'in-progress'` file, since that shape
+ *    means the updater has not finished (or crashed) — treated as "no
+ *    verdict yet" rather than a false success or failure.
+ */
+export type SelfUpdateResultFile =
+  | {
+      readonly phase: 'in-progress';
+      readonly toVersion: string;
+      readonly rollbackPlan: {
+        readonly server: RawContainerRecreateSpec;
+        readonly broker: RawContainerRecreateSpec;
+      };
+    }
+  | {
+      readonly phase: 'done';
+      readonly outcome: 'success' | 'rolled-back' | 'failed';
+      /** `null` when it could not be determined — e.g. a pull failed before anything was inspected, or the running image's tag does not match this project's version convention. Never a fabricated placeholder. */
+      readonly fromVersion: string | null;
+      readonly toVersion: string;
+      readonly failedAt: 'pre-flight' | 'server-health' | 'broker-health' | null;
+      readonly reason: string | null;
+    };
 
 export interface UpdaterDeps {
   readonly docker: DockerApi;
@@ -64,6 +112,8 @@ export interface UpdaterDeps {
    * `updater-entrypoint.ts` — never from a test.
    */
   readonly delay: (ms: number) => Promise<void>;
+  /** Persists {@link SelfUpdateResultFile} — a real filesystem write in `updater-entrypoint.ts`, an in-memory capture in tests. See that type's own doc comment for when each phase is written and why. */
+  readonly writeResultFile: (content: SelfUpdateResultFile) => Promise<void>;
 }
 
 export type UpdaterOutcome =
@@ -73,6 +123,14 @@ export type UpdaterOutcome =
 
 function describeError(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
+}
+
+/** Best-effort: resolves the human version for an already-captured spec's `image` (a digest) via `listImages()`'s repo-tag join — the same join `operations.ts`'s `handlePanelSelfUpdateCheck` uses. `null`, never fabricated, when no match is found. */
+async function resolveFromVersion(docker: DockerApi, serverImage: string): Promise<string | null> {
+  const images = await docker.listImages();
+  const match = images.find((image) => image.id === serverImage);
+  if (match === undefined) return null;
+  return extractPanelVersion(match.repoTags, PANEL_SERVER_REPOSITORY);
 }
 
 async function resolveIdByName(docker: DockerApi, name: string): Promise<string | null> {
@@ -119,24 +177,37 @@ async function recreateAndWaitHealthy(
 
 export async function runSelfUpdate(deps: UpdaterDeps): Promise<UpdaterOutcome> {
   const { docker, target } = deps;
+  const toVersion = versionFromReference(target.serverImageRef);
 
   try {
     await docker.pullImage(target.serverImageRef);
     await docker.pullImage(target.brokerImageRef);
   } catch (err) {
-    return {
+    const reason = `Could not pull one or both target images: ${describeError(err)}`;
+    await deps.writeResultFile({
+      phase: 'done',
       outcome: 'failed',
-      reason: `Could not pull one or both target images: ${describeError(err)}`,
-    };
+      fromVersion: null,
+      toVersion,
+      failedAt: 'pre-flight',
+      reason,
+    });
+    return { outcome: 'failed', reason };
   }
 
   const serverId = await resolveIdByName(docker, target.serverContainerName);
   const brokerId = await resolveIdByName(docker, target.brokerContainerName);
   if (serverId === null || brokerId === null) {
-    return {
+    const reason = "Could not find the panel's own containers by their configured names.";
+    await deps.writeResultFile({
+      phase: 'done',
       outcome: 'failed',
-      reason: "Could not find the panel's own containers by their configured names.",
-    };
+      fromVersion: null,
+      toVersion,
+      failedAt: 'pre-flight',
+      reason,
+    });
+    return { outcome: 'failed', reason };
   }
 
   // Both rollback plans captured up front, before either container is
@@ -144,6 +215,15 @@ export async function runSelfUpdate(deps: UpdaterDeps): Promise<UpdaterOutcome> 
   // later step with no plan to roll back to.
   const serverPlan = await docker.inspectContainerForRecreate(serverId);
   const brokerPlan = await docker.inspectContainerForRecreate(brokerId);
+  const fromVersion = await resolveFromVersion(docker, serverPlan.image);
+
+  // Written before any teardown (docs/design/self-update.md §9.7) — a
+  // crash from here on leaves this recovery data behind, not silence.
+  await deps.writeResultFile({
+    phase: 'in-progress',
+    toVersion,
+    rollbackPlan: { server: serverPlan, broker: brokerPlan },
+  });
 
   const serverResult = await recreateAndWaitHealthy(deps, serverId, {
     ...serverPlan,
@@ -152,10 +232,16 @@ export async function runSelfUpdate(deps: UpdaterDeps): Promise<UpdaterOutcome> 
   if (!serverResult.healthy) {
     await stopAndRemove(docker, serverResult.newId);
     await createAndStart(docker, serverPlan);
-    return {
+    const reason = 'The recreated server container did not become healthy in time.';
+    await deps.writeResultFile({
+      phase: 'done',
       outcome: 'rolled-back',
-      reason: 'The recreated server container did not become healthy in time.',
-    };
+      fromVersion,
+      toVersion,
+      failedAt: 'server-health',
+      reason,
+    });
+    return { outcome: 'rolled-back', reason };
   }
 
   const brokerResult = await recreateAndWaitHealthy(deps, brokerId, {
@@ -170,11 +256,25 @@ export async function runSelfUpdate(deps: UpdaterDeps): Promise<UpdaterOutcome> 
     await createAndStart(docker, serverPlan);
     await stopAndRemove(docker, brokerResult.newId);
     await createAndStart(docker, brokerPlan);
-    return {
+    const reason = 'The recreated broker container did not become healthy in time.';
+    await deps.writeResultFile({
+      phase: 'done',
       outcome: 'rolled-back',
-      reason: 'The recreated broker container did not become healthy in time.',
-    };
+      fromVersion,
+      toVersion,
+      failedAt: 'broker-health',
+      reason,
+    });
+    return { outcome: 'rolled-back', reason };
   }
 
+  await deps.writeResultFile({
+    phase: 'done',
+    outcome: 'success',
+    fromVersion,
+    toVersion,
+    failedAt: null,
+    reason: null,
+  });
   return { outcome: 'success' };
 }

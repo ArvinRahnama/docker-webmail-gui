@@ -105,7 +105,12 @@ import { ConfigRepository } from './modules/config/config.repository.js';
 import { ConfigService } from './modules/config/config.service.js';
 import { registerConfigRoutes } from './modules/config/config.routes.js';
 import { createRegistryClient, type RegistryClientPort } from './drivers/registry/index.js';
+import {
+  createSelfUpdateReleaseSource,
+  type SelfUpdateReleaseSourcePort,
+} from './drivers/self-update/index.js';
 import { UpdatesService } from './modules/updates/updates.service.js';
+import { PanelSelfUpdateService } from './modules/updates/panel-self-update.service.js';
 import { registerUpdatesRoutes } from './modules/updates/updates.routes.js';
 import { DashboardService } from './modules/dashboard/dashboard.service.js';
 import { registerDashboardRoutes } from './modules/dashboard/dashboard.routes.js';
@@ -172,6 +177,8 @@ export interface BuildAppOptions {
   readonly jobRunner?: JobRunner;
   /** Same override rationale as `brokerClient` — tests that need a specific registry answer (an update available, a mismatched digest, an unreachable registry) pass a hand-built stub instead of the default {@link createRegistryClient} selection (real in production, fixture-backed `FakeRegistryClient` otherwise). */
   readonly registryClient?: RegistryClientPort;
+  /** Same override rationale as `registryClient`, for panel self-update's auto-latest lookup (docs/design/self-update.md §9.1, §9.2) — tests that need a specific latest-release answer (already up to date, unreachable) pass a hand-built stub instead of the default {@link createSelfUpdateReleaseSource} selection (real in production, fixture-backed `FakeSelfUpdateReleaseSource` otherwise). */
+  readonly selfUpdateReleaseSource?: SelfUpdateReleaseSourcePort;
   /** Same override rationale as `rspamdSampleIntervalMs` — the default is long enough never to fire during a test's lifetime. */
   readonly notificationsEvaluateIntervalMs?: number;
   /** Cadence for the scheduled-backup tick (M13). Tests omit it; the default checks often enough to fire a due backup promptly, but every tick is a no-op unless a schedule is enabled. */
@@ -500,6 +507,23 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   const registryClient = options.registryClient ?? createRegistryClient(config, logger);
   const updatesService = new UpdatesService(brokerClient, registryClient, backupsRepository);
 
+  // Panel self-update (docs/design/self-update.md — SU-C), a deliberately
+  // separate service from `updatesService` above — see
+  // `panel-self-update.service.ts`'s own header. Built on the same
+  // `jobRunner`/`jobsRepository`/`brokerClient` constructed above, plus
+  // its own release-source driver (real GitHub Releases lookup in
+  // production, a fixed fixture otherwise — same override rationale as
+  // `registryClient`).
+  const selfUpdateReleaseSource =
+    options.selfUpdateReleaseSource ?? createSelfUpdateReleaseSource(config, logger);
+  const panelSelfUpdateService = new PanelSelfUpdateService(
+    brokerClient,
+    selfUpdateReleaseSource,
+    jobRunner,
+    jobsRepository,
+    config.dataDir,
+  );
+
   // M11 — dashboard, command palette, global search, notifications
   // (IMPLEMENTATION_PLAN.md §3). `DashboardService` composes every
   // service constructed above; it is deliberately built last, after all
@@ -567,7 +591,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     middleware,
   });
   await registerConfigRoutes(app, { db, configService, middleware });
-  await registerUpdatesRoutes(app, { db, updatesService, middleware });
+  await registerUpdatesRoutes(app, { db, updatesService, panelSelfUpdateService, middleware });
   await registerDashboardRoutes(app, { dashboardService, middleware });
   await registerNotificationsRoutes(app, { notificationsService, middleware });
 

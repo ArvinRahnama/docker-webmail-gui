@@ -1,9 +1,16 @@
 /**
  * Shared HTTP test harness for the M10 updates route tests, mirroring
- * `modules/jobs/jobs-test-harness.ts` exactly. Not matched by vitest's
- * `*.test.ts` glob, so this is purely an internal helper, never collected
- * as its own suite.
+ * `modules/jobs/jobs-test-harness.ts` exactly. Extended for SU-C with a
+ * `dataDir` override (mirroring `backups-test-harness.ts`'s own
+ * `backupDir` — a fresh temp `DATA_DIR` per harness call), since panel
+ * self-update's status-file read/clear (`panel-self-update-status.ts`)
+ * is real filesystem I/O against `config.dataDir`, not something a
+ * driver override can fake. Not matched by vitest's `*.test.ts` glob, so
+ * this is purely an internal helper, never collected as its own suite.
  */
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type { FastifyInstance, LightMyRequestResponse } from 'fastify';
 import { CSRF_HEADER_NAME } from '@dwg/shared';
 import { buildApp, type BuildAppOptions } from '../../app.js';
@@ -26,11 +33,12 @@ export function testLogger() {
 export interface UpdatesHarness {
   readonly db: Database;
   readonly app: FastifyInstance;
+  readonly dataDir: string;
 }
 
 export type UpdatesAppOverrides = Omit<BuildAppOptions, 'config' | 'logger' | 'db'>;
 
-/** Boots a real app (real DB, real migrations, real auth) with one enabled administrator, over caller-supplied overrides. */
+/** Boots a real app (real DB, real migrations, real auth, a fresh temp `DATA_DIR`) with one enabled administrator, over caller-supplied overrides. */
 export async function setUpUpdatesApp(
   overrides: UpdatesAppOverrides = {},
 ): Promise<UpdatesHarness> {
@@ -44,9 +52,10 @@ export async function setUpUpdatesApp(
     forcePasswordChange: false,
   });
 
-  const config = loadConfig({});
+  const dataDir = mkdtempSync(join(tmpdir(), 'dwg-updates-route-test-'));
+  const config = loadConfig({ DATA_DIR: dataDir });
   const app = await buildApp({ config, logger: testLogger(), db, ...overrides });
-  return { db, app };
+  return { db, app, dataDir };
 }
 
 /** Logs in and returns everything a CSRF-gated mutating request needs. */

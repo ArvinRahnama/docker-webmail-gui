@@ -21,6 +21,18 @@ const UPDATER_ENTRYPOINT_COMMAND = ['node', 'apps/broker/dist/self-update/update
 /** The same bind `dwg-broker` itself has (`docker/compose.yaml`) — nothing wider. `AutoRemove` means a successful (or failed-and-rolled-back) run cleans itself up without needing a separate sweep. */
 const DOCKER_SOCKET_BIND = '/var/run/docker.sock:/var/run/docker.sock';
 
+/**
+ * The same named volume already mounted into `dwg-server` at `/app/data`
+ * (`docker/compose.yaml`'s `volumes.server-data.name`) — mounted into the
+ * updater at the identical container path so `updater.ts`'s status-file
+ * write (docs/design/self-update.md §4, §9.7) lands exactly where the new
+ * `dwg-server` process already looks for it, with no new volume to
+ * provision. Docker's `Binds` syntax accepts a named volume the same way
+ * it accepts a host path (`name:containerPath`), so this needs nothing
+ * beyond the one extra bind entry below.
+ */
+const SERVER_DATA_VOLUME_BIND = 'dwg-server-data:/app/data';
+
 export interface UpdaterLaunchTarget {
   /** The broker's own currently-running image reference — the updater runs the *current* broker code, never the (not yet pulled, at launch time) target version. See docs/design/self-update.md §1. */
   readonly brokerOwnImage: string;
@@ -53,7 +65,10 @@ export async function launchUpdater(docker: DockerApi, target: UpdaterLaunchTarg
       `DWG_SELF_UPDATE_BROKER_IMAGE_REF=${target.brokerImageRef}`,
     ],
     labels: {},
-    hostConfig: { Binds: [DOCKER_SOCKET_BIND], AutoRemove: true },
+    hostConfig: {
+      Binds: [DOCKER_SOCKET_BIND, SERVER_DATA_VOLUME_BIND],
+      AutoRemove: true,
+    },
     networkingConfig: {},
   });
   await docker.startContainer(id);

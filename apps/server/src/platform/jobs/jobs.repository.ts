@@ -118,6 +118,18 @@ export class JobsRepository {
     return rows.map(toJob);
   }
 
+  /** Every job currently `queued` or `running` — the concurrency guard `panel-self-update.service.ts` uses to refuse starting a self-update while a backup/restore is in flight (docs/design/self-update.md §9.5), and the general "what's active right now" query for any future caller with the same need. Shares its `JOB_ACTIVE_STATUSES` query shape with `recoverInterruptedJobs` below, deliberately: the two are the same "which rows count as still in flight" question, asked at two different times. */
+  listActive(): readonly Job[] {
+    return this.queryActiveRows().map(toJob);
+  }
+
+  private queryActiveRows(): readonly JobRow[] {
+    return this.db.all<JobRow>(
+      `SELECT * FROM jobs WHERE status IN (${[...JOB_ACTIVE_STATUSES].map(() => '?').join(', ')})`,
+      [...JOB_ACTIVE_STATUSES],
+    );
+  }
+
   listLogs(jobId: string): readonly JobLogEntry[] {
     const rows = this.db.all<JobLogRow>(
       'SELECT * FROM job_logs WHERE job_id = ? ORDER BY logged_at ASC',
@@ -184,10 +196,7 @@ export class JobsRepository {
    * eternally in-progress. Returns the ids fixed, for the caller to log.
    */
   recoverInterruptedJobs(): readonly string[] {
-    const stale = this.db.all<JobRow>(
-      `SELECT * FROM jobs WHERE status IN (${[...JOB_ACTIVE_STATUSES].map(() => '?').join(', ')})`,
-      [...JOB_ACTIVE_STATUSES],
-    );
+    const stale = this.queryActiveRows();
     for (const row of stale) {
       this.markFailed(row.id, 'Interrupted by a server restart before this job could finish.');
     }

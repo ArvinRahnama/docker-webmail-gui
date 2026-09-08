@@ -19,16 +19,20 @@
  * "not exercised, but type-checks" boundary `docker-client.ts` documents
  * for itself.
  *
- * **Not yet built (SU-C):** writing the outcome to the durable status
- * file the new `dwg-server` reads (docs/design/self-update.md §4, §6).
- * Logging it to stdout in the meantime is not silence — both panel
- * containers already run under `docker/compose.yaml`'s `json-file`
- * logging driver, so the outcome is captured either way.
+ * Writes {@link SelfUpdateResultFile} to the `server-data` volume
+ * (`launch-updater.ts` mounts it at the same `/app/data` path
+ * `dwg-server` itself uses) via a plain filesystem write — this process
+ * has the volume mounted directly into its own container, so no Docker
+ * API call is needed to reach it, unlike everything else this file does.
  */
+import { writeFile } from 'node:fs/promises';
 import { createRealDockerApi } from '../docker-client.js';
-import { runSelfUpdate, type UpdaterTarget } from './updater.js';
+import { runSelfUpdate, type SelfUpdateResultFile, type UpdaterTarget } from './updater.js';
 
 const DEFAULT_DOCKER_SOCKET_PATH = '/var/run/docker.sock';
+
+/** Same volume, same path `dwg-server` reads from (docs/design/self-update.md §4) — see `launch-updater.ts`'s `SERVER_DATA_VOLUME_BIND`. */
+const RESULT_FILE_PATH = '/app/data/self-update-result.json';
 
 function requiredEnv(name: string): string {
   const value = process.env[name];
@@ -36,6 +40,10 @@ function requiredEnv(name: string): string {
     throw new Error(`updater-entrypoint: missing required environment variable ${name}`);
   }
   return value;
+}
+
+async function writeResultFile(content: SelfUpdateResultFile): Promise<void> {
+  await writeFile(RESULT_FILE_PATH, JSON.stringify(content, null, 2), 'utf8');
 }
 
 async function main(): Promise<void> {
@@ -52,6 +60,7 @@ async function main(): Promise<void> {
     target,
     now: () => new Date(),
     delay: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+    writeResultFile,
   });
 
   // No pino logger of its own — stdout is this project's own captured,

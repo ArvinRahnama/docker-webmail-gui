@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { runSelfUpdate, type UpdaterDeps, type UpdaterTarget } from './updater.js';
+import {
+  runSelfUpdate,
+  type SelfUpdateResultFile,
+  type UpdaterDeps,
+  type UpdaterTarget,
+} from './updater.js';
 import { FakeDockerApi } from './fake-docker-api.js';
 import { PANEL_BROKER_REPOSITORY, PANEL_SERVER_REPOSITORY } from './image-refs.js';
 
@@ -26,6 +31,20 @@ function fakeClock(): Pick<UpdaterDeps, 'now' | 'delay'> {
   };
 }
 
+/** Captures every `SelfUpdateResultFile` write, in order — the in-memory stand-in for `updater-entrypoint.ts`'s real filesystem write, so tests can assert both *that* the rollback plan is written before any teardown (§9.7) and what the final admin-facing verdict says. */
+function capturingResultFileWriter(): {
+  writeResultFile: UpdaterDeps['writeResultFile'];
+  writes: SelfUpdateResultFile[];
+} {
+  const writes: SelfUpdateResultFile[] = [];
+  return {
+    writeResultFile: async (content) => {
+      writes.push(content);
+    },
+    writes,
+  };
+}
+
 function seededFake(): FakeDockerApi {
   return new FakeDockerApi([
     { id: 'server-old', name: 'dwg-server', image: OLD_SERVER_IMAGE },
@@ -36,7 +55,8 @@ function seededFake(): FakeDockerApi {
 describe('runSelfUpdate — success', () => {
   it('pulls both images, recreates server then broker, and reports success', async () => {
     const docker = seededFake();
-    const deps: UpdaterDeps = { docker, target: TARGET, ...fakeClock() };
+    const { writeResultFile, writes } = capturingResultFileWriter();
+    const deps: UpdaterDeps = { docker, target: TARGET, ...fakeClock(), writeResultFile };
 
     const outcome = await runSelfUpdate(deps);
 
@@ -55,14 +75,28 @@ describe('runSelfUpdate — success', () => {
       `createContainer:dwg-broker:${NEW_BROKER_IMAGE}`,
       'startContainer:fake-container-2',
     ]);
+
+    // Two writes: the in-progress rollback-plan record (before any
+    // teardown), then the final success verdict.
+    expect(writes).toHaveLength(2);
+    expect(writes[0]).toMatchObject({ phase: 'in-progress', toVersion: '0.4.0' });
+    expect(writes[1]).toEqual({
+      phase: 'done',
+      outcome: 'success',
+      fromVersion: '0.3.0',
+      toVersion: '0.4.0',
+      failedAt: null,
+      reason: null,
+    });
   });
 });
 
 describe('runSelfUpdate — pull fails', () => {
-  it('aborts before touching either container when a pull fails', async () => {
+  it('aborts before touching either container when a pull fails, and reports it honestly (no fromVersion yet resolved)', async () => {
     const docker = seededFake();
     docker.failPull(NEW_BROKER_IMAGE);
-    const deps: UpdaterDeps = { docker, target: TARGET, ...fakeClock() };
+    const { writeResultFile, writes } = capturingResultFileWriter();
+    const deps: UpdaterDeps = { docker, target: TARGET, ...fakeClock(), writeResultFile };
 
     const outcome = await runSelfUpdate(deps);
 
@@ -76,6 +110,18 @@ describe('runSelfUpdate — pull fails', () => {
       `pullImage:${NEW_SERVER_IMAGE}`,
       `pullImage:${NEW_BROKER_IMAGE}`,
     ]);
+    // One write only — nothing was captured yet to write an in-progress
+    // record for, so fromVersion is honestly null, never fabricated.
+    expect(writes).toEqual([
+      {
+        phase: 'done',
+        outcome: 'failed',
+        fromVersion: null,
+        toVersion: '0.4.0',
+        failedAt: 'pre-flight',
+        reason: expect.stringContaining('Could not pull'),
+      },
+    ]);
   });
 });
 
@@ -83,7 +129,8 @@ describe('runSelfUpdate — server health fails', () => {
   it('rolls back the server only, from its captured spec, and never touches broker', async () => {
     const docker = seededFake();
     docker.setHealthy('dwg-server', NEW_SERVER_IMAGE, false);
-    const deps: UpdaterDeps = { docker, target: TARGET, ...fakeClock() };
+    const { writeResultFile, writes } = capturingResultFileWriter();
+    const deps: UpdaterDeps = { docker, target: TARGET, ...fakeClock(), writeResultFile };
 
     const outcome = await runSelfUpdate(deps);
 
@@ -121,6 +168,16 @@ describe('runSelfUpdate — server health fails', () => {
           call.includes('createContainer:dwg-broker'),
       ),
     ).toBe(false);
+
+    expect(writes[0]).toMatchObject({ phase: 'in-progress', toVersion: '0.4.0' });
+    expect(writes[1]).toEqual({
+      phase: 'done',
+      outcome: 'rolled-back',
+      fromVersion: '0.3.0',
+      toVersion: '0.4.0',
+      failedAt: 'server-health',
+      reason: expect.stringContaining('server container did not become healthy'),
+    });
   });
 });
 
@@ -128,7 +185,8 @@ describe('runSelfUpdate — broker health fails', () => {
   it('rolls back BOTH containers, never leaving a new-server/old-broker pair', async () => {
     const docker = seededFake();
     docker.setHealthy('dwg-broker', NEW_BROKER_IMAGE, false);
-    const deps: UpdaterDeps = { docker, target: TARGET, ...fakeClock() };
+    const { writeResultFile, writes } = capturingResultFileWriter();
+    const deps: UpdaterDeps = { docker, target: TARGET, ...fakeClock(), writeResultFile };
 
     const outcome = await runSelfUpdate(deps);
 
@@ -161,6 +219,51 @@ describe('runSelfUpdate — broker health fails', () => {
       `createContainer:dwg-broker:${OLD_BROKER_IMAGE}`,
       'startContainer:fake-container-4',
     ]);
+
+    expect(writes[1]).toEqual({
+      phase: 'done',
+      outcome: 'rolled-back',
+      fromVersion: '0.3.0',
+      toVersion: '0.4.0',
+      failedAt: 'broker-health',
+      reason: expect.stringContaining('broker container did not become healthy'),
+    });
+  });
+});
+
+describe('runSelfUpdate — the rollback plan is written before any teardown', () => {
+  it('the in-progress write carries both captured specs, and happens before the first stop/remove call', async () => {
+    const docker = seededFake();
+    const stopIndexes: number[] = [];
+    let writeIndex = -1;
+    const writes: SelfUpdateResultFile[] = [];
+    let callCountAtWrite = -1;
+
+    const deps: UpdaterDeps = {
+      docker,
+      target: TARGET,
+      ...fakeClock(),
+      writeResultFile: async (content) => {
+        writes.push(content);
+        if (content.phase === 'in-progress') callCountAtWrite = docker.calls.length;
+      },
+    };
+
+    await runSelfUpdate(deps);
+
+    // At the moment the in-progress record was written, only the two
+    // pulls and two captures had happened — no stop/remove/create yet.
+    expect(callCountAtWrite).toBe(4);
+    const inProgress = writes.find((w) => w.phase === 'in-progress');
+    expect(inProgress).toMatchObject({
+      phase: 'in-progress',
+      rollbackPlan: {
+        server: { name: 'dwg-server', image: OLD_SERVER_IMAGE },
+        broker: { name: 'dwg-broker', image: OLD_BROKER_IMAGE },
+      },
+    });
+    void stopIndexes;
+    void writeIndex;
   });
 });
 
@@ -169,6 +272,7 @@ describe('runSelfUpdate — health polling is bounded', () => {
     const docker = seededFake();
     docker.setHealthy('dwg-server', NEW_SERVER_IMAGE, false);
     const clock = fakeClock();
+    const { writeResultFile } = capturingResultFileWriter();
     let delayCalls = 0;
     const deps: UpdaterDeps = {
       docker,
@@ -178,6 +282,7 @@ describe('runSelfUpdate — health polling is bounded', () => {
         delayCalls += 1;
         await clock.delay(ms);
       },
+      writeResultFile,
     };
 
     const outcome = await runSelfUpdate(deps);

@@ -27,6 +27,7 @@ import {
   type ImageSummary,
   type LogFileSource,
   type NetworkSummary,
+  type PanelSelfUpdateCheckResponse,
   type SystemDfResponse,
   type SystemInfoResponse,
   type SystemPingResponse,
@@ -85,6 +86,9 @@ const FIXTURE_LOG_FILE_LINES: Readonly<Record<LogFileSource, readonly string[]>>
   mail: FIXTURE_MAIL_LOG_LINES,
   fail2ban: FIXTURE_FAIL2BAN_LOG_LINES,
 };
+
+/** Matches the version tagged on the `dwg-server`/`dwg-broker` entries in `fixtures/containers.ts` and `fixtures/images.ts` — kept as one named constant here rather than a second hardcoded `'0.2.0'` literal. */
+const FIXTURE_PANEL_VERSION = '0.2.0';
 
 /**
  * The fake's visibility configuration, mirroring the broker's own defaults
@@ -301,5 +305,32 @@ export class FakeBrokerClient implements BrokerClient {
         'Development uses FakeDmsDriver, which models these operations against captured fixtures; ' +
         "see this method's own comment for why a second imitation does not live here.",
     );
+  }
+
+  // -------------------------------------------------------------------------
+  // Panel self-update (docs/design/self-update.md — SU-C).
+  // -------------------------------------------------------------------------
+
+  async panelSelfUpdateCheck(): Promise<PanelSelfUpdateCheckResponse> {
+    return {
+      serverVersion: FIXTURE_PANEL_VERSION,
+      brokerVersion: FIXTURE_PANEL_VERSION,
+      updatePossible: true,
+      reason: null,
+    };
+  }
+
+  /**
+   * No-op success — mirrors `panelRestart`'s own reasoning: the fake never
+   * actually recreates a container (there is no Docker daemon here to
+   * recreate one against), so nothing to simulate beyond acknowledging
+   * the call. `PanelSelfUpdateService`'s job then runs to completion
+   * normally in development/tests, exactly as the real
+   * `panel.selfUpdateApply` does in production up to the point where
+   * container teardown actually begins (`launch-updater.ts`) — the point
+   * past which this fake has no equivalent to simulate at all.
+   */
+  async panelSelfUpdateApply(_targetVersion: string): Promise<void> {
+    // Nothing to do.
   }
 }

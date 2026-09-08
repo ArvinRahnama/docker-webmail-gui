@@ -43,3 +43,15 @@ export function extractPanelVersion(
   }
   return null;
 }
+
+/**
+ * The inverse of {@link panelImageReference} for a reference this project
+ * itself just composed — a plain split, not a search, since the caller
+ * already knows the exact reference it built (unlike
+ * {@link extractPanelVersion}, which searches an *externally reported*
+ * tag list for the one matching entry). Used by `updater.ts` to recover
+ * `toVersion` for its status-file report from `UpdaterTarget.serverImageRef`.
+ */
+export function versionFromReference(reference: string): string {
+  return reference.slice(reference.lastIndexOf(':') + 1);
+}

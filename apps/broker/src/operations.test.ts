@@ -154,6 +154,10 @@ function stubDocker(overrides: Partial<DockerApi> = {}): DockerApi {
     execContainer: vi.fn(),
     getContainerArchive: vi.fn(),
     putContainerArchive: vi.fn(),
+    pullImage: vi.fn(async () => undefined),
+    inspectContainerForRecreate: vi.fn(),
+    createContainer: vi.fn(),
+    removeContainer: vi.fn(async () => undefined),
     ...overrides,
   } as unknown as DockerApi;
 }
@@ -266,5 +270,204 @@ describe('panel.restart', () => {
       /broker/i,
     );
     expect(restartContainer).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Panel self-update (docs/design/self-update.md, SU-B). Its own fixture set,
+// deliberately not a reuse of HOST_CONTAINERS/HOST_IMAGES above: those
+// model `image` as a tag string for the (unrelated) visibility-filter
+// tests, but a real container's `image` field is a content digest — the
+// version-resolution join under test here needs that distinction to be
+// real, exactly as `updates.service.ts` relies on it for the (also
+// unrelated) docker-mailserver comparison.
+// ---------------------------------------------------------------------------
+
+const SELF_UPDATE_CONTAINERS: readonly RawContainerListItem[] = [
+  container({ names: ['mailserver'], image: 'sha256:mail-digest' }),
+  container({ names: ['dwg-server'], image: 'sha256:server-digest' }),
+  container({ names: ['dwg-broker'], image: 'sha256:broker-digest' }),
+];
+
+const SELF_UPDATE_IMAGES: readonly RawImage[] = [
+  {
+    id: 'sha256:mail-digest',
+    repoTags: ['ghcr.io/docker-mailserver/docker-mailserver:latest'],
+    sizeBytes: 1,
+    createdAt: 1,
+    labels: {},
+  },
+  {
+    id: 'sha256:server-digest',
+    // A real release publishes the full version, the minor-only alias,
+    // and `latest` all pointing at the same id (docs/design/
+    // self-update.md §9.2) — only the full version should ever be picked.
+    repoTags: [
+      'ghcr.io/arvinrahnama/docker-webmail-gui-server:0.3.0',
+      'ghcr.io/arvinrahnama/docker-webmail-gui-server:0.3',
+      'ghcr.io/arvinrahnama/docker-webmail-gui-server:latest',
+    ],
+    sizeBytes: 1,
+    createdAt: 1,
+    labels: {},
+  },
+  {
+    id: 'sha256:broker-digest',
+    repoTags: [
+      'ghcr.io/arvinrahnama/docker-webmail-gui-broker:0.3.0',
+      'ghcr.io/arvinrahnama/docker-webmail-gui-broker:0.3',
+      'ghcr.io/arvinrahnama/docker-webmail-gui-broker:latest',
+    ],
+    sizeBytes: 1,
+    createdAt: 1,
+    labels: {},
+  },
+];
+
+function selfUpdateDocker(overrides: Partial<DockerApi> = {}): DockerApi {
+  return stubDocker({
+    listContainers: vi.fn(async () => SELF_UPDATE_CONTAINERS),
+    listImages: vi.fn(async () => SELF_UPDATE_IMAGES),
+    ...overrides,
+  });
+}
+
+describe('panel.selfUpdateCheck', () => {
+  it("reports both containers' current versions when they resolve cleanly", async () => {
+    const result = await handleOperation(
+      { operation: 'panel.selfUpdateCheck' },
+      deps(selfUpdateDocker()),
+    );
+    expect(result).toEqual({
+      serverVersion: '0.3.0',
+      brokerVersion: '0.3.0',
+      updatePossible: true,
+      reason: null,
+    });
+  });
+
+  it('reports updatePossible: false, honestly (never a fabricated version), when no local image matches', async () => {
+    const docker = selfUpdateDocker({ listImages: vi.fn(async () => []) });
+    const result = (await handleOperation(
+      { operation: 'panel.selfUpdateCheck' },
+      deps(docker),
+    )) as {
+      serverVersion: string | null;
+      brokerVersion: string | null;
+      updatePossible: boolean;
+      reason: string | null;
+    };
+    expect(result.serverVersion).toBeNull();
+    expect(result.brokerVersion).toBeNull();
+    expect(result.updatePossible).toBe(false);
+    expect(result.reason).toMatch(/built from source|local image tags/i);
+  });
+
+  it('refuses when the panel identities do not each resolve to exactly one match', async () => {
+    const docker = selfUpdateDocker({
+      listContainers: vi.fn(async () =>
+        SELF_UPDATE_CONTAINERS.filter((c) => c.names[0] !== 'dwg-broker'),
+      ),
+    });
+    await expect(
+      handleOperation({ operation: 'panel.selfUpdateCheck' }, deps(docker)),
+    ).rejects.toThrow(/could not be resolved/i);
+  });
+
+  it('refuses when a panel identity resolves to the mail container', async () => {
+    const misconfig: OperationDeps = {
+      ...deps(selfUpdateDocker()),
+      panelBroker: { containerName: 'mailserver', containerLabel: null },
+    };
+    await expect(
+      handleOperation({ operation: 'panel.selfUpdateCheck' }, misconfig),
+    ).rejects.toThrow(/mail container/i);
+  });
+
+  it('refuses when panelServer and panelBroker resolve to the same container', async () => {
+    const misconfig: OperationDeps = {
+      ...deps(selfUpdateDocker()),
+      panelBroker: { containerName: 'dwg-server', containerLabel: null },
+    };
+    await expect(
+      handleOperation({ operation: 'panel.selfUpdateCheck' }, misconfig),
+    ).rejects.toThrow(/same container/i);
+  });
+});
+
+describe('panel.selfUpdateApply', () => {
+  it('launches the updater with the composed image refs and the resolved container names, never the client-supplied identity verbatim', async () => {
+    const createContainer = vi.fn(async () => ({ id: 'updater-id' }));
+    const startContainer = vi.fn(async () => undefined);
+    const docker = selfUpdateDocker({ createContainer, startContainer });
+
+    const result = await handleOperation(
+      { operation: 'panel.selfUpdateApply', targetVersion: '0.4.0' },
+      deps(docker),
+    );
+
+    expect(result).toEqual({ started: true });
+    expect(createContainer).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({
+        name: 'dwg-self-update-updater',
+        // The broker's OWN currently-running image — not either target,
+        // neither of which is pulled yet at launch time.
+        image: 'sha256:broker-digest',
+        cmd: ['node', 'apps/broker/dist/self-update/updater-entrypoint.js'],
+        env: [
+          'DWG_SELF_UPDATE_SERVER_CONTAINER_NAME=dwg-server',
+          'DWG_SELF_UPDATE_BROKER_CONTAINER_NAME=dwg-broker',
+          'DWG_SELF_UPDATE_SERVER_IMAGE_REF=ghcr.io/arvinrahnama/docker-webmail-gui-server:0.4.0',
+          'DWG_SELF_UPDATE_BROKER_IMAGE_REF=ghcr.io/arvinrahnama/docker-webmail-gui-broker:0.4.0',
+        ],
+      }),
+    );
+    expect(startContainer).toHaveBeenCalledExactlyOnceWith('updater-id');
+  });
+
+  it('removes a stale leftover updater container by name before launching a fresh one', async () => {
+    const removeContainer = vi.fn(async () => undefined);
+    const createContainer = vi.fn(async () => ({ id: 'updater-id-2' }));
+    const docker = selfUpdateDocker({
+      listContainers: vi.fn(async () => [
+        ...SELF_UPDATE_CONTAINERS,
+        container({ names: ['dwg-self-update-updater'], image: 'sha256:broker-digest' }),
+      ]),
+      removeContainer,
+      createContainer,
+    });
+
+    await handleOperation(
+      { operation: 'panel.selfUpdateApply', targetVersion: '0.4.0' },
+      deps(docker),
+    );
+
+    expect(removeContainer).toHaveBeenCalledExactlyOnceWith('id-dwg-self-update-updater', {
+      force: true,
+    });
+  });
+
+  it('refuses (never launches the updater) when a panel identity resolves to the mail container', async () => {
+    const createContainer = vi.fn(async () => ({ id: 'updater-id' }));
+    const docker = selfUpdateDocker({ createContainer });
+    const misconfig: OperationDeps = {
+      ...deps(docker),
+      panelServer: { containerName: 'mailserver', containerLabel: null },
+    };
+    await expect(
+      handleOperation({ operation: 'panel.selfUpdateApply', targetVersion: '0.4.0' }, misconfig),
+    ).rejects.toThrow(/mail container/i);
+    expect(createContainer).not.toHaveBeenCalled();
+  });
+
+  it('refuses when the panel identities do not each resolve to exactly one match', async () => {
+    const docker = selfUpdateDocker({
+      listContainers: vi.fn(async () =>
+        SELF_UPDATE_CONTAINERS.filter((c) => c.names[0] !== 'dwg-server'),
+      ),
+    });
+    await expect(
+      handleOperation({ operation: 'panel.selfUpdateApply', targetVersion: '0.4.0' }, deps(docker)),
+    ).rejects.toThrow(/could not be resolved/i);
   });
 });

@@ -233,10 +233,53 @@ export interface RawExecResult {
 }
 
 /**
+ * The full container spec needed to recreate a container identically —
+ * INTERNAL ONLY, never surfaced through any broker *operation* response
+ * (unlike {@link RawContainerInspect}/`ContainerInspectResponseSchema`
+ * `[@dwg/shared]`, which is deliberately reduced for exactly the opposite
+ * reason: so it can never round-trip into a spec). Used exclusively by
+ * panel self-update (docs/design/self-update.md §1,
+ * `apps/broker/src/self-update/updater.ts`) to capture a container's own
+ * already-deployed configuration before recreating it — the spec is
+ * always cloned from what is already running, never invented, and this
+ * type is the seam that makes that true: it has a place for everything
+ * {@link DockerApi.createContainer} accepts and nothing this project
+ * interprets or validates the contents of. `hostConfig`/`networkingConfig`
+ * are opaque, passed through byte-for-byte — this project never reads a
+ * field out of either or decides anything based on their contents, which
+ * is exactly why cloning them is safe where constructing them from
+ * scratch would not be (`BROKER_OPERATIONS` still has no field anywhere
+ * that could originate either object; they only ever come from Docker's
+ * own inspect of a container an operator already deployed).
+ */
+export interface RawContainerRecreateSpec {
+  readonly name: string;
+  readonly image: string;
+  readonly env: readonly string[];
+  readonly labels: Readonly<Record<string, string>>;
+  readonly cmd: readonly string[] | null;
+  readonly hostConfig: Readonly<Record<string, unknown>>;
+  readonly networkingConfig: Readonly<Record<string, unknown>>;
+}
+
+/**
  * The broker's entire Docker vocabulary. Every method here is one Docker
  * Engine API call (docs/research/02-docker-api-security.md §A.1) — there
  * is no generic `call(method, path, body)` escape hatch, mirroring the
  * closed vocabulary one layer up in `@dwg/shared`'s `BrokerOperation`.
+ *
+ * The last four methods below (`pullImage`, `inspectContainerForRecreate`,
+ * `createContainer`, `removeContainer`) are the one deliberate exception
+ * to "every method here backs a `BrokerOperation`": they exist solely for
+ * panel self-update (docs/design/self-update.md §1-2) and are never
+ * called from `operations.ts`'s request dispatch with anything a caller
+ * supplied. `container.create`/`container.remove` remain permanently
+ * absent from `BROKER_OPERATIONS` — nothing here changes that; these are
+ * internal capabilities of this driver interface, not new entries in the
+ * protocol the web tier can reach at all. Every call site composes the
+ * image reference and container spec itself from fixed constants and a
+ * `docker inspect` of a container already running — never from a request
+ * body.
  */
 export interface DockerApi {
   ping(): Promise<void>;
@@ -317,4 +360,34 @@ export interface DockerApi {
    * is Tier 4 and this method performs no such check itself.
    */
   putContainerArchive(id: string, path: string, tarStream: NodeJS.ReadableStream): Promise<void>;
+
+  /**
+   * Pulls one image reference (`repo:tag`) — equivalent to `docker pull`,
+   * via the daemon's own `POST /images/create`. Performed by the daemon
+   * using the *host's* networking, not this container's network
+   * namespace, so `dwg-broker`'s own `internal: true` network
+   * (`docker/compose.yaml`) neither blocks nor is weakened by this call —
+   * see docs/design/self-update.md §1's "Registry access from an
+   * `internal: true` network". `reference` is always composed
+   * broker-side from a fixed repository constant plus a validated version
+   * string (`self-update/image-refs.ts`); this method itself does not
+   * validate its input, exactly like `execContainer`'s `argv` and
+   * `getContainerArchive`'s `path` above — the caller is the boundary.
+   */
+  pullImage(reference: string): Promise<void>;
+  /** See {@link RawContainerRecreateSpec}'s own doc comment for why this is a separate, internal-only method rather than an extension of {@link DockerApi.inspectContainer}. */
+  inspectContainerForRecreate(id: string): Promise<RawContainerRecreateSpec>;
+  /**
+   * Creates (but does not start — call {@link DockerApi.startContainer}
+   * next) one container from a spec that is always either a
+   * {@link RawContainerRecreateSpec} captured by
+   * {@link DockerApi.inspectContainerForRecreate} moments earlier (image
+   * swapped to the new target, everything else cloned verbatim) or that
+   * same captured spec used unmodified for a rollback. Never a spec
+   * constructed from scratch, and never one reachable from a
+   * `BrokerRequest` — see this interface's own header.
+   */
+  createContainer(spec: RawContainerRecreateSpec): Promise<{ readonly id: string }>;
+  /** Stops (if running) and removes one container by id — the other half of the stop/remove/create/start recreate sequence panel self-update needs and no `BrokerOperation` exposes. `force` skips the "must already be stopped" requirement Docker's own remove call otherwise has. */
+  removeContainer(id: string, options?: { readonly force?: boolean }): Promise<void>;
 }

@@ -633,11 +633,16 @@ export type ConsoleExecResponse = z.infer<typeof ConsoleExecResponseSchema>;
  * `brokerVersion` are reported separately, not collapsed into one value:
  * an interrupted previous update could genuinely leave the two containers
  * on different versions, and that is exactly the state this operation
- * exists to make visible rather than average away.
+ * exists to make visible rather than average away. Both are nullable —
+ * SU-B's real handler found a genuine case a non-nullable string cannot
+ * honestly represent: the running image's local tag may not carry a
+ * parseable version at all (a locally built or hand-tagged image), and
+ * `null` is that fact stated plainly rather than a fabricated
+ * `"unknown"` sentinel string standing in for it.
  */
 export const PanelSelfUpdateCheckResponseSchema = z.object({
-  serverVersion: z.string(),
-  brokerVersion: z.string(),
+  serverVersion: z.string().nullable(),
+  brokerVersion: z.string().nullable(),
   updatePossible: z.boolean(),
   /** Present only when `updatePossible` is `false`. */
   reason: z.string().nullable(),

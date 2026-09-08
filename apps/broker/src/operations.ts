@@ -48,6 +48,8 @@ import {
   type LogsFileResponse,
   type NetworkListResponse,
   type OperationAck,
+  type PanelSelfUpdateApplyResponse,
+  type PanelSelfUpdateCheckResponse,
   type SystemDfResponse,
   type SystemInfoResponse,
   type SystemPingResponse,
@@ -71,6 +73,13 @@ import {
   handleDmsEnvRead,
   handleDmsFileRead,
 } from './dms/handlers.js';
+import {
+  extractPanelVersion,
+  panelImageReference,
+  PANEL_BROKER_REPOSITORY,
+  PANEL_SERVER_REPOSITORY,
+} from './self-update/image-refs.js';
+import { launchUpdater } from './self-update/launch-updater.js';
 
 export interface OperationDeps {
   readonly docker: DockerApi;
@@ -519,6 +528,190 @@ async function handlePanelRestart(deps: OperationDeps): Promise<OperationAck> {
   return { ok: true };
 }
 
+interface ResolvedPanelIdentities {
+  readonly server: ManagedContainerRef;
+  readonly broker: ManagedContainerRef;
+}
+
+/**
+ * Resolves the panel's own two containers from config, exactly as
+ * `panel.restart` resolves its one target above (`selectSingleMatch`,
+ * failing closed on zero/ambiguous matches) — shared by
+ * `panel.selfUpdateCheck` and `panel.selfUpdateApply` so the two
+ * operations can never disagree about which containers "the panel"
+ * means. Two additional guards beyond `panel.restart`'s own
+ * (docs/design/self-update.md §5): refuses if the two resolve to the
+ * *same* container (a `PANEL_SERVER_*`/`PANEL_BROKER_*` misconfiguration
+ * that would otherwise mean "recreate one container twice, never touch
+ * the other"), and refuses if either resolved identity ALSO matches the
+ * mail container's identity (`deps.dms`) — defense in depth against a
+ * configuration error, even though no legitimate configuration produces
+ * that overlap today.
+ */
+function resolvePanelIdentities(
+  deps: OperationDeps,
+  all: readonly RawContainerListItem[],
+  action: 'panel.selfUpdateCheck' | 'panel.selfUpdateApply',
+): ResolvedPanelIdentities {
+  let server: ManagedContainerRef;
+  let broker: ManagedContainerRef;
+  try {
+    server = selectSingleMatch(all, deps.panelServer, 'panel server');
+    broker = selectSingleMatch(all, deps.panelBroker, 'panel broker');
+  } catch (err) {
+    if (err instanceof ContainerResolutionError) {
+      deps.logger.warn(
+        { reason: err.reason, action },
+        `Refusing ${action}: the panel's own containers did not each resolve to exactly one allowlisted match`,
+      );
+      throw new BrokerError(
+        'FORBIDDEN',
+        "The panel's own containers could not be resolved to a single allowlisted match each.",
+      );
+    }
+    throw err;
+  }
+
+  if (server.id === broker.id) {
+    deps.logger.error(
+      { action },
+      `Refusing ${action}: the configured panel-server and panel-broker identities resolve to the same container`,
+    );
+    throw new BrokerError(
+      'FORBIDDEN',
+      'The panel server and panel broker identities must not resolve to the same container.',
+    );
+  }
+
+  const resolvesToDms = (ref: ManagedContainerRef): boolean =>
+    all.some((container) => container.id === ref.id && matchesServiceIdentity(container, deps.dms));
+
+  if (resolvesToDms(server) || resolvesToDms(broker)) {
+    deps.logger.error(
+      { action },
+      `Refusing ${action}: a panel identity resolves to the mail container`,
+    );
+    throw new BrokerError('FORBIDDEN', 'Refusing to target the mail container.');
+  }
+
+  return { server, broker };
+}
+
+/**
+ * What the broker can honestly report from Docker state alone — see
+ * `PanelSelfUpdateCheckResponseSchema`'s own doc comment (`@dwg/shared`)
+ * for why this deliberately does not say whether a *newer* version
+ * exists. `serverVersion`/`brokerVersion` come from the same
+ * digest-to-repo-tag join `apps/server/src/modules/updates/updates.service.ts`
+ * already uses for the (unrelated) docker-mailserver comparison: a
+ * container's own `image` field is a content digest, never a tag, so the
+ * human-readable version has to be recovered from `listImages()`'s
+ * `repoTags` for the image with that same id.
+ */
+async function handlePanelSelfUpdateCheck(
+  deps: OperationDeps,
+): Promise<PanelSelfUpdateCheckResponse> {
+  const all = await callDocker(deps, 'panel.selfUpdateCheck', () =>
+    deps.docker.listContainers({ all: true }),
+  );
+  const { server, broker } = resolvePanelIdentities(deps, all, 'panel.selfUpdateCheck');
+
+  const serverContainer = all.find((container) => container.id === server.id);
+  const brokerContainer = all.find((container) => container.id === broker.id);
+
+  const images = await callDocker(deps, 'panel.selfUpdateCheck', () => deps.docker.listImages());
+  const serverImage = images.find((image) => image.id === serverContainer?.image);
+  const brokerImage = images.find((image) => image.id === brokerContainer?.image);
+
+  const serverVersion =
+    serverImage === undefined
+      ? null
+      : extractPanelVersion(serverImage.repoTags, PANEL_SERVER_REPOSITORY);
+  const brokerVersion =
+    brokerImage === undefined
+      ? null
+      : extractPanelVersion(brokerImage.repoTags, PANEL_BROKER_REPOSITORY);
+
+  if (serverVersion === null || brokerVersion === null) {
+    return {
+      serverVersion,
+      brokerVersion,
+      updatePossible: false,
+      reason:
+        'Could not determine the currently running version from local image tags. This can happen for an install built from source rather than pulled from the registry (docs/design/self-update.md §9.8).',
+    };
+  }
+
+  return { serverVersion, brokerVersion, updatePossible: true, reason: null };
+}
+
+/**
+ * Launches the detached updater and returns immediately — the real
+ * outcome is never known synchronously (docs/design/self-update.md §6;
+ * `PanelSelfUpdateApplyResponseSchema`'s own doc comment). Both target
+ * image references are composed here, broker-side, from the two fixed
+ * repository constants plus the request's own `targetVersion` — never
+ * from anything else in the request, and there is nothing else in the
+ * request to compose them from (`PanelSelfUpdateApplyRequestSchema` has
+ * exactly one field).
+ *
+ * The launched updater itself runs the broker's own *current* image
+ * (`broker.image` below — not either target image, neither of which has
+ * been pulled yet at launch time) with an alternate command
+ * (`launch-updater.ts`) — see docs/design/self-update.md §1 for why this
+ * container, not this request-handling process, is what recreates
+ * `dwg-broker`.
+ *
+ * **Not yet wired here (SU-C):** the audited DB record. `dwg-broker` has
+ * no database (SECURITY.md §4.1) — the real audit entry is written
+ * server-side once `dwg-server` discovers the outcome, exactly like
+ * `update.apply_refused` already is for the unrelated docker-mailserver
+ * refusal (`updates.routes.ts`). What this handler can and does do today
+ * is its own operational log line, which is not a substitute for that
+ * audit row and is not presented as one.
+ */
+async function handlePanelSelfUpdateApply(
+  body: Extract<BrokerRequest, { operation: 'panel.selfUpdateApply' }>,
+  deps: OperationDeps,
+): Promise<PanelSelfUpdateApplyResponse> {
+  const all = await callDocker(deps, 'panel.selfUpdateApply', () =>
+    deps.docker.listContainers({ all: true }),
+  );
+  const { server, broker } = resolvePanelIdentities(deps, all, 'panel.selfUpdateApply');
+  const brokerContainer = all.find((container) => container.id === broker.id);
+  if (brokerContainer === undefined) {
+    // Unreachable given resolvePanelIdentities found `broker` in `all`
+    // above; satisfies noUncheckedIndexedAccess without a non-null
+    // assertion, matching container-resolver.ts's own such guard.
+    throw new BrokerError('INTERNAL', "Could not read the broker's own container record.");
+  }
+
+  const serverImageRef = panelImageReference(PANEL_SERVER_REPOSITORY, body.targetVersion);
+  const brokerImageRef = panelImageReference(PANEL_BROKER_REPOSITORY, body.targetVersion);
+
+  await callDocker(deps, 'panel.selfUpdateApply', () =>
+    launchUpdater(deps.docker, {
+      brokerOwnImage: brokerContainer.image,
+      // The container's own *resolved* name (from Docker's own listing),
+      // never the configured identity verbatim — that identity may be
+      // label-based, in which case its `containerName` is `null` and
+      // could not be used to find the container by name later anyway
+      // (`updater.ts`'s `resolveIdByName`).
+      serverContainerName: server.name,
+      brokerContainerName: broker.name,
+      serverImageRef,
+      brokerImageRef,
+    }),
+  );
+
+  deps.logger.info(
+    { targetVersion: body.targetVersion, serverImageRef, brokerImageRef },
+    'panel.selfUpdateApply: launched the self-update updater',
+  );
+
+  return { started: true };
+}
+
 export async function handleOperation(body: BrokerRequest, deps: OperationDeps): Promise<unknown> {
   switch (body.operation) {
     case 'container.list':
@@ -559,6 +752,10 @@ export async function handleOperation(body: BrokerRequest, deps: OperationDeps):
       return handleConsoleExec(body, deps);
     case 'panel.restart':
       return handlePanelRestart(deps);
+    case 'panel.selfUpdateCheck':
+      return handlePanelSelfUpdateCheck(deps);
+    case 'panel.selfUpdateApply':
+      return handlePanelSelfUpdateApply(body, deps);
     // M16 — the docker-mailserver vocabulary (`dms/handlers.ts`). The
     // three state reads are named individually; every command operation
     // shares one handler, because the thing that differs between them is

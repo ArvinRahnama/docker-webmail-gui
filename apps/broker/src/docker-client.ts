@@ -14,6 +14,7 @@ import type {
   RawContainerListItem,
   RawContainerInspect,
   RawContainerMount,
+  RawContainerRecreateSpec,
   RawContainerStats,
   RawExecResult,
   RawImage,
@@ -84,6 +85,33 @@ function toContainerInspect(raw: Dockerode.ContainerInspectInfo): RawContainerIn
       health: raw.State.Health?.Status ?? null,
     },
     mounts: raw.Mounts.map(toContainerMount),
+  };
+}
+
+/**
+ * Captures a container's own already-deployed configuration for panel
+ * self-update (`docker-types.ts`'s own doc comment on
+ * {@link RawContainerRecreateSpec} explains why this is a separate,
+ * internal-only mapping from {@link toContainerInspect} rather than an
+ * extension of it). `HostConfig` and `NetworkSettings.Networks` are
+ * carried through opaquely — this project never reads a field out of
+ * either, only clones and later replays them verbatim, which is exactly
+ * why a loose `Record<string, unknown>` cast is the honest type here
+ * rather than a hand-maintained duplicate of Docker's own `HostConfig`
+ * shape. `NetworkSettings.Networks` (inspect's per-network endpoint
+ * settings) is fed back as `NetworkingConfig.EndpointsConfig` unchanged
+ * on the create side below — the same shape Docker's own API uses on
+ * both sides of that round-trip.
+ */
+function toContainerRecreateSpec(raw: Dockerode.ContainerInspectInfo): RawContainerRecreateSpec {
+  return {
+    name: stripLeadingSlash(raw.Name),
+    image: raw.Image,
+    env: raw.Config.Env ?? [],
+    labels: raw.Config.Labels ?? {},
+    cmd: raw.Config.Cmd ?? null,
+    hostConfig: (raw.HostConfig ?? {}) as unknown as Record<string, unknown>,
+    networkingConfig: (raw.NetworkSettings?.Networks ?? {}) as unknown as Record<string, unknown>,
   };
 }
 
@@ -430,6 +458,51 @@ export function createRealDockerApi(socketPath: string): DockerApi {
         // not an expected path.
         exitCode: inspection.ExitCode ?? -1,
       };
+    },
+
+    // ------------------------------------------------------------------
+    // Panel self-update only (docs/design/self-update.md §1-2). See
+    // docker-types.ts's own header comment on why these four exist
+    // outside the "every method backs a BrokerOperation" rule the rest of
+    // this interface follows.
+    // ------------------------------------------------------------------
+
+    async pullImage(reference): Promise<void> {
+      // `docker.pull` resolves as soon as the pull *starts*, with the raw
+      // progress stream — not when it finishes. `modem.followProgress`
+      // (the standard dockerode idiom for this exact gap) drains that
+      // stream and resolves/rejects once the daemon reports the pull
+      // actually complete.
+      const stream = await docker.pull(reference);
+      await new Promise<void>((resolve, reject) => {
+        docker.modem.followProgress(stream, (err: Error | null) => {
+          if (err) reject(err);
+          else resolve();
+        });
+      });
+    },
+
+    async inspectContainerForRecreate(id): Promise<RawContainerRecreateSpec> {
+      const raw = await docker.getContainer(id).inspect();
+      return toContainerRecreateSpec(raw);
+    },
+
+    async createContainer(spec): Promise<{ readonly id: string }> {
+      const container = await docker.createContainer({
+        name: spec.name,
+        Image: spec.image,
+        Env: [...spec.env],
+        Labels: { ...spec.labels },
+        Cmd: spec.cmd === null ? undefined : [...spec.cmd],
+        // Opaque pass-through — see toContainerRecreateSpec's doc comment.
+        HostConfig: spec.hostConfig as Dockerode.ContainerCreateOptions['HostConfig'],
+        NetworkingConfig: { EndpointsConfig: spec.networkingConfig as Dockerode.EndpointsConfig },
+      });
+      return { id: container.id };
+    },
+
+    async removeContainer(id, options): Promise<void> {
+      await docker.getContainer(id).remove({ force: options?.force ?? false });
     },
   };
 }

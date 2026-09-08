@@ -190,6 +190,13 @@ function createStubDocker(overrides: Partial<DockerApi> = {}): DockerApi {
     execContainer: async () => ({ stdout: 'stub output\n', stderr: '', exitCode: 0 }),
     getContainerArchive: () => Promise.reject(new Error('not stubbed')),
     putContainerArchive: () => Promise.reject(new Error('not stubbed')),
+    // Panel self-update only (docs/design/self-update.md) — not exercised
+    // by any test in this file, which covers the app/route layer, not
+    // self-update's own operation logic (operations.test.ts).
+    pullImage: () => Promise.reject(new Error('not stubbed')),
+    inspectContainerForRecreate: () => Promise.reject(new Error('not stubbed')),
+    createContainer: () => Promise.reject(new Error('not stubbed')),
+    removeContainer: () => Promise.reject(new Error('not stubbed')),
     ...overrides,
   };
 }

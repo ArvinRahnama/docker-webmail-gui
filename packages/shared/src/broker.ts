@@ -78,6 +78,29 @@ export const BROKER_OPERATIONS = [
   // resolve to its own container — `apps/broker/src/operations.ts`). Zero
   // parameters, the same as `image.prune`: it means exactly one thing.
   'panel.restart',
+  // Panel self-update (docs/design/self-update.md — design approved, this
+  // is the first build chunk: contract only, no handler yet). Two
+  // operations, the same "named intent, resolved broker-side, no spec
+  // from the caller" shape every operation above already follows:
+  // `panel.selfUpdateCheck` is a read (zero parameters, like
+  // `image.prune`) reporting what the panel's own two containers are
+  // currently running and whether a recreate is even possible for this
+  // install (a build-mode install has no registry image to pull —
+  // §9.8 of the design doc). `panel.selfUpdateApply` carries exactly one
+  // field, `targetVersion` — a bare semver string, never an image
+  // reference, registry host, repository name, or digest. The broker
+  // composes both full image references itself from fixed, hardcoded repo
+  // constants plus this version (`ghcr.io/arvinrahnama/
+  // docker-webmail-gui-server`/`-broker`); there is no field in either
+  // schema a caller could use to name a different repository, registry,
+  // or a `@sha256:`-pinned digest, and `.strict()` plus the version
+  // field's own regex keep that true even if a caller tried
+  // (`broker.test.ts`'s poisoning sweep covers both). Resolving *which*
+  // version to target (§9.1: auto-latest only, no picker in v1) happens
+  // entirely server-side, before either operation is ever called — see
+  // `SelfUpdateReleaseSourcePort` (apps/server/src/drivers/self-update/).
+  'panel.selfUpdateCheck',
+  'panel.selfUpdateApply',
   // The docker-mailserver half (M16 — `dms.ts`). Spread rather than
   // re-listed: one source for the names, the request schemas and the
   // response map, so an operation cannot exist in one and not the others.
@@ -249,6 +272,45 @@ export const PanelRestartRequestSchema = z
   .strict();
 
 /**
+ * No parameters, the same as `panel.restart`/`image.prune`: a read that
+ * always means exactly one thing — "what are the panel's own two
+ * containers currently running, and could a recreate even happen for
+ * this install." The broker resolves `panelServer`/`panelBroker` from its
+ * own configuration to answer it, never from anything in this request.
+ */
+export const PanelSelfUpdateCheckRequestSchema = z
+  .object({ operation: z.literal('panel.selfUpdateCheck') })
+  .strict();
+
+/**
+ * `targetVersion` is the *only* field, and it is a bare semver string —
+ * never an image reference, a registry host, a repository name, or a
+ * digest. The broker composes both full image references itself from
+ * fixed, hardcoded repository constants
+ * (`ghcr.io/arvinrahnama/docker-webmail-gui-server`/`-broker`) plus this
+ * version; there is no field here a caller could use to point either
+ * recreate at a different repository or registry, or pin a `@sha256:`
+ * digest instead of the resolved tag. The regex is deliberately strict
+ * (exactly three numeric segments, nothing else) — a value like
+ * `"1.0.0@sha256:deadbeef"`, `"1.0.0-rc1"`, or `"latest"` fails to parse,
+ * not merely fails some later, separate check. Per docs/design/
+ * self-update.md §9.1 (auto-latest only, no version picker in v1) the web
+ * tier only ever sends what the server itself resolved from
+ * `SelfUpdateReleaseSourcePort` — never anything an admin typed — but
+ * this schema does not rely on that being true; it is unconditionally
+ * shaped so nothing else could ever be smuggled through even if a caller
+ * tried, exactly like every other operation in this file.
+ */
+export const PanelSelfUpdateApplyRequestSchema = z
+  .object({
+    operation: z.literal('panel.selfUpdateApply'),
+    targetVersion: z
+      .string()
+      .regex(/^\d+\.\d+\.\d+$/, 'targetVersion must be a bare semver version, e.g. "0.4.0"'),
+  })
+  .strict();
+
+/**
  * Every request schema, in enum order. Exported (not just embedded in the
  * union below) so `broker.test.ts` can iterate all of them generically —
  * both to build the union and to run the "no dangerous field" security
@@ -274,6 +336,8 @@ export const BROKER_REQUEST_SCHEMAS = [
   LogsFileRequestSchema,
   ConsoleExecRequestSchema,
   PanelRestartRequestSchema,
+  PanelSelfUpdateCheckRequestSchema,
+  PanelSelfUpdateApplyRequestSchema,
   ...DMS_REQUEST_SCHEMAS,
 ] as const;
 
@@ -556,6 +620,42 @@ export const ConsoleExecResponseSchema = z.object({
 export type ConsoleExecResponse = z.infer<typeof ConsoleExecResponseSchema>;
 
 /**
+ * What the broker can honestly report from Docker state alone —
+ * `docker inspect` for each of the panel's own two containers, plus
+ * whether this install even has a registry image to pull (`updatePossible`
+ * is `false` for a `DWG_IMAGE_MODE=build` install, docs/design/
+ * self-update.md §9.8 — there is a running image, but nothing published
+ * to pull a *newer* one from). Deliberately does **not** say whether a
+ * newer version exists: that question needs `SelfUpdateReleaseSourcePort`
+ * (apps/server/src/drivers/self-update/), an outbound HTTPS call the
+ * broker never makes — the server combines this response with that
+ * port's answer to produce the page-level verdict. `serverVersion`/
+ * `brokerVersion` are reported separately, not collapsed into one value:
+ * an interrupted previous update could genuinely leave the two containers
+ * on different versions, and that is exactly the state this operation
+ * exists to make visible rather than average away.
+ */
+export const PanelSelfUpdateCheckResponseSchema = z.object({
+  serverVersion: z.string(),
+  brokerVersion: z.string(),
+  updatePossible: z.boolean(),
+  /** Present only when `updatePossible` is `false`. */
+  reason: z.string().nullable(),
+});
+export type PanelSelfUpdateCheckResponse = z.infer<typeof PanelSelfUpdateCheckResponseSchema>;
+
+/**
+ * `started: true` and nothing else — the real outcome (success, rolled
+ * back, or failed) is never known synchronously, because the process
+ * that would report it is deliberately about to be replaced
+ * (docs/design/self-update.md §6). The server discovers the real outcome
+ * later through a separate, not-yet-built status read (SU-C), never
+ * through this response.
+ */
+export const PanelSelfUpdateApplyResponseSchema = z.object({ started: z.literal(true) });
+export type PanelSelfUpdateApplyResponse = z.infer<typeof PanelSelfUpdateApplyResponseSchema>;
+
+/**
  * Operation name -> response schema. `satisfies Record<BrokerOperation, …>`
  * makes the mapping's completeness a compile-time property: adding an
  * operation to {@link BROKER_OPERATIONS} without adding its response
@@ -585,6 +685,8 @@ export const BROKER_RESPONSE_SCHEMAS = {
   'logs.file': LogsFileResponseSchema,
   'console.exec': ConsoleExecResponseSchema,
   'panel.restart': OperationAckSchema,
+  'panel.selfUpdateCheck': PanelSelfUpdateCheckResponseSchema,
+  'panel.selfUpdateApply': PanelSelfUpdateApplyResponseSchema,
   ...DMS_RESPONSE_SCHEMAS,
 } satisfies Record<BrokerOperation, z.ZodTypeAny>;
 

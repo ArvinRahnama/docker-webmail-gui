@@ -11,6 +11,7 @@ import {
   LogsFileRequestSchema,
   LOGS_TAIL_MAX,
   LOGS_TAIL_MIN,
+  PanelSelfUpdateApplyRequestSchema,
   type BrokerOperation,
 } from './broker.js';
 import { DMS_COMMAND_OPERATIONS, DmsExecResponseSchema } from './dms.js';
@@ -41,6 +42,12 @@ describe('BROKER_OPERATIONS', () => {
       'logs.file',
       'console.exec',
       'panel.restart',
+      // Panel self-update (docs/design/self-update.md, build chunk SU-A —
+      // contract only, no handler yet). Same discipline as `panel.restart`
+      // right above: a read with zero parameters, and a mutation whose
+      // only field is a bare semver string, never an image reference.
+      'panel.selfUpdateCheck',
+      'panel.selfUpdateApply',
       // M16 — the docker-mailserver vocabulary. Written out here in full
       // for the same reason as everything above it: growing the set of
       // things a compromised web tier can ask the privileged tier to do is
@@ -276,6 +283,79 @@ describe('console.exec — a fixed zero-argument command enum, never a client-su
   });
 });
 
+describe('panel.selfUpdateApply — a bare semver version, never an image reference or digest', () => {
+  it('accepts a plain X.Y.Z version', () => {
+    for (const targetVersion of ['0.4.0', '1.0.0', '12.34.56']) {
+      expect(
+        PanelSelfUpdateApplyRequestSchema.safeParse({
+          operation: 'panel.selfUpdateApply',
+          targetVersion,
+        }).success,
+        targetVersion,
+      ).toBe(true);
+    }
+  });
+
+  it('rejects anything that is not exactly three numeric segments', () => {
+    for (const targetVersion of [
+      'latest',
+      'v0.4.0', // the leading "v" is stripped upstream (parseVersionFromTag), never sent here
+      '0.4',
+      '0.4.0.1',
+      '0.4.0-rc1',
+      '0.4.0+build.5',
+      '',
+      ' 0.4.0',
+    ]) {
+      expect(
+        PanelSelfUpdateApplyRequestSchema.safeParse({
+          operation: 'panel.selfUpdateApply',
+          targetVersion,
+        }).success,
+        targetVersion,
+      ).toBe(false);
+    }
+  });
+
+  it('rejects a digest pinned onto an otherwise-valid version', () => {
+    expect(
+      PanelSelfUpdateApplyRequestSchema.safeParse({
+        operation: 'panel.selfUpdateApply',
+        targetVersion: '0.4.0@sha256:deadbeef',
+      }).success,
+    ).toBe(false);
+  });
+
+  it('rejects a full image reference in place of a version', () => {
+    for (const targetVersion of [
+      'ghcr.io/arvinrahnama/docker-webmail-gui-server:0.4.0',
+      'docker-webmail-gui-server:0.4.0',
+      'evil.example.com/whatever:0.4.0',
+    ]) {
+      expect(
+        PanelSelfUpdateApplyRequestSchema.safeParse({
+          operation: 'panel.selfUpdateApply',
+          targetVersion,
+        }).success,
+        targetVersion,
+      ).toBe(false);
+    }
+  });
+
+  it('rejects targetVersion missing entirely, and rejects a well-formed request with an extra field', () => {
+    expect(
+      PanelSelfUpdateApplyRequestSchema.safeParse({ operation: 'panel.selfUpdateApply' }).success,
+    ).toBe(false);
+    expect(
+      PanelSelfUpdateApplyRequestSchema.safeParse({
+        operation: 'panel.selfUpdateApply',
+        targetVersion: '0.4.0',
+        image: 'ghcr.io/arvinrahnama/docker-webmail-gui-server:0.4.0',
+      }).success,
+    ).toBe(false);
+  });
+});
+
 // ---------------------------------------------------------------------------
 // The schema-level security test: no request schema anywhere accepts a
 // HostConfig/Binds/Privileged/CapAdd/PidMode-shaped field. This does not
@@ -296,6 +376,16 @@ describe('BrokerRequestSchema — dangerous Docker fields are structurally impos
     'Mounts',
     'Devices',
     'SecurityOpt',
+    // Panel self-update's own risk shape (docs/design/self-update.md §2):
+    // an image reference, registry host, or repository name smuggled in
+    // alongside (or instead of) `targetVersion`, which the broker composes
+    // itself from fixed constants and never accepts as input.
+    'image',
+    'Image',
+    'registry',
+    'Registry',
+    'repository',
+    'Repository',
   ];
 
   /**
@@ -331,6 +421,14 @@ describe('BrokerRequestSchema — dangerous Docker fields are structurally impos
     // target is resolved broker-side from config, so there is no field
     // here for the poisoning test to widen.
     'panel.restart': { operation: 'panel.restart' },
+    // Panel self-update (SU-A — contract only). `selfUpdateCheck` is the
+    // same zero-parameter shape as `panel.restart` above; `selfUpdateApply`
+    // carries exactly one field, a bare semver string, never an image
+    // reference — which is exactly what the poisoning test below (with the
+    // `image`/`registry`/`repository` keys just added to `DANGEROUS_KEYS`)
+    // exists to keep true as this vocabulary grows.
+    'panel.selfUpdateCheck': { operation: 'panel.selfUpdateCheck' },
+    'panel.selfUpdateApply': { operation: 'panel.selfUpdateApply', targetVersion: '1.2.3' },
     // M16 — the docker-mailserver vocabulary (`dms.ts`). Same discipline as
     // the M9 additions above: a symbolic file key, a closed verb enum, and
     // validated leaf values (an address, a quota, an IP, a script name).
@@ -454,7 +552,7 @@ describe('BROKER_RESPONSE_SCHEMAS', () => {
    * Honest about its own reach, as of M16.
    *
    * The Docker half of this map is written out by hand, so this assertion
-   * is a real cross-check for those 18 operations. The DMS half is not:
+   * is a real cross-check for those 20 operations. The DMS half is not:
    * `DMS_RESPONSE_SCHEMAS` generates its 26 command entries from
    * `DMS_COMMAND_OPERATIONS`, which is derived from the same
    * `DMS_OPERATIONS` list that is spread into `BROKER_OPERATIONS` — so for

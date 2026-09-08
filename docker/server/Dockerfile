@@ -127,6 +127,31 @@ RUN find apps/server/dist packages/shared/dist \
 FROM ${NODE_IMAGE} AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
+
+# Baked at build time, never a compose-level override (docs/design/
+# self-update.md §9.8 — SU-E): the one way this process's own container
+# can honestly answer "what version am I, and was I actually published"
+# for the broker's `panel.selfUpdateCheck` to inspect later
+# (`apps/broker/src/self-update/image-refs.ts`'s `extractBakedImageFacts`
+# reads these straight out of `docker inspect`'s `Config.Env` — this
+# tier holds no Docker socket itself, so it cannot ask Docker "which
+# image am I" the way the broker can for the *other* container).
+# `DWG_IMAGE_ORIGIN` defaults to `source`: a plain `docker build` or
+# `docker compose build` — including the installer's own
+# `DWG_IMAGE_MODE=build` path — never claims to be a registry-published
+# artifact unless told to. Only `.github/workflows/release.yml`'s publish
+# step overrides both ARGs (`origin=registry`, the real release version)
+# when it builds the image that actually gets pushed to GHCR. Distinct
+# from `docker/compose.yaml`'s own `DWG_VERSION` (a *compose*-level
+# variable that only ever selects which image *tag* to build/pull/run —
+# see that file's header) even though the two intentionally share a
+# name: the installer keeps them in lockstep by always building/pulling
+# with this same version as the build arg, but they are two different
+# bindings, and only this one ever reaches a running process.
+ARG DWG_VERSION=0.1.0
+ARG DWG_IMAGE_ORIGIN=source
+ENV DWG_VERSION=${DWG_VERSION}
+ENV DWG_IMAGE_ORIGIN=${DWG_IMAGE_ORIGIN}
 # A dedicated, unprivileged, home-less system user — never the base
 # image's own `node` user, which docker-library's own guidance notes can
 # collide with a *different* UID an operator's host or orchestrator

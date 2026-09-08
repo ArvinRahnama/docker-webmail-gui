@@ -8,6 +8,25 @@
  * `operations.ts`'s handlers and `updater.ts`'s state machine both import
  * from here rather than each hardcoding the strings themselves, so the
  * two can never drift onto different repositories.
+ *
+ * {@link extractBakedImageFacts} is the SU-E addition (docs/design/
+ * self-update.md §9.8): the panel's own version *and* whether it was
+ * installed from a registry-pulled image or built locally from source,
+ * read from a container's baked `DWG_VERSION`/`DWG_IMAGE_ORIGIN`
+ * environment entries (`docker/server/Dockerfile`,
+ * `docker/broker/Dockerfile` — build ARGs turned into image `ENV`, never
+ * a compose-level override, so an operator cannot casually flip a local
+ * build's reported origin by editing `.env`). This replaces the previous
+ * `extractPanelVersion(repoTags, …)` join for `panel.selfUpdateCheck`
+ * specifically: `docker/compose.yaml`'s own header already notes that a
+ * pulled and a locally-built image end up under the *identical* tag
+ * (both `image:` and `build:` name the same reference), so the tag alone
+ * can never answer "was this actually published, or built right here" —
+ * only a value baked into the image itself can. `extractPanelVersion`
+ * remains exactly as it was for its one other caller, `updater.ts`'s
+ * `resolveFromVersion` (recovering a rollback plan's *historical*
+ * version from an already-captured spec's digest — an unrelated
+ * question with no "was this genuinely published" implication).
  */
 
 export const PANEL_SERVER_REPOSITORY = 'ghcr.io/arvinrahnama/docker-webmail-gui-server';
@@ -54,4 +73,50 @@ export function extractPanelVersion(
  */
 export function versionFromReference(reference: string): string {
   return reference.slice(reference.lastIndexOf(':') + 1);
+}
+
+/** The two states a panel container's image can honestly claim (docs/design/self-update.md §9.8). `'registry'` only ever comes from the release workflow's own `--build-arg`; every other build — a plain `docker build`, `docker compose build`, the installer's `DWG_IMAGE_MODE=build` path — leaves the Dockerfile's own default in place. */
+export const DWG_IMAGE_ORIGINS = ['registry', 'source'] as const;
+export type DwgImageOrigin = (typeof DWG_IMAGE_ORIGINS)[number];
+
+/** What {@link extractBakedImageFacts} recovers from one container's baked env — either field is `null`, never fabricated, when the corresponding entry is absent or does not parse (e.g. an image built before this baking existed at all, which is correctly treated as "cannot self-update", not guessed at). */
+export interface BakedImageFacts {
+  readonly version: string | null;
+  readonly origin: DwgImageOrigin | null;
+}
+
+const DWG_VERSION_ENV_KEY = 'DWG_VERSION';
+const DWG_IMAGE_ORIGIN_ENV_KEY = 'DWG_IMAGE_ORIGIN';
+
+/**
+ * Reads a container's baked `DWG_VERSION`/`DWG_IMAGE_ORIGIN` straight out
+ * of its own `env` (`RawContainerRecreateSpec.env` — Docker's own
+ * `KEY=VALUE` convention, `docker inspect`'s `Config.Env`). Deliberately
+ * takes the *whole* env array and scans it, rather than assuming a fixed
+ * index: Docker itself is the one that merges an image's baked `ENV`
+ * with any container-level override into this single final list, and
+ * this function has no reason to re-implement that merge — it only ever
+ * sees the result Docker already produced.
+ */
+export function extractBakedImageFacts(env: readonly string[]): BakedImageFacts {
+  let version: string | null = null;
+  let origin: DwgImageOrigin | null = null;
+
+  for (const entry of env) {
+    const separatorIndex = entry.indexOf('=');
+    if (separatorIndex === -1) continue;
+    const key = entry.slice(0, separatorIndex);
+    const value = entry.slice(separatorIndex + 1);
+
+    if (key === DWG_VERSION_ENV_KEY && /^\d+\.\d+\.\d+$/.test(value)) {
+      version = value;
+    } else if (
+      key === DWG_IMAGE_ORIGIN_ENV_KEY &&
+      (DWG_IMAGE_ORIGINS as readonly string[]).includes(value)
+    ) {
+      origin = value as DwgImageOrigin;
+    }
+  }
+
+  return { version, origin };
 }

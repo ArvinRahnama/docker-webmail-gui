@@ -104,6 +104,36 @@ describe('PanelUpdateCard — renders current vs latest', () => {
       screen.getByText(/Could not determine the currently running version/),
     ).toBeInTheDocument();
   });
+
+  // SU-E (docs/design/self-update.md §9.8): a source-built install still
+  // resolves a real version (the baked marker, not a possibly-":local"
+  // image tag) — it is not "unknown" the way a pre-SU-E image is — but is
+  // refused all the same, with its own distinct reason, and Apply must be
+  // disabled either way.
+  it('shows the source-built refusal reason verbatim and disables Apply, even though a version resolved', async () => {
+    vi.mocked(fetchPanelUpdateStatus).mockResolvedValue(
+      makePanelStatus({
+        currentVersion: '0.3.0',
+        latestVersion: '0.4.0',
+        updatePossible: false,
+        updateAvailable: false,
+        reason:
+          'Self-update is only available for registry-image installs; source-built installs update by rebuilding/redeploying.',
+      }),
+    );
+    vi.mocked(fetchUpdateStatus).mockResolvedValue(makeDmsStatus());
+
+    renderCard();
+
+    expect(await screen.findByText('Version unknown')).toBeInTheDocument();
+    expect(screen.getByText('0.3.0')).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        'Self-update is only available for registry-image installs; source-built installs update by rebuilding/redeploying.',
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Apply panel update' })).toBeDisabled();
+  });
 });
 
 describe('PanelUpdateCard — Tier 4 confirm (type-to-confirm + backup gate)', () => {

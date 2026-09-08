@@ -54,6 +54,16 @@ services:
     build:
       context: ..
       dockerfile: docker/server/Dockerfile
+      # Bakes this checkout's own configured version into the image
+      # (docs/design/self-update.md §9.8 — SU-E, `docker/server/
+      # Dockerfile`'s own header on the ARG this feeds). Deliberately no
+      # `DWG_IMAGE_ORIGIN` arg here: a `docker compose build` — including
+      # the installer's own `DWG_IMAGE_MODE=build` path — always leaves
+      # that Dockerfile ARG at its `source` default; only the release
+      # workflow's own build (never this file) ever overrides it to
+      # `registry`.
+      args:
+        DWG_VERSION: ${DWG_VERSION:-0.1.0}
     image: ghcr.io/arvinrahnama/docker-webmail-gui-server:${DWG_VERSION:-0.1.0}
     # A fixed, predictable name so the broker can resolve this container for
     # `panel.restart` and keep it visible in the filtered container list. The
@@ -158,6 +168,9 @@ services:
     build:
       context: ..
       dockerfile: docker/broker/Dockerfile
+      # Same reasoning as `server`'s own `build.args` above.
+      args:
+        DWG_VERSION: ${DWG_VERSION:-0.1.0}
     image: ghcr.io/arvinrahnama/docker-webmail-gui-broker:${DWG_VERSION:-0.1.0}
     # Fixed name so `panel.restart` can never resolve the panel-server
     # identity to the broker (the broker refuses that outright regardless),

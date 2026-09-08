@@ -12,6 +12,7 @@ import { handleOperation, type OperationDeps } from './operations.js';
 import type {
   DockerApi,
   RawContainerListItem,
+  RawContainerRecreateSpec,
   RawImage,
   RawNetwork,
   RawVolume,
@@ -324,16 +325,58 @@ const SELF_UPDATE_IMAGES: readonly RawImage[] = [
   },
 ];
 
-function selfUpdateDocker(overrides: Partial<DockerApi> = {}): DockerApi {
+/**
+ * `inspectContainerForRecreate` fixtures, keyed by container id (SU-E,
+ * docs/design/self-update.md §9.8) — what `panel.selfUpdateCheck` now
+ * reads `serverVersion`/`brokerVersion`/`updatePossible` from, in place
+ * of the old `listImages()` repo-tag join. `SELF_UPDATE_IMAGES` above is
+ * kept only as an unrelated-fixture backdrop (still returned by
+ * `listImages()`, still never consulted by this handler any more) — not
+ * because this handler still needs it.
+ */
+function recreateSpec(overrides: Partial<RawContainerRecreateSpec>): RawContainerRecreateSpec {
+  return {
+    name: 'x',
+    image: 'image:latest',
+    env: ['DWG_VERSION=0.3.0', 'DWG_IMAGE_ORIGIN=registry'],
+    labels: {},
+    cmd: null,
+    hostConfig: {},
+    networkingConfig: {},
+    ...overrides,
+  };
+}
+
+const SELF_UPDATE_RECREATE_SPECS: Readonly<Record<string, RawContainerRecreateSpec>> = {
+  'id-dwg-server': recreateSpec({
+    name: 'dwg-server',
+    image: 'ghcr.io/arvinrahnama/docker-webmail-gui-server:0.3.0',
+  }),
+  'id-dwg-broker': recreateSpec({
+    name: 'dwg-broker',
+    image: 'ghcr.io/arvinrahnama/docker-webmail-gui-broker:0.3.0',
+  }),
+};
+
+function selfUpdateDocker(
+  overrides: Partial<DockerApi> = {},
+  recreateSpecs: Readonly<Record<string, RawContainerRecreateSpec>> = SELF_UPDATE_RECREATE_SPECS,
+): DockerApi {
   return stubDocker({
     listContainers: vi.fn(async () => SELF_UPDATE_CONTAINERS),
     listImages: vi.fn(async () => SELF_UPDATE_IMAGES),
+    inspectContainerForRecreate: vi.fn(async (id: string) => {
+      const spec = recreateSpecs[id];
+      if (spec === undefined)
+        throw new Error(`selfUpdateDocker: no recreate spec fixture for ${id}`);
+      return spec;
+    }),
     ...overrides,
   });
 }
 
 describe('panel.selfUpdateCheck', () => {
-  it("reports both containers' current versions when they resolve cleanly", async () => {
+  it("reports both containers' current versions when they resolve cleanly, both registry-origin", async () => {
     const result = await handleOperation(
       { operation: 'panel.selfUpdateCheck' },
       deps(selfUpdateDocker()),
@@ -346,8 +389,16 @@ describe('panel.selfUpdateCheck', () => {
     });
   });
 
-  it('reports updatePossible: false, honestly (never a fabricated version), when no local image matches', async () => {
-    const docker = selfUpdateDocker({ listImages: vi.fn(async () => []) });
+  it('reports updatePossible: false, honestly (never a fabricated version), when the baked version marker is missing entirely', async () => {
+    // Simulates an image built before SU-E shipped: no DWG_VERSION/
+    // DWG_IMAGE_ORIGIN in its env at all.
+    const docker = selfUpdateDocker(
+      {},
+      {
+        'id-dwg-server': recreateSpec({ name: 'dwg-server', env: ['PATH=/usr/bin'] }),
+        'id-dwg-broker': recreateSpec({ name: 'dwg-broker', env: ['PATH=/usr/bin'] }),
+      },
+    );
     const result = (await handleOperation(
       { operation: 'panel.selfUpdateCheck' },
       deps(docker),
@@ -360,7 +411,54 @@ describe('panel.selfUpdateCheck', () => {
     expect(result.serverVersion).toBeNull();
     expect(result.brokerVersion).toBeNull();
     expect(result.updatePossible).toBe(false);
-    expect(result.reason).toMatch(/built from source|local image tags/i);
+    expect(result.reason).toMatch(/baked version|predates/i);
+  });
+
+  it('reports updatePossible: false with the source-install reason when the server container is source-origin, even though its version resolves', async () => {
+    const docker = selfUpdateDocker(
+      {},
+      {
+        'id-dwg-server': recreateSpec({
+          name: 'dwg-server',
+          env: ['DWG_VERSION=0.3.0', 'DWG_IMAGE_ORIGIN=source'],
+        }),
+        'id-dwg-broker': SELF_UPDATE_RECREATE_SPECS['id-dwg-broker']!,
+      },
+    );
+    const result = (await handleOperation(
+      { operation: 'panel.selfUpdateCheck' },
+      deps(docker),
+    )) as {
+      serverVersion: string | null;
+      brokerVersion: string | null;
+      updatePossible: boolean;
+      reason: string | null;
+    };
+    // The version is still honestly reported — the refusal is about
+    // origin, not about being unable to determine a version at all.
+    expect(result.serverVersion).toBe('0.3.0');
+    expect(result.brokerVersion).toBe('0.3.0');
+    expect(result.updatePossible).toBe(false);
+    expect(result.reason).toMatch(/registry-image installs/i);
+  });
+
+  it('reports updatePossible: false when only the broker (not the server) is source-origin — either container refuses the whole check', async () => {
+    const docker = selfUpdateDocker(
+      {},
+      {
+        'id-dwg-server': SELF_UPDATE_RECREATE_SPECS['id-dwg-server']!,
+        'id-dwg-broker': recreateSpec({
+          name: 'dwg-broker',
+          env: ['DWG_VERSION=0.3.0', 'DWG_IMAGE_ORIGIN=source'],
+        }),
+      },
+    );
+    const result = (await handleOperation(
+      { operation: 'panel.selfUpdateCheck' },
+      deps(docker),
+    )) as { updatePossible: boolean; reason: string | null };
+    expect(result.updatePossible).toBe(false);
+    expect(result.reason).toMatch(/registry-image installs/i);
   });
 
   it('refuses when the panel identities do not each resolve to exactly one match', async () => {

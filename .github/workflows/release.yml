@@ -95,6 +95,17 @@ jobs:
           context: .
           file: ${{ matrix.dockerfile }}
           push: true
+          # Bakes the real version and `registry` origin into the image
+          # (docs/design/self-update.md §9.8 — SU-E): the one build that
+          # is actually allowed to claim `DWG_IMAGE_ORIGIN=registry`,
+          # since this is the one build whose output this workflow itself
+          # pushes to GHCR. Every other build of these two Dockerfiles —
+          # a plain `docker build`, `docker compose build`, the
+          # installer's own `DWG_IMAGE_MODE=build` path — leaves the
+          # Dockerfile's own `source` default in place.
+          build-args: |
+            DWG_VERSION=${{ steps.version.outputs.version }}
+            DWG_IMAGE_ORIGIN=registry
           tags: |
             ghcr.io/${{ steps.version.outputs.owner }}/${{ matrix.image }}:${{ steps.version.outputs.version }}
             ghcr.io/${{ steps.version.outputs.owner }}/${{ matrix.image }}:${{ steps.version.outputs.minor }}

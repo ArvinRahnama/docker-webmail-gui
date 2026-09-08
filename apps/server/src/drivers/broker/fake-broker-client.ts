@@ -308,9 +308,19 @@ export class FakeBrokerClient implements BrokerClient {
   }
 
   // -------------------------------------------------------------------------
-  // Panel self-update (docs/design/self-update.md — SU-C).
+  // Panel self-update (docs/design/self-update.md — SU-C, SU-E).
   // -------------------------------------------------------------------------
 
+  /**
+   * Fixed, always-possible: development's own baked-in "registry-origin
+   * install" state — the more interesting one to build the UI against,
+   * matching `FakeSelfUpdateReleaseSource`'s identical reasoning for
+   * always resolving an update as available. A test that specifically
+   * wants the source-built/`updatePossible: false` state (SU-E) overrides
+   * this method directly, the same way `updates.routes.test.ts`/
+   * `panel-self-update.service.test.ts` already override other
+   * `FakeBrokerClient` methods with `Object.assign`.
+   */
   async panelSelfUpdateCheck(): Promise<PanelSelfUpdateCheckResponse> {
     return {
       serverVersion: FIXTURE_PANEL_VERSION,

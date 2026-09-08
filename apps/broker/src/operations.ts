@@ -74,7 +74,7 @@ import {
   handleDmsFileRead,
 } from './dms/handlers.js';
 import {
-  extractPanelVersion,
+  extractBakedImageFacts,
   panelImageReference,
   PANEL_BROKER_REPOSITORY,
   PANEL_SERVER_REPOSITORY,
@@ -601,12 +601,26 @@ function resolvePanelIdentities(
  * What the broker can honestly report from Docker state alone — see
  * `PanelSelfUpdateCheckResponseSchema`'s own doc comment (`@dwg/shared`)
  * for why this deliberately does not say whether a *newer* version
- * exists. `serverVersion`/`brokerVersion` come from the same
- * digest-to-repo-tag join `apps/server/src/modules/updates/updates.service.ts`
- * already uses for the (unrelated) docker-mailserver comparison: a
- * container's own `image` field is a content digest, never a tag, so the
- * human-readable version has to be recovered from `listImages()`'s
- * `repoTags` for the image with that same id.
+ * exists.
+ *
+ * `serverVersion`/`brokerVersion` and the `updatePossible` gate both come
+ * from each container's own *baked* `DWG_VERSION`/`DWG_IMAGE_ORIGIN` env
+ * entries (SU-E, docs/design/self-update.md §9.8) via
+ * `extractBakedImageFacts` — not from `listImages()`'s repo-tag join the
+ * way this handler used to work. That join could not tell "this image
+ * was pulled from the registry" from "this image was built locally from
+ * source": `docker/compose.yaml`'s own header notes both end up under
+ * the *identical* tag (`image:` and `build:` name the same reference),
+ * so two containers with a version-looking tag could still be a
+ * published release and an arbitrary local build respectively — pulling
+ * a *newer* published tag onto a container that never came from the
+ * registry to begin with is not a safe operation this panel can vouch
+ * for. Each container's own env is inspected independently (never "ask
+ * the broker about itself, ask Docker about the other one") via
+ * `inspectContainerForRecreate` — already broker-internal, already used
+ * by the self-update flow proper (`updater.ts`) to capture this exact
+ * `env` field, so this is a lighter, read-only reuse of that same seam
+ * rather than a new one.
  */
 async function handlePanelSelfUpdateCheck(
   deps: OperationDeps,
@@ -616,21 +630,17 @@ async function handlePanelSelfUpdateCheck(
   );
   const { server, broker } = resolvePanelIdentities(deps, all, 'panel.selfUpdateCheck');
 
-  const serverContainer = all.find((container) => container.id === server.id);
-  const brokerContainer = all.find((container) => container.id === broker.id);
+  const serverSpec = await callDocker(deps, 'panel.selfUpdateCheck', () =>
+    deps.docker.inspectContainerForRecreate(server.id),
+  );
+  const brokerSpec = await callDocker(deps, 'panel.selfUpdateCheck', () =>
+    deps.docker.inspectContainerForRecreate(broker.id),
+  );
 
-  const images = await callDocker(deps, 'panel.selfUpdateCheck', () => deps.docker.listImages());
-  const serverImage = images.find((image) => image.id === serverContainer?.image);
-  const brokerImage = images.find((image) => image.id === brokerContainer?.image);
-
-  const serverVersion =
-    serverImage === undefined
-      ? null
-      : extractPanelVersion(serverImage.repoTags, PANEL_SERVER_REPOSITORY);
-  const brokerVersion =
-    brokerImage === undefined
-      ? null
-      : extractPanelVersion(brokerImage.repoTags, PANEL_BROKER_REPOSITORY);
+  const serverFacts = extractBakedImageFacts(serverSpec.env);
+  const brokerFacts = extractBakedImageFacts(brokerSpec.env);
+  const { version: serverVersion } = serverFacts;
+  const { version: brokerVersion } = brokerFacts;
 
   if (serverVersion === null || brokerVersion === null) {
     return {
@@ -638,7 +648,17 @@ async function handlePanelSelfUpdateCheck(
       brokerVersion,
       updatePossible: false,
       reason:
-        'Could not determine the currently running version from local image tags. This can happen for an install built from source rather than pulled from the registry (docs/design/self-update.md §9.8).',
+        'Could not determine the currently running version from the baked version marker. This install may predate self-update support — rebuild or redeploy to pick it up (docs/design/self-update.md §9.8).',
+    };
+  }
+
+  if (serverFacts.origin !== 'registry' || brokerFacts.origin !== 'registry') {
+    return {
+      serverVersion,
+      brokerVersion,
+      updatePossible: false,
+      reason:
+        'Self-update is only available for registry-image installs; source-built installs update by rebuilding/redeploying.',
     };
   }
 

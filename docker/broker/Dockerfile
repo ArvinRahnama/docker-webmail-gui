@@ -75,6 +75,23 @@ RUN find apps/broker/dist packages/shared/dist \
 FROM ${NODE_IMAGE} AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
+
+# Baked at build time, never a compose-level override (docs/design/
+# self-update.md §9.8 — SU-E) — see docker/server/Dockerfile's identical
+# block for the full reasoning. This tier needs its own copy even though
+# it holds the Docker socket and could in principle just read its own
+# `process.env`: `operations.ts`'s `handlePanelSelfUpdateCheck`
+# deliberately inspects *both* panel containers the same uniform way
+# (`inspectContainerForRecreate` -> `docker inspect`'s own `Config.Env`,
+# via `extractBakedImageFacts`) rather than special-casing "read my own
+# env directly, ask Docker about the other one" — one code path, and this
+# is what makes that container's own `docker inspect` report these two
+# values honestly when the broker inspects itself the same way it
+# inspects `dwg-server`.
+ARG DWG_VERSION=0.1.0
+ARG DWG_IMAGE_ORIGIN=source
+ENV DWG_VERSION=${DWG_VERSION}
+ENV DWG_IMAGE_ORIGIN=${DWG_IMAGE_ORIGIN}
 # A dedicated, unprivileged user — *not* root, despite holding the Docker
 # socket. Read/write access to the socket is still effectively root-on-
 # the-host (AGENT_BRIEF.md §2's whole reason this tier is separated out

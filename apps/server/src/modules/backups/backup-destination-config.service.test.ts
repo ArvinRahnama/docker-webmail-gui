@@ -102,18 +102,22 @@ describe('BackupDestinationConfigService', () => {
     expect(auditActions(db, 'config.reveal_secret')).toBe(before + 1);
   });
 
-  it('audits config.apply and takes a pre-change snapshot that captures the prior secret', () => {
+  it('audits config.apply and takes a pre-change snapshot with the prior secret redacted', () => {
     const { db, service } = setUp();
     service.update(s3Update(SECRET), ACTOR); // 1 apply, snapshot of the empty prior
     service.update({ ...s3Update(), bucket: 'v2' } as ReturnType<typeof s3Update>, ACTOR); // 2nd apply
 
     expect(auditActions(db, 'config.apply')).toBe(2);
-    // The snapshot taken before the 2nd update holds the prior config, secret included.
+    // The snapshot taken before the 2nd update holds the prior config, but NOT
+    // the plaintext secret: the live config row already holds it, so a second
+    // plaintext copy in a history table is an avoidable exposure. Non-secret
+    // fields (e.g. the bucket the update is about to change) stay verbatim.
     const snapshots = db.all<{ config_json: string }>(
       'SELECT config_json FROM backup_destination_snapshots ORDER BY created_at',
     );
     expect(snapshots.length).toBe(2);
-    expect(snapshots[1]!.config_json).toContain(SECRET);
+    expect(snapshots[1]!.config_json).not.toContain(SECRET);
+    expect(snapshots[1]!.config_json).toContain('my-bucket'); // the prior (pre-'v2') bucket name
   });
 
   it('switching to none clears the resolved destination', () => {
@@ -173,6 +177,24 @@ describe('BackupDestinationConfigService', () => {
     const before = auditActions(db, 'config.reveal_secret');
     expect(service.revealSecret(ACTOR)).toEqual({ value: FTP_PASSWORD });
     expect(auditActions(db, 'config.reveal_secret')).toBe(before + 1);
+  });
+
+  it('takes a pre-change snapshot with the prior FTP password redacted', () => {
+    const { db, service } = setUp();
+    service.update(ftpUpdate(FTP_PASSWORD), ACTOR); // 1 apply, snapshot of the empty prior
+    service.update(
+      { ...ftpUpdate(), host: 'ftp2.example.com' } as ReturnType<typeof ftpUpdate>,
+      ACTOR,
+    ); // 2nd apply
+
+    const snapshots = db.all<{ config_json: string }>(
+      'SELECT config_json FROM backup_destination_snapshots ORDER BY created_at',
+    );
+    expect(snapshots.length).toBe(2);
+    // The snapshot taken before the 2nd update holds the prior (pre-'ftp2') host,
+    // a non-secret field, but not the plaintext password.
+    expect(snapshots[1]!.config_json).not.toContain(FTP_PASSWORD);
+    expect(snapshots[1]!.config_json).toContain('ftp.example.com');
   });
 
   it('switching from S3 to FTP clears the S3 fields', () => {

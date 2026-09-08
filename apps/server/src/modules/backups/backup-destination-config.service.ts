@@ -7,9 +7,11 @@
  *    FTP host/user).
  *  - **audited reveal**: `revealSecret` is the one path that returns the real
  *    secret, and it writes a `config.reveal_secret` audit row.
- *  - **pre-change snapshot**: every `update` first snapshots the full prior
- *    config (secret included) into `backup_destination_snapshots`, then audits
- *    the change as `config.apply`.
+ *  - **pre-change snapshot**: every `update` first snapshots the prior config
+ *    into `backup_destination_snapshots` — with the secret (S3 secret access
+ *    key or FTP password) redacted, since the live config row already holds
+ *    it and a second plaintext copy in a history table is an avoidable
+ *    exposure — then audits the change as `config.apply`.
  *
  * `resolve()` is the server-internal accessor the destination factory uses; it
  * returns the secret because the signer/client needs it, never a response body.
@@ -87,7 +89,7 @@ export class BackupDestinationConfigService {
   }
 
   update(update: BackupDestinationUpdate, actor: DestinationConfigActor): void {
-    // Pre-change snapshot (secret included) BEFORE any write.
+    // Pre-change snapshot (secret redacted) BEFORE any write.
     this.snapshotPrior(actor);
 
     if (update.type === 'none') {
@@ -157,10 +159,33 @@ export class BackupDestinationConfigService {
 
   private snapshotPrior(actor: DestinationConfigActor): void {
     const prior = this.repository.get();
+    // The pre-change snapshot records the prior config for provenance and a
+    // future rollback, but NOT the plaintext secret: the live config row
+    // already holds it (it must, to authenticate), so there is no reason to
+    // keep a second plaintext copy in a history table. A rollback restores the
+    // non-secret fields and re-prompts for the secret. Everything else is kept
+    // verbatim so host/bucket/user/etc. remain fully recoverable.
+    const redacted = {
+      ...prior,
+      s3:
+        prior.s3 === null
+          ? null
+          : {
+              ...prior.s3,
+              secretAccessKey: prior.s3.secretAccessKey === '' ? '' : REDACTED_SECRET,
+            },
+      ftp:
+        prior.ftp === null
+          ? null
+          : { ...prior.ftp, password: prior.ftp.password === '' ? '' : REDACTED_SECRET },
+    };
     this.repository.insertSnapshot({
       createdByAdminId: actor.adminId,
       createdByLabel: actor.label,
-      configJson: JSON.stringify(prior),
+      configJson: JSON.stringify(redacted),
     });
   }
 }
+
+/** Placeholder written into a snapshot in place of a real secret — never a value that could be mistaken for one. */
+const REDACTED_SECRET = '***REDACTED***';

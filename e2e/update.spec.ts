@@ -104,15 +104,20 @@ test.describe('update', () => {
     await page.getByRole('button', { name: 'Apply update' }).click();
     const dialog = page.getByRole('alertdialog');
     await expect(dialog.getByRole('heading', { name: 'Apply update' })).toBeVisible();
-    // Tier 3 (not 4): the request is refused server-side regardless, but
-    // the typed-confirmation friction is real — updates-page.tsx's own
-    // comment: "an admin should meet the same friction whether or not
-    // today's broker happens to refuse it."
+    // Tier 2, not 3: nothing destructive can ever follow from confirming —
+    // the broker refuses unconditionally — so there is nothing here for a
+    // typed-confirmation gate to protect against. That gate used to sit
+    // here anyway and is exactly what produced the "Apply update does
+    // nothing on click" bug report this page was fixed for (task #15 part
+    // 1): an admin who clicked Confirm without first typing the resource
+    // name into an easy-to-miss field got a silently disabled button and
+    // no feedback at all. A plain confirm still requires an explicit
+    // second click before anything fires; the impact summary below still
+    // explains up front why the request will be refused.
     await expect(dialog.getByText(/broker cannot create or remove containers/i)).toBeVisible();
 
     const confirmButton = dialog.getByRole('button', { name: 'Apply update', exact: true });
-    await expect(confirmButton).toBeDisabled();
-    await dialog.getByRole('textbox').fill('docker-mailserver');
+    await expect(dialog.getByRole('textbox')).not.toBeVisible();
     await expect(confirmButton).toBeEnabled();
     await confirmButton.click();
 

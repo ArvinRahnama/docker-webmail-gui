@@ -165,7 +165,10 @@ say so rather than implying otherwise.
    diagnostic console. It is off by default for a reason, even though
    what it can run is a fixed allowlist.
 6. **Store backups somewhere you would be comfortable storing mail**,
-   because that is what they are.
+   because that is what they are — including a configured S3/FTP remote:
+   its credentials live only in this panel's database (never `.env`),
+   masked on every read and revealed only through an audited action, but
+   an admin session that can read them can still read them.
 
 ## 6. Reporting a vulnerability
 

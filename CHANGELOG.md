@@ -11,7 +11,56 @@ called out explicitly here.
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- Scheduled automatic backups: a persisted policy (off / daily / every 3
+  days / weekly / monthly, warm or cold mode, configurable retention) that a
+  server-side timer arms and re-arms from the database on every startup, so
+  a redeploy or restart never silently stops it.
+- Remote backup destinations, S3 and FTP/FTPS behind one shared interface.
+  S3 (or an S3-compatible endpoint) is signed with a hand-rolled SigV4
+  implementation and multipart upload, no AWS SDK dependency; FTP/FTPS is
+  built on `basic-ftp`, with resumable upload (appends only the bytes not
+  yet sent when a smaller partial already exists on the remote). Connection
+  settings live entirely in the Settings UI — not `.env` — masked on every
+  read and revealed only through an explicit, audited action.
+- Per-backup **Upload to remote** / **Retry upload**, **Browse remote**, and
+  **Import** (restore-from-remote): the server re-pulls and re-verifies an
+  imported archive's manifest checksums before it rejoins the local list,
+  where the existing four-tier Restore takes over unchanged.
+- Automatic remote retention (newest N kept, optional age cap, remote-only —
+  a local backup is never auto-deleted by count or age) and a staging model:
+  a backup's local archive is reclaimed once its remote copy is uploaded
+  **and** independently re-verified; a failed upload stays local and
+  retryable. Any backup not yet uploaded is swept to the destination
+  automatically, immediately after a destination is (re)configured and on a
+  periodic background sweep thereafter.
+- The S3 secret access key and the FTP password are proven, end to end
+  against the real app and a fake-backed destination, never to appear in
+  logs, job logs, any HTTP response body, a forced-failure error, or the
+  destination config's pre-change snapshot — for both destination types,
+  each with a positive control proving the check would actually catch a
+  leak (`apps/server/src/security/backup-remote-redaction.security.test.ts`).
+  The pre-change snapshot itself now redacts the stored secret before
+  writing it, on the reasoning that the live config row already holds it to
+  authenticate and a history table gains nothing from a second plaintext
+  copy.
+- An E2E round-trip per destination type (`e2e/backup-remote.spec.ts`) —
+  configure, test-connection, create, upload, browse, import — against an
+  in-process fake S3 and a fake FTP server; never a real object store, a
+  real FTP server, or the production VPS.
+
+### Note
+
+- The destination config has no rollback yet: every save snapshots the
+  *previous* configuration for provenance, but nothing currently restores
+  from one of those snapshots (unlike the general configuration editor's
+  own, separate snapshot/rollback). Verifying an uploaded copy always
+  re-downloads and re-hashes the whole archive rather than trusting a
+  stored checksum, which is correct but pays full egress every time. There
+  is also no manual "sync now" button — the reconcile route exists and
+  reconcile does run automatically, just not on demand yet. See
+  `FEATURE_MATRIX.md` §27d and `docs/backup-restore.md` for the full list.
 
 ## [0.3.0] - 2026-08-30
 

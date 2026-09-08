@@ -74,7 +74,13 @@ export const BackupScheduleSchema = z.object({
   enabled: z.boolean(),
   /** Warm (default, live data) or cold (container stopped) — same choice as a manual backup. */
   mode: BackupModeSchema,
-  /** Newest N to keep (local staging and remote both honour it). */
+  /**
+   * Newest N to keep. Applied to the remote destination only
+   * (`BackupUploader#applyRemoteRetention`) — local staging is never pruned
+   * by this count; a locally-staged archive is instead deleted entirely
+   * once its remote copy is uploaded and verified, or kept indefinitely
+   * (retryable) if it never uploads. See FEATURE_MATRIX.md §27c.
+   */
   retentionKeep: z.number().int().min(1),
   /** Optional age cap in days; `null` means count-only, no age pruning. */
   retentionMaxAgeDays: z.number().int().min(1).nullable(),

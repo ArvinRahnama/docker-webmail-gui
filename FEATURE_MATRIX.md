@@ -1,6 +1,6 @@
 # Feature Matrix
 
-**Date:** 2026-08-15 · **Status:** Authoritative. Implementation may not add a UI control that contradicts this document.
+**Date:** 2026-09-08 (§27 revised for scheduled backups + S3/FTP remote destinations) · **Status:** Authoritative. Implementation may not add a UI control that contradicts this document.
 
 This matrix is the project's defence against fake features. Every one of the 34 required capabilities is assessed against what `docker-mailserver` (DMS), the Docker Engine API, and the underlying mail stack can _actually_ do — verified in Phase 1 research, not assumed.
 
@@ -319,6 +319,50 @@ Backs up the four volumes confirmed from the official compose file: `/var/mail` 
 Create, list with metadata, verify (checksum + archive integrity), download, delete and restore-preview are all real. Restore is **Tier 4**: pre-flight report, type-to-confirm, and either a verified recent backup or explicit acknowledgement. Restore requires the container stopped, and preserves the vmail UID/GID (default 5000:5000) — a documented restore gotcha that silently breaks mail delivery if missed.
 
 Long-running, so it runs as a job with progress, never blocking a request. **Restore is unavailable on mobile** — a four-tier destructive flow on a phone is a data-loss hazard.
+
+### 27a. Scheduled automatic backups — **Full**
+
+A persisted policy, not a client-side timer: a server-side scheduler re-arms itself from the database on every startup, so a redeploy or restart never silently stops it.
+
+| Setting                        | Values                                                                    | Notes                                                                                                                              |
+| ------------------------------ | ------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| Frequency                      | `off` · `daily` · `every3days` · `weekly` · `monthly`                     | A closed five-choice menu, never a free-form cron string. `monthly` advances by a calendar month; the others by a fixed day count. |
+| Mode                           | `warm` (live, container keeps running) · `cold` (container stopped first) | Same choice a manual backup offers, with the same caveats stated in the UI.                                                        |
+| Keep the newest N              | Integer, 1–365 (default 3)                                                | Applies to the **remote destination only** — see §27c on retention/staging; a scheduled run never deletes a local backup by count. |
+| Also delete older than         | Off, or an integer number of days, 1–3650                                 | Optional age cap layered on top of the count above; `off` means count-only.                                                        |
+| Upload to remote automatically | On/off                                                                    | Gates whether a scheduled (or reconciled) backup is pushed to the configured destination — see §27c.                               |
+
+**UI** `/maintenance/backups` (Schedule card) · **API** `GET/PUT /api/v1/backups/schedule` · **Security** every change is audited (`config.apply`) · **Tests** `backup-schedule.service.test.ts`, `backup-scheduler.test.ts`, an E2E case confirming a saved schedule survives a page reload.
+
+### 27b. Remote destinations — S3 and FTP/FTPS — **Full**
+
+A verified backup can optionally be pushed off the VPS to Amazon S3 (or an S3-compatible endpoint) or an FTP/FTPS server, configured entirely through the Settings UI — **there is no `.env` variable for this**; it lives in its own allowlisted, single-row config store, masked on read and revealed only through an audited endpoint, exactly like the S3 secret discipline the config editor (§28) already established.
+
+| Type    | Config keys                                                                                                                                                            | Secret                                                                                                   |
+| ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| **S3**  | Endpoint (URL), Region, Bucket, Prefix (optional, path-safe characters only), Access key ID                                                                            | Secret access key — masked as `secretAccessKeySet: true/false`; omit on update to keep the stored value. |
+| **FTP** | Host, Port (1–65535), Username, Path (optional, path-safe characters only), FTPS on/off (plaintext FTP off requires an explicit, in-UI opt-out with a visible warning) | Password — masked as `passwordSet: true/false`; omit on update to keep the stored value.                 |
+
+Both are implemented against the same `BackupDestination` interface (`destinations/destination.ts`) so the uploader, retention and remote-browse code never branch on type: S3 is hand-rolled SigV4 signing with multipart upload over the AWS REST API (no AWS SDK dependency); FTP/FTPS is built on `basic-ftp` (zero runtime dependencies) with resumable upload (`APPE` from the remote size when a smaller partial exists, a clean `STOR` otherwise — `basic-ftp` has no `REST`-before-`STOR` primitive to resume the other way). **Test connection** performs a real login/signed request against the configured destination before anything is uploaded.
+
+Once configured, the Backups page gains: **Upload to remote** / **Retry upload** per backup, **Browse remote** (lists what the destination actually holds), and **Import** (restore-from-remote step one — pulls the archive down and re-verifies its manifest checksums server-side before it rejoins the local list, where the ordinary four-tier Restore takes over unchanged).
+
+**UI** `/maintenance/backups` (Remote destination card, Browse remote dialog) · **API** `GET/PUT /api/v1/backups/destination`, `POST /api/v1/backups/destination/test`, `POST /api/v1/backups/destination/reveal-secret` (audited), `GET /api/v1/backups/remote`, `POST /api/v1/backups/:id/upload`, `POST /api/v1/backups/import` · **Security** the secret never appears in a response body, a log line, or `job_logs`, proven end to end (real app, real fake-backed upload, forced-failure case included) in `apps/server/src/security/backup-remote-redaction.security.test.ts` for both S3 and FTP · **Tests** `s3-destination.test.ts`, `ftp-destination.test.ts`, `sigv4.test.ts`, `destination.service.test.ts`, `backup-destination-config.service.test.ts`, and `e2e/backup-remote.spec.ts` — a real config-apply + upload + browse + restore-from-remote round-trip against an in-process fake S3 and a fake FTP server, never a real object store, FTP server, or the production VPS.
+
+### 27c. Retention and local staging — **Full**
+
+- **The VPS is staging, not storage.** Once a backup's remote copy is uploaded **and** independently re-verified (downloaded back and checksum-checked against its own manifest — never trusted on the strength of the upload alone), its local archive is deleted (`reclaimLocalStaging`). This is unconditional for every verified-uploaded backup, not itself subject to the "keep N" count below.
+- **"Keep the newest N" and the optional age cap prune the remote only.** A local backup that failed to upload, or was created while no remote is configured, is never auto-deleted by count or age — only an explicit **Delete** action removes it. (`packages/shared/src/backup-automation.ts`'s `retentionKeep` doc comment previously claimed local staging honoured this count too; corrected alongside this section, since the code never did that.)
+- **A failed upload is retained locally and retryable.** The archive stays on the VPS, `uploadStatus` is `failed` with a safe, non-secret `uploadError` summary, and the row's action menu offers **Retry upload**.
+- **Automatic reconcile.** When "Upload to remote automatically" is on, any local backup not yet uploaded is swept to the configured destination: immediately after a destination is saved (if one now resolves), and on a periodic background timer thereafter. Retention on the remote is re-applied after every sweep. **There is no manual "sync now" button in the UI yet** — the route (`POST /api/v1/backups/reconcile`) and its query hook exist server/client-side, but nothing currently calls it; today reconcile only happens automatically.
+
+### 27d. Deferred
+
+Recorded here rather than left silent, per working agreement 9:
+
+- **No rollback for the destination config.** Every `PUT /api/v1/backups/destination` first snapshots the _prior_ config into `backup_destination_snapshots` (for provenance), but — unlike the general configuration editor's snapshot/rollback (§28, which already has a working "Roll back to this snapshot" control) — there is no route or UI to restore a destination config from one of these snapshots. The snapshot's secret field is itself redacted (S3 secret / FTP password replaced with a placeholder before it is written), specifically _because_ nothing reads it back to re-authenticate with; adding rollback later would need the admin to re-enter the secret rather than recovering it from history, by design.
+- **Upload verification always re-downloads the full archive.** `verifyRemoteCopy` proves a remote copy is intact by pulling it back and re-hashing it — genuinely correct, but it pays the full download egress (and, for S3, a real request) every time, for every upload. A stored-checksum optimization (e.g. comparing against an object-store-native checksum or a small companion manifest object via a metadata call) could avoid re-fetching the whole archive; not built.
+- **No manual "reconcile now" control in the UI** (§27c) — the server route exists; nothing calls it yet.
 
 ---
 

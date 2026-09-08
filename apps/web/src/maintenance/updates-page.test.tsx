@@ -138,12 +138,39 @@ describe('UpdatesPage — applying is refused by the server, and says so', () =>
     await user.click(await screen.findByRole('button', { name: 'Apply update' }));
 
     const dialog = await screen.findByRole('alertdialog');
-    // Tier 3 — the resource name must be typed before Confirm is enabled.
-    await user.type(within(dialog).getByRole('textbox'), 'docker-mailserver');
     await user.click(within(dialog).getByRole('button', { name: 'Apply update' }));
 
     await waitFor(() => {
       expect(vi.mocked(applyUpdate)).toHaveBeenCalled();
+    });
+  });
+
+  // Regression: the confirm dialog used to be tier 3 (type "docker-mailserver"
+  // to enable Confirm) even though nothing destructive can ever follow from
+  // confirming — the broker refuses unconditionally. An admin who clicked
+  // Confirm without first typing the exact resource name into an
+  // easy-to-miss text field got a silently disabled button: no request, no
+  // error, nothing. This is the "Apply update does nothing" bug report.
+  it('dispatches on a single confirm click — no typed confirmation gate to miss', async () => {
+    const user = userEvent.setup();
+    vi.mocked(fetchUpdateStatus).mockResolvedValue(makeStatus({ updateAvailable: true }));
+    vi.mocked(applyUpdate).mockRejectedValue(new Error('refused by the broker'));
+
+    renderPage();
+
+    await user.click(await screen.findByRole('button', { name: 'Apply update' }));
+    const dialog = await screen.findByRole('alertdialog');
+
+    // No typed-confirmation field at this tier, and Confirm is enabled
+    // immediately — there is nothing here that can silently block a click.
+    expect(within(dialog).queryByRole('textbox')).not.toBeInTheDocument();
+    const confirmButton = within(dialog).getByRole('button', { name: 'Apply update' });
+    expect(confirmButton).toBeEnabled();
+
+    await user.click(confirmButton);
+
+    await waitFor(() => {
+      expect(vi.mocked(applyUpdate)).toHaveBeenCalledTimes(1);
     });
   });
 });

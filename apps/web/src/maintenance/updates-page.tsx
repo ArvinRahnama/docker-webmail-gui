@@ -201,19 +201,25 @@ export function UpdatesPage() {
       </Card>
 
       {/*
-        Tier 3 rather than 4: the request is refused server-side, so nothing
-        destructive can follow from confirming. The typed confirmation is
-        still here because the *intent* is a container recreation, and an
-        admin should meet the same friction whether or not today's broker
-        happens to refuse it.
+        Tier 2, not 3: the request is refused server-side and nothing
+        destructive can EVER follow from confirming — the broker cannot
+        recreate a container, unconditionally, so there is nothing here for a
+        typed-confirmation gate to protect against. That gate used to sit
+        here anyway (tier 3, type "docker-mailserver" to enable Confirm), and
+        it produced exactly the "Apply update does nothing" bug report this
+        page was fixed for: an admin who clicked the confirm button without
+        first typing the exact resource name into an easy-to-miss text field
+        got a silently disabled button and zero feedback — not a failed
+        request, no request at all. A plain confirm still requires an
+        explicit second click before anything fires, and the impact summary
+        below still explains up front why the request will be refused.
       */}
       <ConfirmDialog
         open={confirmOpen}
         onOpenChange={setConfirmOpen}
-        tier={3}
+        tier={2}
         title="Apply update"
         confirmLabel="Apply update"
-        resourceName="docker-mailserver"
         pending={applyMutation.isPending}
         onConfirm={confirmApply}
         description="Replace the running docker-mailserver image with the one in the registry."

@@ -1,19 +1,28 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router-dom';
-import type { UpdateStatusResponse } from '@dwg/shared';
+import type { PanelUpdateCheckResponse, UpdateStatusResponse } from '@dwg/shared';
 import { UpdatesPage } from './updates-page';
-import { applyUpdate, fetchUpdateStatus } from '@/lib/maintenance-api';
+import { applyUpdate, fetchPanelUpdateStatus, fetchUpdateStatus } from '@/lib/maintenance-api';
 
 // Same reason as the other maintenance suites: `use-maintenance-queries`
 // imports the whole API surface, so the original module is spread back in
-// and only what this page reaches is replaced.
+// and only what this page reaches is replaced. `fetchPanelUpdateStatus` is
+// stubbed here too, unconditionally: since SU-D, `PanelUpdateCard` renders
+// on this same page and fires its own query on every render — leaving it
+// real would mean every test in this file makes a doomed real `fetch()`
+// call. `panel-update-card.test.tsx` owns the Panel card's own behaviour;
+// this file only needs the docker-mailserver card's tests to keep passing
+// unaffected, which is exactly the #17 lesson (a second card must not
+// break this file's existing assertions).
 vi.mock('@/lib/maintenance-api', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/maintenance-api')>()),
   fetchUpdateStatus: vi.fn(),
   applyUpdate: vi.fn(),
+  fetchPanelUpdateStatus: vi.fn(),
+  applyPanelUpdate: vi.fn(),
 }));
 
 function makeStatus(overrides: Partial<UpdateStatusResponse> = {}): UpdateStatusResponse {
@@ -30,6 +39,24 @@ function makeStatus(overrides: Partial<UpdateStatusResponse> = {}): UpdateStatus
     ...overrides,
   };
 }
+
+/** The Panel card's own status — deliberately "nothing to see here" by default (possible, but already current) so it never adds text this file's assertions could trip over. */
+function makePanelStatus(
+  overrides: Partial<PanelUpdateCheckResponse> = {},
+): PanelUpdateCheckResponse {
+  return {
+    currentVersion: '0.2.0',
+    latestVersion: '0.2.0',
+    updateAvailable: false,
+    updatePossible: true,
+    reason: null,
+    ...overrides,
+  };
+}
+
+beforeEach(() => {
+  vi.mocked(fetchPanelUpdateStatus).mockResolvedValue(makePanelStatus());
+});
 
 function renderPage() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });

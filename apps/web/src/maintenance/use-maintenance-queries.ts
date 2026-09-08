@@ -18,6 +18,7 @@ import {
 } from '@dwg/shared';
 import {
   applyConfig,
+  applyPanelUpdate,
   applyUpdate,
   backupDownloadUrl,
   cancelJob,
@@ -31,6 +32,7 @@ import {
   fetchConfigSnapshots,
   fetchJob,
   fetchJobs,
+  fetchPanelUpdateStatus,
   fetchRemoteBackups,
   fetchRestorePreflight,
   fetchUpdateStatus,
@@ -342,6 +344,29 @@ export function useUpdateStatusQuery() {
  */
 export function useApplyUpdateMutation() {
   return useMutation({ mutationFn: applyUpdate });
+}
+
+// ---------------------------------------------------------------------------
+// Panel self-update (docs/design/self-update.md — SU-D). Separate query key
+// from `updateStatusKey` above — a different service, a different version
+// source (`panel-update-card.tsx`'s own header).
+// ---------------------------------------------------------------------------
+
+export const panelUpdateStatusKey = ['maintenance', 'updates', 'panel'] as const;
+
+export function usePanelUpdateStatusQuery() {
+  return useQuery({ queryKey: panelUpdateStatusKey, queryFn: fetchPanelUpdateStatus });
+}
+
+/** Resolves to the enqueued job's id (phase A) — the caller streams its progress and, once it finishes, drives phase B itself (`panel-update-card.tsx`); there is no cache to invalidate here beyond the job list. */
+export function useApplyPanelUpdateMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: applyPanelUpdate,
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: jobsKey });
+    },
+  });
 }
 
 // ---------------------------------------------------------------------------

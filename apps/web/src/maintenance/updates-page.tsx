@@ -32,6 +32,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ApiClientError, ApiError } from '@/lib/api-client';
 import { formatDateTime } from '@/lib/format';
+import { PanelUpdateCard } from './panel-update-card';
 import { useApplyUpdateMutation, useUpdateStatusQuery } from './use-maintenance-queries';
 
 function errorIdOf(error: unknown): string {
@@ -199,6 +200,14 @@ export function UpdatesPage() {
           )}
         </CardContent>
       </Card>
+
+      {/*
+        A separate, unrelated card (docs/design/self-update.md §0 — SU-D):
+        different service, different version source, different mutation
+        from the docker-mailserver comparison above. See
+        `panel-update-card.tsx`'s own header.
+      */}
+      <PanelUpdateCard />
 
       {/*
         Tier 2, not 3: the request is refused server-side and nothing

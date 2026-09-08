@@ -28,11 +28,14 @@ import {
   JobDetailResponseSchema,
   JobListResponseSchema,
   OperationAckSchema,
+  PanelUpdateApplyAckSchema,
+  PanelUpdateCheckResponseSchema,
   RemoteBackupListResponseSchema,
   RestoreBackupRequestSchema,
   RestorePreflightResponseSchema,
   RevealSettingResponseSchema,
   RollbackConfigRequestSchema,
+  SelfUpdateLastResultResponseSchema,
   UpdateStatusResponseSchema,
   ValidateConfigRequestSchema,
   ValidateConfigResponseSchema,
@@ -50,10 +53,12 @@ import {
   type ConfigSnapshotSummary,
   type Job,
   type JobDetailResponse,
+  type PanelUpdateCheckResponse,
   type RemoteBackupItem,
   type RestoreBackupRequest,
   type RestorePreflightResponse,
   type RevealSettingResponse,
+  type SelfUpdateResult,
   type UpdateStatusResponse,
   type ValidateConfigResponse,
 } from '@dwg/shared';
@@ -271,6 +276,36 @@ export async function fetchUpdateStatus(): Promise<UpdateStatusResponse> {
  */
 export async function applyUpdate(): Promise<void> {
   await request('/api/v1/updates/apply', OperationAckSchema, { method: 'POST' });
+}
+
+// ---------------------------------------------------------------------------
+// Panel self-update (docs/design/self-update.md — SU-D). A different
+// service, a different version source, from the docker-mailserver
+// comparison above — see `panel-update-card.tsx`'s own header. `apply`
+// resolves to a job id (phase A, streamed like any other job); the real
+// outcome is a separate read, `fetchPanelSelfUpdateLastResult`, never the
+// job's own terminal status (§6).
+// ---------------------------------------------------------------------------
+
+export async function fetchPanelUpdateStatus(): Promise<PanelUpdateCheckResponse> {
+  return request('/api/v1/updates/panel', PanelUpdateCheckResponseSchema, { method: 'GET' });
+}
+
+export async function applyPanelUpdate(): Promise<string> {
+  const { jobId } = await request('/api/v1/updates/panel/apply', PanelUpdateApplyAckSchema, {
+    method: 'POST',
+  });
+  return jobId;
+}
+
+/** Reads and clears the durable status-file verdict (§4, §5) — `null` when none is on record yet. */
+export async function fetchPanelSelfUpdateLastResult(): Promise<SelfUpdateResult | null> {
+  const { result } = await request(
+    '/api/v1/updates/panel/last-result',
+    SelfUpdateLastResultResponseSchema,
+    { method: 'GET' },
+  );
+  return result;
 }
 
 // ---------------------------------------------------------------------------

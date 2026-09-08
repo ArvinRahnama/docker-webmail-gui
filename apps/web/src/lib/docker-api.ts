@@ -11,6 +11,7 @@ import {
   ContainerLogsResponseSchema,
   DockerVolumeListResponseSchema,
   HealthCentreResponseSchema,
+  HealthResponseSchema,
   ImageListResponseSchema,
   ImagePruneResponseSchema,
   LogsFileResponseSchema,
@@ -89,6 +90,32 @@ export async function pingHealth(): Promise<boolean> {
     return response.ok;
   } catch {
     return false;
+  }
+}
+
+/**
+ * Same probe as {@link pingHealth}, but returns the reported
+ * `APP_VERSION` (`@dwg/shared`'s `version.ts`) instead of a bare
+ * boolean — `null` for anything short of a fully valid response (network
+ * error, non-2xx, unparseable body), never throws. Panel self-update's
+ * reconnect flow (`panel-update-card.tsx`) needs this, not the plain
+ * boolean: a health-only check cannot distinguish "the new version came
+ * up" from "a rollback silently restored the old one and it is healthy
+ * too" (docs/design/self-update.md §6).
+ */
+export async function probePanelVersion(): Promise<string | null> {
+  try {
+    const response = await fetch('/api/v1/health', {
+      method: 'GET',
+      headers: { accept: 'application/json' },
+      cache: 'no-store',
+    });
+    if (!response.ok) return null;
+    const json: unknown = await response.json();
+    const parsed = HealthResponseSchema.safeParse(json);
+    return parsed.success ? parsed.data.version : null;
+  } catch {
+    return null;
   }
 }
 

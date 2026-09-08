@@ -92,6 +92,54 @@ test.describe('update', () => {
       'https://github.com/docker-mailserver/docker-mailserver/releases',
     );
 
+    // The Panel card (docs/design/self-update.md — SU-D): a second, wholly
+    // separate card added to this same page (owner §9.3 — the
+    // docker-mailserver card above stays untouched). Deliberately distinct
+    // status wording from the docker-mailserver card's own three states
+    // ("Newer release published" vs "Update available", etc. —
+    // `panel-update-card.tsx`'s own header) is exactly what keeps every
+    // assertion above this point unambiguous on a page that now has two
+    // "is there an update" cards — the #17 lesson this file's header
+    // already names. `FakeSelfUpdateReleaseSource` always resolves
+    // `9.9.9` and `FakeBrokerClient.panelSelfUpdateCheck` always reports
+    // `0.2.0` (both deterministic dev/e2e defaults), so this state is as
+    // reliable here as the docker-mailserver assertions above.
+    await expect(page.getByRole('heading', { name: 'Panel' })).toBeVisible();
+    await expect(page.getByText('Newer release published')).toBeVisible();
+    await expect(page.getByText('0.2.0')).toBeVisible();
+    await expect(page.getByText('9.9.9')).toBeVisible();
+
+    const panelApplyButton = page.getByRole('button', { name: 'Apply panel update', exact: true });
+    await expect(panelApplyButton).toBeEnabled();
+    await panelApplyButton.click();
+
+    const panelDialog = page.getByRole('alertdialog');
+    await expect(panelDialog.getByRole('heading', { name: 'Apply panel update' })).toBeVisible();
+    // Tier 4: a real recreate can genuinely fail, unlike the always-refused
+    // docker-mailserver apply below — type-to-confirm plus the backup gate
+    // both gate Confirm here, unlike that dialog's tier 2.
+    const panelConfirmButton = panelDialog.getByRole('button', {
+      name: 'Apply panel update',
+      exact: true,
+    });
+    await expect(panelConfirmButton).toBeDisabled();
+    await panelDialog.getByRole('textbox').fill('9.9.9');
+    // The backup gate: whether a checkbox acknowledgement is also required
+    // depends on the same global "has anything ever been verified" fact
+    // this file's header already says it will not pin down (another spec
+    // may have verified a backup elsewhere in this run) — tick it only if
+    // it is actually present, mirroring that same discipline here.
+    const backupAcknowledge = panelDialog.getByRole('checkbox');
+    if (await backupAcknowledge.isVisible().catch(() => false)) {
+      await backupAcknowledge.click();
+    }
+    await expect(panelConfirmButton).toBeEnabled();
+    // Closed without confirming — this spec proves the dialog is real and
+    // correctly gated, not that a real recreate happens against fakes (see
+    // docs/design/self-update.md §8 on what fakes genuinely cannot prove).
+    await page.keyboard.press('Escape');
+    await expect(panelDialog).toBeHidden();
+
     // The rollback caveat: unconditional, next to the version comparison,
     // regardless of whether an update is even available (it is not, here)
     // and regardless of the backup-gate line beside it, which this spec

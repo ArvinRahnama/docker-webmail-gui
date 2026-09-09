@@ -438,20 +438,45 @@ jobs:
       - name: Verify the status file reports a real success, with the correct from/to versions
         run: |
           set -u
-          if ! docker exec dwg-server cat /app/data/self-update-result.json \
-              > /tmp/status-file.json 2> /tmp/status-file.stderr; then
-            echo "FAIL: could not read the status file as dwg-server's own user"
-            echo "--- docker exec stderr ---"
-            cat /tmp/status-file.stderr
-            echo "--- ls -l /app/data/self-update-result.json, same user, for comparison ---"
-            docker exec dwg-server ls -l /app/data/self-update-result.json || true
-            exit 1
-          fi
+          # The updater writes the status file in two phases (design §4): an
+          # `in-progress` rollback plan BEFORE any teardown, then the final
+          # `done` verdict only AFTER both containers are recreated and healthy.
+          # The swap-wait above gates on both being healthy, which the updater
+          # reaches (server first, then broker) a beat before it finalizes
+          # `done` — so poll for the terminal verdict rather than reading once,
+          # exactly as the panel's own UI now polls GET /panel/last-result
+          # (`apps/web/src/maintenance/panel-update-card.tsx` `waitForPanelVerdict`).
+          # Read as dwg-server's own non-root user every time, never a root
+          # side-reader, so a regression of the file-permission fix still fails.
+          # Bounded, so a genuinely stuck updater still fails the job.
+          deadline=$(( $(date +%s) + 90 ))
+          while :; do
+            if ! docker exec dwg-server cat /app/data/self-update-result.json \
+                > /tmp/status-file.json 2> /tmp/status-file.stderr; then
+              # Not written yet (not even the in-progress record) — keep waiting.
+              if [ "$(date +%s)" -ge "$deadline" ]; then
+                echo "FAIL: could not read the status file as dwg-server's own user within 90s"
+                echo "--- docker exec stderr ---"; cat /tmp/status-file.stderr
+                echo "--- ls -l /app/data/self-update-result.json, same user, for comparison ---"
+                docker exec dwg-server ls -l /app/data/self-update-result.json || true
+                exit 1
+              fi
+              sleep 3; continue
+            fi
+            phase=$(jq -r '.phase // ""' /tmp/status-file.json 2>/dev/null || echo "")
+            [ "$phase" = "done" ] && break
+            if [ "$(date +%s)" -ge "$deadline" ]; then
+              echo "FAIL: the status file never reached phase=done within 90s (last phase: '${phase}')"
+              cat /tmp/status-file.json
+              exit 1
+            fi
+            sleep 3
+          done
           cat /tmp/status-file.json
           if ! jq -e --arg o "${OLD_VERSION}" --arg n "${NEW_VERSION}" \
               '.phase == "done" and .outcome == "success" and .fromVersion == $o and .toVersion == $n' \
               /tmp/status-file.json >/dev/null; then
-            echo "FAIL: the status file did not report the expected success verdict"
+            echo "FAIL: the status file reached phase=done but not the expected success verdict"
             exit 1
           fi
           echo "confirmed: the real updater wrote a real success verdict for a real v${OLD_VERSION} -> v${NEW_VERSION} swap, and dwg-server's own user could read it."

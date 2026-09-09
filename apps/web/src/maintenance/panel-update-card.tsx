@@ -76,6 +76,18 @@ const GO_DOWN_GRACE_MS = 2_000;
 const POLL_INTERVAL_MS = 1_500;
 /** Matches `server-controls.tsx`'s own `RECONNECT_TIMEOUT_MS` and `updater.ts`'s `HEALTH_POLL_TIMEOUT_MS` — one number for "how long do we wait for the panel to come back", not several that could drift (docs/design/self-update.md §4). */
 const RECONNECT_TIMEOUT_MS = 90_000;
+/**
+ * How long, after the panel answers again, to keep polling
+ * `GET /panel/last-result` for the updater's final verdict before giving up.
+ * The verdict is written only after BOTH containers are recreated and healthy,
+ * which lands seconds-to-tens-of-seconds after the server-first recreate makes
+ * the panel answer `/health` again — so the panel being back is not itself a
+ * signal the verdict is ready (the server returns `null` for an in-progress
+ * record, `panel-self-update-status.ts`). A `null` after this deadline means
+ * the updater never finished (e.g. it crashed mid-flight, §9.7) — reported as
+ * the "no result recorded" warning, not silently as success.
+ */
+const VERDICT_TIMEOUT_MS = 90_000;
 
 function errorMessageOf(error: unknown, fallback: string): string {
   return error instanceof ApiError || error instanceof ApiClientError ? error.message : fallback;
@@ -137,6 +149,42 @@ export async function waitForPanelReconnect(
     if (version === options.targetVersion) return 'target';
     if (version !== null) return 'other';
     if (now() >= deadline) return 'timeout';
+    await options.delay(options.intervalMs);
+  }
+}
+
+export interface WaitForPanelVerdictOptions {
+  readonly fetchResult: () => Promise<SelfUpdateResult | null>;
+  readonly delay: (ms: number) => Promise<void>;
+  readonly deadlineMs: number;
+  readonly intervalMs: number;
+  /** Injectable clock, same pattern as `waitForPanelReconnect` — defaults to the real one. */
+  readonly now?: () => number;
+}
+
+/**
+ * Polls `GET /api/v1/updates/panel/last-result` until the updater's final
+ * verdict is available or a bounded deadline passes. `waitForPanelReconnect`
+ * returning is NOT a signal the verdict is ready: the updater recreates the
+ * server first (which is what makes the panel answer `/health` again) and only
+ * writes the verdict after recreating the broker too, so the status file is
+ * typically still `in-progress` at reconnect and the server returns `null` for
+ * it (`panel-self-update-status.ts`). A `null` therefore means "not written
+ * yet," not "failed" — keep polling. Returns `null` only if the deadline
+ * passes with still no verdict (a genuine timeout, or an updater that crashed
+ * before finishing — §9.7), which the caller renders as the "no result
+ * recorded" warning. Dependency-injected `delay`/`fetchResult`/`now` give the
+ * same no-real-wait unit-testability as `waitForPanelReconnect`.
+ */
+export async function waitForPanelVerdict(
+  options: WaitForPanelVerdictOptions,
+): Promise<SelfUpdateResult | null> {
+  const now = options.now ?? Date.now;
+  const deadline = now() + options.deadlineMs;
+  for (;;) {
+    const result = await options.fetchResult().catch(() => null);
+    if (result !== null) return result;
+    if (now() >= deadline) return null;
     await options.delay(options.intervalMs);
   }
 }
@@ -265,7 +313,12 @@ export function PanelUpdateCard() {
         return;
       }
 
-      const result = await fetchPanelSelfUpdateLastResult().catch(() => null);
+      const result = await waitForPanelVerdict({
+        fetchResult: fetchPanelSelfUpdateLastResult,
+        delay,
+        deadlineMs: VERDICT_TIMEOUT_MS,
+        intervalMs: POLL_INTERVAL_MS,
+      });
       void statusQuery.refetch();
       const { tone, message } = describeResult(result, target);
       if (tone === 'success') toast.success(message);

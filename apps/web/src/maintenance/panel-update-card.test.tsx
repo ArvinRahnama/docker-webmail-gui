@@ -4,8 +4,8 @@ import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router-dom';
 import { toast } from 'sonner';
-import type { PanelUpdateCheckResponse, UpdateStatusResponse } from '@dwg/shared';
-import { PanelUpdateCard, waitForPanelReconnect } from './panel-update-card';
+import type { PanelUpdateCheckResponse, SelfUpdateResult, UpdateStatusResponse } from '@dwg/shared';
+import { PanelUpdateCard, waitForPanelReconnect, waitForPanelVerdict } from './panel-update-card';
 import { ApiError } from '@/lib/api-client';
 import { applyPanelUpdate, fetchPanelUpdateStatus, fetchUpdateStatus } from '@/lib/maintenance-api';
 
@@ -318,5 +318,102 @@ describe('waitForPanelReconnect — the bounded reconnect poll', () => {
 
     expect(outcome).toBe('target');
     expect(probeVersion).toHaveBeenCalledTimes(3);
+  });
+});
+
+describe('waitForPanelVerdict — the bounded verdict poll', () => {
+  /** Same instant, deterministic fake clock as the reconnect suite — no real waiting. */
+  function fakeClock() {
+    let current = 0;
+    return {
+      now: () => current,
+      delay: async (ms: number) => {
+        current += ms;
+      },
+    };
+  }
+
+  const verdict: SelfUpdateResult = {
+    outcome: 'success',
+    fromVersion: '0.9.0',
+    toVersion: '0.9.1',
+    failedAt: null,
+    reason: null,
+  };
+
+  it('returns the verdict on the first fetch when it is already available', async () => {
+    const clock = fakeClock();
+    const fetchResult = vi.fn().mockResolvedValue(verdict);
+
+    const result = await waitForPanelVerdict({
+      fetchResult,
+      delay: clock.delay,
+      now: clock.now,
+      deadlineMs: 90_000,
+      intervalMs: 1_500,
+    });
+
+    expect(result).toEqual(verdict);
+    expect(fetchResult).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps polling past the in-progress window (null) until the verdict lands — the regression this fixes', async () => {
+    const clock = fakeClock();
+    // The status file is still `in-progress` when the panel first answers
+    // `/health` (server recreated first; broker + `done` verdict come later),
+    // so the server returns null until the updater finishes.
+    const fetchResult = vi
+      .fn()
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(verdict);
+
+    const result = await waitForPanelVerdict({
+      fetchResult,
+      delay: clock.delay,
+      now: clock.now,
+      deadlineMs: 90_000,
+      intervalMs: 1_500,
+    });
+
+    expect(result).toEqual(verdict);
+    expect(fetchResult).toHaveBeenCalledTimes(3);
+  });
+
+  it('returns null once the deadline elapses with no verdict ever written (updater crashed mid-flight)', async () => {
+    const clock = fakeClock();
+    const fetchResult = vi.fn().mockResolvedValue(null);
+
+    const result = await waitForPanelVerdict({
+      fetchResult,
+      delay: clock.delay,
+      now: clock.now,
+      deadlineMs: 5_000,
+      intervalMs: 1_000,
+    });
+
+    expect(result).toBeNull();
+    // Bounded, not unbounded.
+    expect(fetchResult.mock.calls.length).toBeGreaterThan(0);
+    expect(fetchResult.mock.calls.length).toBeLessThanOrEqual(6);
+  });
+
+  it('treats a rejected fetch as not-yet-written and keeps polling (never throws)', async () => {
+    const clock = fakeClock();
+    const fetchResult = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('network blip'))
+      .mockResolvedValueOnce(verdict);
+
+    const result = await waitForPanelVerdict({
+      fetchResult,
+      delay: clock.delay,
+      now: clock.now,
+      deadlineMs: 90_000,
+      intervalMs: 1_500,
+    });
+
+    expect(result).toEqual(verdict);
+    expect(fetchResult).toHaveBeenCalledTimes(2);
   });
 });

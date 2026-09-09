@@ -299,7 +299,7 @@ jobs:
           done
 
           curl -fsS http://127.0.0.1:3000/api/v1/health | tee /tmp/health-old.json
-          grep -q "\"version\":\"${OLD_VERSION}\"" /tmp/health-old.json
+          jq -e --arg v "${OLD_VERSION}" '.version == $v' /tmp/health-old.json >/dev/null
           echo "confirmed: v${OLD_VERSION} up and healthy (Docker health.status and HTTP both) before triggering anything."
 
       # No curl inside either image on purpose (both Dockerfiles' own
@@ -320,9 +320,8 @@ jobs:
             }).then(async (r) => { console.log(await r.text()); process.exit(r.ok ? 0 : 1); });
           ")
           echo "${RESULT}"
-          echo "${RESULT}" | grep -q '"updatePossible":true'
-          echo "${RESULT}" | grep -q "\"serverVersion\":\"${OLD_VERSION}\""
-          echo "${RESULT}" | grep -q "\"brokerVersion\":\"${OLD_VERSION}\""
+          echo "${RESULT}" | jq -e --arg v "${OLD_VERSION}" \
+            '.updatePossible == true and .serverVersion == $v and .brokerVersion == $v' >/dev/null
 
       # The updater runs with AutoRemove:true, so once it exits (success
       # *or* failure) every trace of it — logs included — disappears with
@@ -369,7 +368,7 @@ jobs:
             }).then(async (r) => { console.log(await r.text()); process.exit(r.ok ? 0 : 1); });
           ")
           echo "${RESULT}"
-          echo "${RESULT}" | grep -q '"started":true'
+          echo "${RESULT}" | jq -e '.started == true' >/dev/null
           echo "point of no return reached — the updater is launched; dwg-broker may be replaced at any moment now."
 
       # Bounded, and tolerant of the container genuinely not existing for
@@ -416,22 +415,25 @@ jobs:
         run: |
           set -eu
           curl -fsS http://127.0.0.1:3000/api/v1/health | tee /tmp/health-new.json
-          grep -q "\"version\":\"${NEW_VERSION}\"" /tmp/health-new.json
+          jq -e --arg v "${NEW_VERSION}" '.version == $v' /tmp/health-new.json >/dev/null
 
       # The status file lives on the server-data named volume, shared
       # between the (now-gone) updater container and the new dwg-server
       # (docs/design/self-update.md §4) — read directly off the new
       # container's own filesystem, no HTTP round trip needed to prove
-      # the updater actually wrote it.
+      # the updater actually wrote it. `jq`, not `grep`: the file is
+      # written pretty-printed (`JSON.stringify(content, null, 2)`,
+      # `updater-entrypoint.ts`), so a no-whitespace `"key":"value"`
+      # grep pattern never matches `"key": "value"` — the first real run
+      # to reach this step wrote a genuinely correct status file and
+      # still failed here, on the assertion, not the data.
       - name: Verify the status file reports a real success, with the correct from/to versions
         run: |
           set -eu
           RESULT=$(docker exec dwg-server cat /app/data/self-update-result.json)
           echo "${RESULT}"
-          echo "${RESULT}" | grep -q '"phase":"done"'
-          echo "${RESULT}" | grep -q '"outcome":"success"'
-          echo "${RESULT}" | grep -q "\"toVersion\":\"${NEW_VERSION}\""
-          echo "${RESULT}" | grep -q "\"fromVersion\":\"${OLD_VERSION}\""
+          echo "${RESULT}" | jq -e --arg o "${OLD_VERSION}" --arg n "${NEW_VERSION}" \
+            '.phase == "done" and .outcome == "success" and .fromVersion == $o and .toVersion == $n' >/dev/null
           echo "confirmed: the real updater wrote a real success verdict for a real v${OLD_VERSION} -> v${NEW_VERSION} swap."
 
       # Every source of evidence for "the updater launched but nothing

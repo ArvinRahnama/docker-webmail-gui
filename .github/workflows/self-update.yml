@@ -48,6 +48,21 @@
 # calling container's — which is exactly why the daemon only needs to
 # trust `localhost:5000` (this job's own step), not `dwg-broker` itself.
 #
+# --- A second version source worth naming explicitly ---
+#
+# `/api/v1/health`'s reported version (`APP_VERSION`,
+# `packages/shared/src/version.ts`) is a *separate* thing from the
+# `DWG_VERSION` build arg self-update's own facts (`panel.selfUpdateCheck`,
+# the status file) are baked from: `APP_VERSION` is read at runtime from
+# the repository root `package.json`'s own `"version"` field. A real
+# release keeps the two in lockstep (the release process bumps
+# `package.json`, the git tag, and `DWG_VERSION` all together), so this
+# job bumps `package.json` to match `DWG_VERSION` before each test build
+# too (see the two build steps below) — otherwise the health endpoint
+# would keep reporting whatever version this checkout's `package.json`
+# already said, regardless of which "version" the test images were built
+# as, and the swap verification could never pass honestly.
+#
 # --- What this job does not attempt ---
 #
 # A forced-failure/rollback run (a target build with a genuinely broken
@@ -160,9 +175,23 @@ jobs:
       # container's own image for a repo tag under that exact prefix —
       # can find a match and honestly report `fromVersion` in the status
       # file, the same as it would for a real GHCR-pulled install.
+      # `APP_VERSION` (`packages/shared/src/version.ts`) is a *separate*
+      # source from the `DWG_VERSION` build arg: it is read at runtime
+      # from the repository root `package.json`'s own `"version"` field,
+      # baked into each image by the `COPY --from=prod-deps .../package.json`
+      # step, not from anything self-update itself resolves. In a real
+      # release both agree by construction (the release process bumps
+      # `package.json`, the git tag, and `DWG_VERSION` together) — bumped
+      # here too, for the same reason, so `/api/v1/health`'s reported
+      # version and self-update's own baked-`DWG_VERSION` facts agree
+      # exactly as they would for a real release, rather than the test
+      # images silently drifting from what a real build looks like.
+      # `--no-git-tag-version`: no commit/tag, just the two files;
+      # nothing here is ever pushed anywhere.
       - name: 'Build the "old" panel images (v0.9.0, registry-origin) and push to the local registry'
         run: |
           set -eu
+          npm version "${OLD_VERSION}" --no-git-tag-version --allow-same-version
           for svc in server broker; do
             docker build \
               -f "docker/${svc}/Dockerfile" \
@@ -184,6 +213,7 @@ jobs:
       - name: 'Build the "new" panel images (v0.9.1, registry-origin), push, then drop the local copy'
         run: |
           set -eu
+          npm version "${NEW_VERSION}" --no-git-tag-version --allow-same-version
           for svc in server broker; do
             docker build \
               -f "docker/${svc}/Dockerfile" \

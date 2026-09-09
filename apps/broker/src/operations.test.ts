@@ -348,6 +348,25 @@ function recreateSpec(overrides: Partial<RawContainerRecreateSpec>): RawContaine
   };
 }
 
+/**
+ * Broker's own `hostConfig`/`networkingConfig` fixture — modelled on what
+ * `docker/compose.yaml` actually configures for `broker:` (the docker-
+ * socket bind, `group_add: [DOCKER_GID]`, `cap_drop: ALL`,
+ * `read_only: true`, one attached network), specifically so
+ * `panel.selfUpdateApply`'s tests below can assert `launchUpdater`
+ * receives and correctly clones every one of these — `GroupAdd` above
+ * all, since a hand-composed `hostConfig` silently dropping it is the
+ * real-daemon bug SU-F's first real run found (`launch-updater.ts`'s own
+ * header).
+ */
+const BROKER_HOST_CONFIG = {
+  Binds: ['/var/run/docker.sock:/var/run/docker.sock:rw'],
+  GroupAdd: ['999'],
+  CapDrop: ['ALL'],
+  ReadonlyRootfs: true,
+};
+const BROKER_NETWORKING_CONFIG = { EndpointsConfig: { 'dwg-broker': {} } };
+
 const SELF_UPDATE_RECREATE_SPECS: Readonly<Record<string, RawContainerRecreateSpec>> = {
   'id-dwg-server': recreateSpec({
     name: 'dwg-server',
@@ -356,6 +375,8 @@ const SELF_UPDATE_RECREATE_SPECS: Readonly<Record<string, RawContainerRecreateSp
   'id-dwg-broker': recreateSpec({
     name: 'dwg-broker',
     image: 'ghcr.io/arvinrahnama/docker-webmail-gui-broker:0.3.0',
+    hostConfig: BROKER_HOST_CONFIG,
+    networkingConfig: BROKER_NETWORKING_CONFIG,
   }),
 };
 
@@ -510,8 +531,11 @@ describe('panel.selfUpdateApply', () => {
       expect.objectContaining({
         name: 'dwg-self-update-updater',
         // The broker's OWN currently-running image — not either target,
-        // neither of which is pulled yet at launch time.
-        image: 'sha256:broker-digest',
+        // neither of which is pulled yet at launch time. Sourced from the
+        // *cloned spec* (`inspectContainerForRecreate`), not a plain
+        // `listContainers()` lookup — see the next test for why that
+        // distinction is load-bearing, not cosmetic.
+        image: 'ghcr.io/arvinrahnama/docker-webmail-gui-broker:0.3.0',
         cmd: ['node', 'apps/broker/dist/self-update/updater-entrypoint.js'],
         env: [
           'DWG_SELF_UPDATE_SERVER_CONTAINER_NAME=dwg-server',
@@ -522,6 +546,50 @@ describe('panel.selfUpdateApply', () => {
       }),
     );
     expect(startContainer).toHaveBeenCalledExactlyOnceWith('updater-id');
+  });
+
+  // The real-daemon bug SU-F's first real run found: a hand-composed
+  // `hostConfig` (just `Binds` + `AutoRemove`) silently dropped
+  // `GroupAdd` — the host's docker-group GID, `docker/compose.yaml`'s
+  // `group_add:` on `broker:` itself — which is what actually lets the
+  // non-root `dwg` user use the bind-mounted socket at all. The updater
+  // launched fine and reported `{started:true}`, then got `EACCES` on its
+  // very first Docker API call and `AutoRemove`d itself, leaving no
+  // trace: neither panel container was ever touched. Fixed by cloning the
+  // broker's own `hostConfig`/`networkingConfig` wholesale
+  // (`launch-updater.ts`'s own header has the full account) instead of
+  // hand-composing them — asserted here directly.
+  it("clones the broker's own hostConfig/networkingConfig (GroupAdd included) into the updater's spec, appending only the one extra bind", async () => {
+    const createContainer = vi.fn(async () => ({ id: 'updater-id' }));
+    const startContainer = vi.fn(async () => undefined);
+    const docker = selfUpdateDocker({ createContainer, startContainer });
+
+    await handleOperation(
+      { operation: 'panel.selfUpdateApply', targetVersion: '0.4.0' },
+      deps(docker),
+    );
+
+    expect(createContainer).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({
+        hostConfig: {
+          // The broker's own bind (the docker socket) is untouched, plus
+          // exactly one more entry for the server-data volume — never a
+          // hand-invented Binds array.
+          Binds: ['/var/run/docker.sock:/var/run/docker.sock:rw', 'dwg-server-data:/app/data'],
+          // Carried through completely unread/undecided-on, exactly as
+          // captured — this is the field that was silently missing
+          // before this fix.
+          GroupAdd: ['999'],
+          CapDrop: ['ALL'],
+          ReadonlyRootfs: true,
+          // The one field this operation adds on top of the clone.
+          AutoRemove: true,
+        },
+        // The broker's own network attachment, cloned verbatim — the
+        // updater is never left on Docker's default bridge network.
+        networkingConfig: BROKER_NETWORKING_CONFIG,
+      }),
+    );
   });
 
   // SU-F: the real-daemon CI test's one broker seam. `deps.

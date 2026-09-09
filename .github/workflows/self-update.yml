@@ -324,9 +324,43 @@ jobs:
           echo "${RESULT}" | grep -q "\"serverVersion\":\"${OLD_VERSION}\""
           echo "${RESULT}" | grep -q "\"brokerVersion\":\"${OLD_VERSION}\""
 
+      # The updater runs with AutoRemove:true, so once it exits (success
+      # *or* failure) every trace of it — logs included — disappears with
+      # it, on top of dwg-broker itself possibly being replaced moments
+      # later. A background watcher, started *before* the apply call so
+      # it is already polling the instant the updater container can
+      # possibly exist, is the only reliable way to have captured
+      # anything by the time a later step might need it: it waits for a
+      # container named dwg-self-update-updater to appear at all (by
+      # `launch-updater.ts`'s own fixed name,
+      # SELF_UPDATE_UPDATER_CONTAINER_NAME) and immediately starts
+      # following its logs into a file — attaching to `docker logs -f`
+      # keeps reading right up to the moment the container is actually
+      # removed, not just up to whatever had been written when the
+      # watcher first noticed it. `nohup ... & disown`, not a plain `&`
+      # subshell: a GitHub Actions `run:` step is its own shell
+      # invocation, and a background job merely started with `&` is not
+      # guaranteed to survive that shell exiting once this step's own
+      # commands finish — `nohup` makes it ignore the hangup signal and
+      # `disown` removes it from this shell's job table, so it keeps
+      # running (and this step still returns immediately either way).
       - name: 'panel.selfUpdateApply: trigger a REAL self-update to v0.9.1'
         run: |
           set -eu
+          rm -f /tmp/updater.log /tmp/updater-inspect.json
+          nohup bash -c '
+            for _ in $(seq 1 100); do
+              CID=$(docker ps -aq -f name=dwg-self-update-updater | head -n1)
+              if [ -n "${CID}" ]; then
+                docker inspect "${CID}" > /tmp/updater-inspect.json 2>&1 || true
+                docker logs -f "${CID}" > /tmp/updater.log 2>&1 || true
+                break
+              fi
+              sleep 0.1
+            done
+          ' > /tmp/updater-watcher.log 2>&1 &
+          disown
+
           RESULT=$(docker exec dwg-broker node -e "
             fetch('http://127.0.0.1:4000/v1/ops', {
               method: 'POST',
@@ -400,8 +434,32 @@ jobs:
           echo "${RESULT}" | grep -q "\"fromVersion\":\"${OLD_VERSION}\""
           echo "confirmed: the real updater wrote a real success verdict for a real v${OLD_VERSION} -> v${NEW_VERSION} swap."
 
-      - name: Dump container logs on failure
+      # Every source of evidence for "the updater launched but nothing
+      # happened" (the exact failure mode SU-F's first real run hit),
+      # gathered unconditionally rather than guessing which one will
+      # matter: the updater's own captured stdout/stderr and its last
+      # `docker inspect` (from the background watcher above — present
+      # even though AutoRemove has long since erased the container
+      # itself), every container including exited ones (`-a`, not just
+      # `ps`), and the status file straight off the server-data volume
+      # (mounted directly by a disposable reader container, never via
+      # `docker exec` into dwg-server/dwg-broker — by this point either
+      # or both may not even exist to exec into). The updater writes a
+      # `FAILED` status on its own error paths (`updater.ts`), so this
+      # file is the single most likely place to find the real reason.
+      - name: Dump diagnostics on failure
         if: failure()
         run: |
-          docker compose -f docker/compose.yaml -f ci-self-update.override.yml --env-file .env logs --no-color || true
+          echo "--- updater container logs (captured live by the background watcher) ---"
+          cat /tmp/updater.log 2>/dev/null || echo "(no updater.log — the watcher never saw the container, or it was still empty)"
+          echo "--- updater container's last docker inspect ---"
+          cat /tmp/updater-inspect.json 2>/dev/null || echo "(no updater-inspect.json)"
+          echo "--- background watcher's own log ---"
+          cat /tmp/updater-watcher.log 2>/dev/null || echo "(no updater-watcher.log)"
+          echo "--- self-update-result.json on the server-data volume, read directly (never via docker exec) ---"
+          docker run --rm -v dwg-server-data:/data:ro alpine:3.20 \
+            sh -c 'cat /data/self-update-result.json 2>/dev/null || echo "(no status file present on the volume)"'
+          echo "--- docker ps -a (including exited containers) ---"
           docker ps -a || true
+          echo "--- compose logs ---"
+          docker compose -f docker/compose.yaml -f ci-self-update.override.yml --env-file .env logs --no-color || true

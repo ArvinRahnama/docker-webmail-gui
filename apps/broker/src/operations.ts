@@ -683,11 +683,15 @@ async function handlePanelSelfUpdateCheck(
  * has no effect on anything this request itself carries.
  *
  * The launched updater itself runs the broker's own *current* image
- * (`broker.image` below — not either target image, neither of which has
- * been pulled yet at launch time) with an alternate command
+ * (`brokerSpec.image` below — not either target image, neither of which
+ * has been pulled yet at launch time) with an alternate command
  * (`launch-updater.ts`) — see docs/design/self-update.md §1 for why this
  * container, not this request-handling process, is what recreates
- * `dwg-broker`.
+ * `dwg-broker`. Its `hostConfig`/`networkingConfig` are likewise cloned
+ * from the broker's own `inspectContainerForRecreate` capture, never
+ * hand-composed — `launch-updater.ts`'s own header explains the real,
+ * real-daemon-only bug (a dropped `GroupAdd`) that hand-composing them
+ * caused, found by SU-F's first real run.
  *
  * **Not yet wired here (SU-C):** the audited DB record. `dwg-broker` has
  * no database (SECURITY.md §4.1) — the real audit entry is written
@@ -705,13 +709,15 @@ async function handlePanelSelfUpdateApply(
     deps.docker.listContainers({ all: true }),
   );
   const { server, broker } = resolvePanelIdentities(deps, all, 'panel.selfUpdateApply');
-  const brokerContainer = all.find((container) => container.id === broker.id);
-  if (brokerContainer === undefined) {
-    // Unreachable given resolvePanelIdentities found `broker` in `all`
-    // above; satisfies noUncheckedIndexedAccess without a non-null
-    // assertion, matching container-resolver.ts's own such guard.
-    throw new BrokerError('INTERNAL', "Could not read the broker's own container record.");
-  }
+
+  // The broker's own full spec, cloned — never a plain `listContainers()`
+  // lookup for just the image string (that was the bug: it left
+  // `launchUpdater` nothing but `Binds`/`AutoRemove` to hand-compose
+  // `hostConfig` from, silently dropping `GroupAdd` — see
+  // `launch-updater.ts`'s own header).
+  const brokerSpec = await callDocker(deps, 'panel.selfUpdateApply', () =>
+    deps.docker.inspectContainerForRecreate(broker.id),
+  );
 
   const serverRepository = resolvePanelRepository(
     PANEL_SERVER_REPOSITORY,
@@ -726,7 +732,9 @@ async function handlePanelSelfUpdateApply(
 
   await callDocker(deps, 'panel.selfUpdateApply', () =>
     launchUpdater(deps.docker, {
-      brokerOwnImage: brokerContainer.image,
+      brokerOwnImage: brokerSpec.image,
+      brokerHostConfig: brokerSpec.hostConfig,
+      brokerNetworkingConfig: brokerSpec.networkingConfig,
       // The container's own *resolved* name (from Docker's own listing),
       // never the configured identity verbatim — that identity may be
       // label-based, in which case its `containerName` is `null` and

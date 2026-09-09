@@ -5,11 +5,11 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-While the project is at `0.x`, the public API, configuration format, and
-database schema may change between minor versions. Breaking changes will be
-called out explicitly here.
+As of `1.0.0`, this project follows Semantic Versioning: incompatible changes
+to the public API, configuration format, or database schema bump the major
+version and are called out explicitly here.
 
-## [Unreleased]
+## [1.0.0] - 2026-09-10
 
 ### Added
 
@@ -71,6 +71,27 @@ called out explicitly here.
   operation vocabulary. See `FEATURE_MATRIX.md` §31b and
   `docs/design/self-update.md` for the full design, and what it
   deliberately does not do yet.
+
+### Changed
+
+- Boolean settings on the Configuration page now render as labeled toggle
+  switches — the same control the FTPS and theme toggles already use —
+  instead of a free-text field, for the settings whose valid value is
+  strictly `true`/`false` (`ENABLE_EXEC_CONSOLE`, `ENABLE_HSTS`,
+  `COOKIE_SECURE`). Boolean-ness is declared server-side in the settings
+  allowlist rather than guessed from the current value, and the stored
+  `"true"`/`"false"` representation is unchanged, so the Review → Apply flow
+  sees the same values as before.
+
+### Fixed
+
+- The Updates page's "Apply update" confirmation no longer sits behind a
+  silent type-to-confirm gate. The dialog was configured at a tier that
+  required typing an exact resource name before its Confirm button enabled,
+  so clicking "Apply update" without noticing that field did nothing — no
+  request, no feedback. It is now a standard confirmation, so applying an
+  update reliably dispatches (the server still refuses the docker-mailserver
+  apply as before; that refusal is now visible instead of silent).
 
 ### Note
 
@@ -722,7 +743,7 @@ document set rather than a product.
   will be called out here. Pin the exact image version rather than a
   floating tag — see `docs/docker.md`.
 
-[unreleased]: https://github.com/ArvinRahnama/docker-webmail-gui/compare/v0.3.0...HEAD
+[1.0.0]: https://github.com/ArvinRahnama/docker-webmail-gui/compare/v0.3.0...v1.0.0
 [0.3.0]: https://github.com/ArvinRahnama/docker-webmail-gui/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/ArvinRahnama/docker-webmail-gui/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/ArvinRahnama/docker-webmail-gui/releases/tag/v0.1.0

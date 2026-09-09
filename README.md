@@ -50,9 +50,9 @@ That is the whole design. [`docs/security-model.md`](docs/security-model.md) is 
 
 ## Status
 
-**v0.1.0 — first public release.** Every feature milestone is built, the images are published, and CI runs a real install → healthy → uninstall cycle on every relevant push.
+**v1.0.0 — production release.** Every feature milestone is built, the images are published, and CI runs a real install → healthy → uninstall cycle — plus a real-daemon panel self-update — on every relevant push.
 
-Verified: 1,477 unit tests and 55 real-browser end-to-end tests, including a CSP and accessibility sweep against the built SPA; both images built and run; the privilege boundary checked from inside the running containers; and the panel driving a live `docker-mailserver`, reading a real account and creating one that appears in the mail server's own config with a maildir on disk.
+Verified: the full unit and real-browser end-to-end suites pass, including a CSP and accessibility sweep against the built SPA; both images built and run; the privilege boundary checked from inside the running containers; a real-daemon self-update that recreates both panel containers and comes back healthy; and the panel driving a live `docker-mailserver`, reading a real account and creating one that appears in the mail server's own config with a maildir on disk.
 
 **Three things are not proven, and you should know them before trusting this with anything important:**
 
@@ -60,7 +60,7 @@ Verified: 1,477 unit tests and 55 real-browser end-to-end tests, including a CSP
 2. **The packaged container has never been driven through a browser.** The end-to-end suite runs against development harnesses; the published image was exercised over HTTP.
 3. **ClamAV reports `Unknown` on a stock `docker-mailserver` image**, because reaching clamd needs `socat`, which that image does not install. This is the design failing honestly rather than guessing, but it does mean live ClamAV status is unavailable by default.
 
-This is a `0.x` release: configuration format and database schema may change between minor versions. [`AUDIT.md`](AUDIT.md) is the full account of what is proven, what is merely asserted, and what a reader may not conclude.
+As of `1.0.0` this project follows Semantic Versioning: incompatible changes to the configuration format or database schema bump the major version and are called out in [`CHANGELOG.md`](CHANGELOG.md). [`AUDIT.md`](AUDIT.md) is the full account of what is proven, what is merely asserted, and what a reader may not conclude.
 
 ## Quick start
 
@@ -70,10 +70,10 @@ Requires a Linux host with Docker Engine and the Compose v2 plugin. Nothing is b
 mkdir -p docker-webmail-gui/docker && cd docker-webmail-gui
 
 curl -fsSL -o docker/compose.yaml \
-  https://raw.githubusercontent.com/ArvinRahnama/docker-webmail-gui/v0.1.0/docker/compose.yaml
+  https://raw.githubusercontent.com/ArvinRahnama/docker-webmail-gui/v1.0.0/docker/compose.yaml
 
 cat > .env <<EOF
-DWG_VERSION=0.1.0
+DWG_VERSION=1.0.0
 PORT=3000
 COOKIE_SECRET=$(openssl rand -hex 32)
 BROKER_SHARED_SECRET=$(openssl rand -hex 32)
@@ -95,7 +95,7 @@ Then open `http://127.0.0.1:3000`, sign in with the address and password from `.
 **Installing from a source checkout instead**, with secret generation, health checks and a privilege-boundary assertion done for you:
 
 ```sh
-git clone --branch v0.1.0 https://github.com/ArvinRahnama/docker-webmail-gui.git
+git clone --branch v1.0.0 https://github.com/ArvinRahnama/docker-webmail-gui.git
 cd docker-webmail-gui
 DWG_IMAGE_MODE=pull ./installer/install.sh    # or omit to build from source
 ```

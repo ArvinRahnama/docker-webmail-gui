@@ -63,8 +63,8 @@ services:
       # workflow's own build (never this file) ever overrides it to
       # `registry`.
       args:
-        DWG_VERSION: ${DWG_VERSION:-0.1.0}
-    image: ghcr.io/arvinrahnama/docker-webmail-gui-server:${DWG_VERSION:-0.1.0}
+        DWG_VERSION: ${DWG_VERSION:-1.0.0}
+    image: ghcr.io/arvinrahnama/docker-webmail-gui-server:${DWG_VERSION:-1.0.0}
     # A fixed, predictable name so the broker can resolve this container for
     # `panel.restart` and keep it visible in the filtered container list. The
     # compose service is still reachable as `server` on its networks (compose
@@ -170,8 +170,8 @@ services:
       dockerfile: docker/broker/Dockerfile
       # Same reasoning as `server`'s own `build.args` above.
       args:
-        DWG_VERSION: ${DWG_VERSION:-0.1.0}
-    image: ghcr.io/arvinrahnama/docker-webmail-gui-broker:${DWG_VERSION:-0.1.0}
+        DWG_VERSION: ${DWG_VERSION:-1.0.0}
+    image: ghcr.io/arvinrahnama/docker-webmail-gui-broker:${DWG_VERSION:-1.0.0}
     # Fixed name so `panel.restart` can never resolve the panel-server
     # identity to the broker (the broker refuses that outright regardless),
     # and so the broker appears in its own filtered container list. Still

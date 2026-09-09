@@ -235,18 +235,42 @@ jobs:
         run: |
           docker compose -f docker/compose.yaml -f ci-self-update.override.yml --env-file .env up -d
 
+      # Gates on Docker's own `.State.Health.Status`, not just an HTTP
+      # 200 — both Dockerfiles' HEALTHCHECK is `start-period=15s
+      # interval=30s retries=3`, so Docker reports `starting` (never
+      # `healthy`, however promptly the app itself is actually answering
+      # requests) until the first probe passes, which can be ~30-45s
+      # after the container starts. A plain HTTP-200 loop can pass while
+      # Docker still says `starting` — misleading here specifically
+      # because the *next* thing this job does (`panel.selfUpdateApply`)
+      # launches an updater that itself gates on this exact field
+      # (`docker inspect` -> `.State.Health.Status`, `updater.ts`'s
+      # `waitForHealthy`), so this stack-is-up gate has to check the same
+      # signal the feature under test actually relies on. Budgeted at
+      # 150s — comfortably past the ~45s worst-case first-flip time, not
+      # a change to the production HEALTHCHECK timing itself.
       - name: Wait for the v0.9.0 stack to become healthy
         run: |
           set -eu
-          for _ in $(seq 1 60); do
-            if curl -fsS http://127.0.0.1:3000/api/v1/health 2>/dev/null | grep -q '"status":"ok"'; then
+          DEADLINE=$(( $(date +%s) + 150 ))
+          while :; do
+            SERVER_HEALTH=$(docker inspect dwg-server --format '{{.State.Health.Status}}' 2>/dev/null || echo '')
+            BROKER_HEALTH=$(docker inspect dwg-broker --format '{{.State.Health.Status}}' 2>/dev/null || echo '')
+            echo "server health=${SERVER_HEALTH} | broker health=${BROKER_HEALTH}"
+            if [ "${SERVER_HEALTH}" = "healthy" ] && [ "${BROKER_HEALTH}" = "healthy" ]; then
+              echo "confirmed: both containers report Docker health.status=healthy."
               break
             fi
-            sleep 2
+            if [ "$(date +%s)" -ge "${DEADLINE}" ]; then
+              echo "FAIL: timed out waiting for the v${OLD_VERSION} stack's Docker health.status to flip to healthy"
+              exit 1
+            fi
+            sleep 3
           done
+
           curl -fsS http://127.0.0.1:3000/api/v1/health | tee /tmp/health-old.json
           grep -q "\"version\":\"${OLD_VERSION}\"" /tmp/health-old.json
-          echo "confirmed: v${OLD_VERSION} up and healthy before triggering anything."
+          echo "confirmed: v${OLD_VERSION} up and healthy (Docker health.status and HTTP both) before triggering anything."
 
       # No curl inside either image on purpose (both Dockerfiles' own
       # header) and the broker publishes no port to the host at all
@@ -288,11 +312,20 @@ jobs:
       # a moment mid-swap (stop -> remove -> create -> start) — a failed
       # `docker inspect` during that gap means "not there yet", not an
       # error, exactly like `updater.ts`'s own health-poll treats a
-      # not-yet-healthy container.
+      # not-yet-healthy container. Budgeted well past the updater's own
+      # worst case: `HEALTH_POLL_TIMEOUT_MS` (90s) applies *per
+      # container*, and the success path recreates server then broker
+      # sequentially — up to 90s + 90s = 180s of updater-internal
+      # polling alone is legitimate, on top of each container's own
+      # ~30-45s to reach its first Docker health.status=healthy flip
+      # (same HEALTHCHECK timing as the previous wait step) and the pull
+      # itself (fast, local registry, but not instant). 300s leaves
+      # comfortable margin over that 180s+ worst case, not a change to
+      # any production timeout.
       - name: Wait for the real swap to finish — both containers on v0.9.1, both healthy
         run: |
           set -eu
-          DEADLINE=$(( $(date +%s) + 240 ))
+          DEADLINE=$(( $(date +%s) + 300 ))
           while :; do
             SERVER_IMAGE=$(docker inspect dwg-server --format '{{.Config.Image}}' 2>/dev/null || echo '')
             SERVER_HEALTH=$(docker inspect dwg-server --format '{{.State.Health.Status}}' 2>/dev/null || echo '')

@@ -352,18 +352,22 @@ function recreateSpec(overrides: Partial<RawContainerRecreateSpec>): RawContaine
  * Broker's own `hostConfig`/`networkingConfig` fixture — modelled on what
  * `docker/compose.yaml` actually configures for `broker:` (the docker-
  * socket bind, `group_add: [DOCKER_GID]`, `cap_drop: ALL`,
- * `read_only: true`, one attached network), specifically so
- * `panel.selfUpdateApply`'s tests below can assert `launchUpdater`
- * receives and correctly clones every one of these — `GroupAdd` above
- * all, since a hand-composed `hostConfig` silently dropping it is the
- * real-daemon bug SU-F's first real run found (`launch-updater.ts`'s own
- * header).
+ * `read_only: true`, `restart: unless-stopped`, one attached network),
+ * specifically so `panel.selfUpdateApply`'s tests below can assert
+ * `launchUpdater` receives and correctly clones every one of these —
+ * `GroupAdd` above all, since a hand-composed `hostConfig` silently
+ * dropping it is real-daemon bug #1 SU-F's first real run found
+ * (`launch-updater.ts`'s own header) — while also asserting the one
+ * field that must *not* survive the clone unchanged: `RestartPolicy`,
+ * real-daemon bug #2 (Docker refuses `AutoRemove: true` alongside any
+ * restart policy other than "no restart").
  */
 const BROKER_HOST_CONFIG = {
   Binds: ['/var/run/docker.sock:/var/run/docker.sock:rw'],
   GroupAdd: ['999'],
   CapDrop: ['ALL'],
   ReadonlyRootfs: true,
+  RestartPolicy: { Name: 'unless-stopped', MaximumRetryCount: 0 },
 };
 const BROKER_NETWORKING_CONFIG = { EndpointsConfig: { 'dwg-broker': {} } };
 
@@ -548,18 +552,27 @@ describe('panel.selfUpdateApply', () => {
     expect(startContainer).toHaveBeenCalledExactlyOnceWith('updater-id');
   });
 
-  // The real-daemon bug SU-F's first real run found: a hand-composed
-  // `hostConfig` (just `Binds` + `AutoRemove`) silently dropped
-  // `GroupAdd` — the host's docker-group GID, `docker/compose.yaml`'s
-  // `group_add:` on `broker:` itself — which is what actually lets the
-  // non-root `dwg` user use the bind-mounted socket at all. The updater
-  // launched fine and reported `{started:true}`, then got `EACCES` on its
-  // very first Docker API call and `AutoRemove`d itself, leaving no
-  // trace: neither panel container was ever touched. Fixed by cloning the
-  // broker's own `hostConfig`/`networkingConfig` wholesale
-  // (`launch-updater.ts`'s own header has the full account) instead of
-  // hand-composing them — asserted here directly.
-  it("clones the broker's own hostConfig/networkingConfig (GroupAdd included) into the updater's spec, appending only the one extra bind", async () => {
+  // Two real-daemon bugs, found by SU-F's first two real runs, both
+  // asserted here directly:
+  //
+  //  1. A hand-composed `hostConfig` (just `Binds` + `AutoRemove`)
+  //     silently dropped `GroupAdd` — the host's docker-group GID,
+  //     `docker/compose.yaml`'s `group_add:` on `broker:` itself — which
+  //     is what actually lets the non-root `dwg` user use the
+  //     bind-mounted socket at all. The updater launched fine and
+  //     reported `{started:true}`, then got `EACCES` on its very first
+  //     Docker API call and `AutoRemove`d itself, leaving no trace:
+  //     neither panel container was ever touched.
+  //  2. Cloning the broker's own `hostConfig` to fix (1) also clones its
+  //     `RestartPolicy` (`restart: unless-stopped`) — and Docker's own
+  //     container-create validation rejects `AutoRemove: true` alongside
+  //     any restart policy other than "no restart" outright.
+  //
+  // Fixed by cloning the broker's own `hostConfig`/`networkingConfig`
+  // wholesale, with exactly two deliberate overrides on top
+  // (`launch-updater.ts`'s own header has the full account) — never
+  // hand-composing the rest.
+  it("clones the broker's own hostConfig/networkingConfig (GroupAdd included, RestartPolicy overridden) into the updater's spec, appending only the one extra bind", async () => {
     const createContainer = vi.fn(async () => ({ id: 'updater-id' }));
     const startContainer = vi.fn(async () => undefined);
     const docker = selfUpdateDocker({ createContainer, startContainer });
@@ -578,12 +591,14 @@ describe('panel.selfUpdateApply', () => {
           Binds: ['/var/run/docker.sock:/var/run/docker.sock:rw', 'dwg-server-data:/app/data'],
           // Carried through completely unread/undecided-on, exactly as
           // captured — this is the field that was silently missing
-          // before this fix.
+          // before bug #1's fix.
           GroupAdd: ['999'],
           CapDrop: ['ALL'],
           ReadonlyRootfs: true,
-          // The one field this operation adds on top of the clone.
+          // The two fields this operation deliberately overrides rather
+          // than clones — never the broker's own `unless-stopped`.
           AutoRemove: true,
+          RestartPolicy: { Name: 'no', MaximumRetryCount: 0 },
         },
         // The broker's own network attachment, cloned verbatim — the
         // updater is never left on Docker's default bridge network.

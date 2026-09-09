@@ -10,18 +10,18 @@
  * this codebase already follows, applied to the one operation that needs
  * to create a container at all.
  *
- * **Real-daemon bug fixed here, invisible to every fake-`DockerApi` test
- * (SU-F's first real run found it):** the updater's `hostConfig` used to
- * be hand-composed from scratch (`Binds` + `AutoRemove` only). That
- * silently dropped `GroupAdd` — `docker/compose.yaml`'s
- * `group_add: [DOCKER_GID]` on `broker:` itself, the host's own `docker`
- * group GID, which is what actually lets the non-root `dwg` user read
- * and write `/var/run/docker.sock` (bind-mounting the socket *file* does
- * not by itself grant a process permission to use it — group membership
- * does). A hand-composed `hostConfig` with the right `Binds` entry but no
+ * **Real-daemon bug #1, invisible to every fake-`DockerApi` test (SU-F's
+ * first real run found it):** the updater's `hostConfig` used to be
+ * hand-composed from scratch (`Binds` + `AutoRemove` only). That silently
+ * dropped `GroupAdd` — `docker/compose.yaml`'s `group_add: [DOCKER_GID]`
+ * on `broker:` itself, the host's own `docker` group GID, which is what
+ * actually lets the non-root `dwg` user read and write
+ * `/var/run/docker.sock` (bind-mounting the socket *file* does not by
+ * itself grant a process permission to use it — group membership does).
+ * A hand-composed `hostConfig` with the right `Binds` entry but no
  * `GroupAdd` therefore builds and starts a container that can be bound to
  * the socket and still get `EACCES` on its very first Docker API call —
- * exactly matching what the first real run observed: `apply` returned
+ * exactly matching what that run observed: `apply` returned
  * `{started:true}` (the broker itself launched the updater successfully),
  * but neither panel container was ever touched, and `AutoRemove` erased
  * every trace of why. Fixed by **cloning the broker's own currently-
@@ -34,6 +34,26 @@
  * whatever `Binds` the broker already has (which already includes the
  * docker-socket bind, so there is nothing left to hand-compose there
  * either) — see {@link withUpdaterHostConfig}.
+ *
+ * **Real-daemon bug #2, found by the very next real run once bug #1 was
+ * fixed:** cloning the broker's own `hostConfig` also clones its
+ * `RestartPolicy` (`docker/compose.yaml`'s `restart: unless-stopped` on
+ * `broker:`). Docker's own container-create validation rejects a
+ * container that sets both `AutoRemove: true` and a `RestartPolicy` other
+ * than "no restart" outright — `(HTTP code 400) bad parameter - can't
+ * create 'AutoRemove' container with restart policy` — so the clone
+ * needed one more deliberate override, not just the `Binds` append:
+ * `withUpdaterHostConfig` also replaces `RestartPolicy` with the literal
+ * "no restart" value, `{ Name: 'no', MaximumRetryCount: 0 }`, never the
+ * cloned `unless-stopped`. This is correct for what the updater actually
+ * is — a one-shot process, not a long-lived service — not a weakening of
+ * the "clone, don't invent" principle: `RestartPolicy` is the one field
+ * this project has confirmed Docker itself refuses to combine with
+ * `AutoRemove`, so it is the one field genuinely appropriate to override
+ * rather than clone, exactly as `AutoRemove` itself already is. No other
+ * field in a compose-derived `hostConfig` (`CapDrop`, `SecurityOpt`,
+ * `ReadonlyRootfs`, `PidsLimit`/resource limits, `NetworkMode`) is known
+ * to conflict with `AutoRemove` at the Docker Engine API level.
  */
 import type { DockerApi } from '../docker-types.js';
 
@@ -56,16 +76,30 @@ const UPDATER_ENTRYPOINT_COMMAND = ['node', 'apps/broker/dist/self-update/update
 const SERVER_DATA_VOLUME_BIND = 'dwg-server-data:/app/data';
 
 /**
+ * Docker's own "do not restart" value — not `undefined`/omitted, which
+ * would leave whatever `RestartPolicy` the clone carried (this project's
+ * own real deployment sets `restart: unless-stopped` on `broker:`, and
+ * Docker rejects `AutoRemove: true` alongside any restart policy other
+ * than this one). `MaximumRetryCount: 0` is Docker's own paired default
+ * for `Name: 'no'` — included so this is a complete, self-consistent
+ * value, not a partial object relying on an implicit default.
+ */
+const NO_RESTART_POLICY = { Name: 'no', MaximumRetryCount: 0 };
+
+/**
  * Reads only `Binds` out of the broker's own cloned `hostConfig` — to
  * append the one extra bind the updater needs beyond whatever the broker
  * itself already has (which already includes the docker-socket bind,
- * `docker/compose.yaml`) — and layers `AutoRemove: true` on top. Every
- * other field is passed through completely untouched: this function
- * never reads, interprets, or decides anything based on `GroupAdd`,
- * `NetworkMode`, `CapDrop`, or any other entry, matching
- * `RawContainerRecreateSpec`'s own "opaque, byte-for-byte" discipline —
- * this is the one narrow, named exception (`Binds`, to append one entry),
- * not a general license to reach into the rest of the object.
+ * `docker/compose.yaml`) — and layers `AutoRemove: true` plus
+ * {@link NO_RESTART_POLICY} on top (this file's own header explains why
+ * `RestartPolicy` specifically has to be overridden, not cloned — Docker
+ * itself refuses the combination otherwise). Every other field is passed
+ * through completely untouched: this function never reads, interprets,
+ * or decides anything based on `GroupAdd`, `NetworkMode`, `CapDrop`, or
+ * any other entry, matching `RawContainerRecreateSpec`'s own "opaque,
+ * byte-for-byte" discipline — `Binds` and `RestartPolicy` are the two
+ * narrow, named exceptions, not a general license to reach into the rest
+ * of the object.
  */
 function withUpdaterHostConfig(
   brokerHostConfig: Readonly<Record<string, unknown>>,
@@ -75,6 +109,7 @@ function withUpdaterHostConfig(
     ...brokerHostConfig,
     Binds: [...existingBinds, SERVER_DATA_VOLUME_BIND],
     AutoRemove: true,
+    RestartPolicy: NO_RESTART_POLICY,
   };
 }
 

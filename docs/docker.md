@@ -257,6 +257,39 @@ against anything real rather than simulated:
   them on every push touching `docker/`): each Dockerfile fails the build
   if the other tier's dependencies leaked into it — see §4.
 
+**Panel self-update, asserted in CI separately
+(`.github/workflows/self-update.yml`), also against a real Docker daemon**
+— a distinct job from the install/uninstall cycle above, since it exercises
+a genuinely different mechanism (the panel recreating its own two
+containers in place, not a fresh install). See
+`docs/design/self-update.md` for the full design and
+`FEATURE_MATRIX.md` §31b for the user-facing capability:
+
+- Two real, differently-versioned builds of both panel images are pushed
+  to a disposable local registry the job stands up for itself; a real
+  `panel.selfUpdateApply` is triggered against the running (older) stack,
+  targeting the newer one.
+- Both containers actually swap to the new image and come back healthy —
+  asserted from `docker inspect`, not merely from the API reporting
+  success — and the durable status file the updater writes reports a real
+  success with the correct from/to versions.
+- The registry substitution is one narrow, broker-only env var
+  (`DANGEROUSLY_OVERRIDE_SELF_UPDATE_REGISTRY`, read once at broker
+  startup, never a request field, never set outside this workflow) that
+  can only ever change which registry _host_ the two fixed, hardcoded
+  panel image repositories are pulled from — never which images.
+
+**Not verified in CI, and not claimed to be — the rollback path
+specifically:** the _logic_ is unit-proven exhaustively against a fake
+Docker driver (both the server-only and the both-containers rollback
+branches, asserting the exact call sequence and that rollback recreates
+from the captured old spec). What a real daemon would add — that a
+container recreated from a cloned spec genuinely boots — is already
+covered by the success-path job above, which recreates two containers
+from cloned specs. Forcing a _real_ rollback needs a deliberately broken
+target image; deferred, recorded in `docs/design/self-update.md` §10 and
+`FEATURE_MATRIX.md` §31c.
+
 **Not verified here, and not claimed to be — remaining manual/future
 verification:**
 

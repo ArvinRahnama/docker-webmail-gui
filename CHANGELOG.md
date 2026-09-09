@@ -49,6 +49,28 @@ called out explicitly here.
   configure, test-connection, create, upload, browse, import — against an
   in-process fake S3 and a fake FTP server; never a real object store, a
   real FTP server, or the production VPS.
+- Panel self-update: the panel can now update its own two containers
+  (`dwg-server`/`dwg-broker`) in place, on a separate "Panel" card next to
+  the existing docker-mailserver update comparison, which is unchanged.
+  Always targets the newest published release automatically — there is no
+  version picker, the admin only confirms — behind a Tier-4 confirmation
+  (type the target version, plus the same backup-status gate Restore
+  already uses: "if this goes wrong, you'll want everything else in a
+  known-good state"). Progress streams as an ordinary job while the panel
+  is still reachable; once the recreate itself begins, the page shows a
+  reconnecting overlay and reports the real outcome — success, rolled
+  back, or failed — once it reconnects, never a generic "back online." A
+  failed health check after recreating either container rolls it back
+  automatically, both containers together if the second recreate is what
+  failed, never leaving the two on mismatched versions. Refuses outright,
+  with the reason stated and Apply disabled, on an install built from
+  source rather than pulled from the registry, and while a backup or
+  restore job is in flight. Only the broker ever touches Docker for this —
+  the web tier still sends nothing but a target version string, and
+  `container.create`/`container.remove` remain absent from the broker's
+  operation vocabulary. See `FEATURE_MATRIX.md` §31b and
+  `docs/design/self-update.md` for the full design, and what it
+  deliberately does not do yet.
 
 ### Note
 
@@ -61,6 +83,24 @@ called out explicitly here.
   is also no manual "sync now" button — the reconcile route exists and
   reconcile does run automatically, just not on demand yet. See
   `FEATURE_MATRIX.md` §27d and `docs/backup-restore.md` for the full list.
+- Panel self-update deliberately does not ship, this round: a manual "roll
+  back to a previous version" button independent of a failed update (only
+  automatic rollback-on-failed-health exists); a real-Docker-daemon CI
+  test of the rollback path itself (the rollback logic is unit-tested
+  exhaustively; a separate real-daemon CI job proves the success path — a
+  real recreate from a cloned container spec actually boots and comes back
+  healthy); resuming an interrupted update automatically if the updater
+  process itself crashes mid-flight (an explicitly accepted, rare,
+  by-hand-recoverable case for this first version); or a retry cool-down
+  after an automatic rollback. See `FEATURE_MATRIX.md` §31b and
+  `docs/design/self-update.md` §10 for the full list.
+- Publishing the two panel images now additionally bakes a version and an
+  install-origin marker into each image, and a new CI-only workflow
+  (`.github/workflows/self-update.yml`) exercises a real self-update
+  against a real Docker daemon on every push touching this feature. Both
+  are maintainer/CI details — the release workflow running with the
+  `workflow` OAuth scope, and an extra CI job — with no effect on how the
+  panel is installed or used.
 
 ## [0.3.0] - 2026-08-30
 

@@ -1,6 +1,6 @@
 # Design: panel self-update
 
-**Status:** Proposal — not built. Written for owner approval before any implementation.
+**Status:** Built (SU-A through SU-G, 2026-09-09). Every section below is written in the original proposal's voice, as approved; each numbered decision in §9 now carries a **Resolved** note recording what was actually chosen and built, and §10 consolidates the full deferred backlog. See `FEATURE_MATRIX.md` §31b for the user-facing capability summary.
 **Scope:** The panel (`dwg-server` + `dwg-broker`) recreating _itself_ onto a newer published version. **Not** `docker-mailserver` updates — see [§0](#0-scope-correction-two-different-things-currently-share-one-page) below, which is the first thing this doc needs to fix in the brief it was given.
 
 ---
@@ -226,14 +226,49 @@ Two phases, reusing two different **existing** mechanisms rather than inventing 
 ## 9. Open decisions for the owner
 
 1. **Auto-latest vs. pick-a-version.** Does "Apply update" always target the newest GitHub release with just a confirm, or can the admin choose an older/specific version (e.g. to intentionally hold back, or catch up gradually across intermediate versions)? Affects the UI (one button vs. a version list) and whether "skip a version" is ever valid.
+
+   **Resolved:** auto-latest. The server resolves the newest published release (`SelfUpdateReleaseSourcePort.resolveLatestRelease()`) and that is the only version `POST /api/v1/updates/panel/apply` can ever target (`PanelSelfUpdateService.apply()`, SU-C) — the admin confirms, never chooses (SU-D's `panel-update-card.tsx`, Tier 4 confirm dialog). No version list, no "skip a version" concept; the owner settled this before build started.
+
 2. **Confirm the release-tracking convention.** This design assumes every tagged release (`v0.1.0`, `v0.2.0`, ...) has a matching pinned GHCR tag for both images, and that GitHub Releases is the right source for "latest." Needs the owner to confirm that's the actual publish process (is there also a floating `:latest` GHCR tag today? Should there be?).
+
+   **Confirmed, unchanged from what this section assumed.** `RealSelfUpdateReleaseSource` reads the project's own GitHub Releases; `.github/workflows/release.yml` publishes the exact version tag, its minor-only alias, and `latest` for both images, matching every release. SU-E additionally baked the same version into each image at build time (`DWG_VERSION`), so `panel.selfUpdateCheck`'s reported `currentVersion` no longer even depends on this release-to-tag convention holding at compare-time — only at publish-time, which `release.yml`'s own build-args now enforce mechanically rather than by convention alone.
+
 3. **Does the docker-mailserver comparison stay on this page, unchanged, as a second card (§0)?** Or should it move elsewhere, or be removed now that "Updates" gains a real meaning for the panel? This is a product-scope call, not an engineering one.
+
+   **Resolved:** stays, unchanged, as a second card. `/maintenance/updates` now shows two fully independent cards — "docker-mailserver" (§0, exactly as before, still a real comparison, still refuses to apply) and "Panel" (SU-D, `panel-update-card.tsx`) — sharing nothing but the route.
+
 4. **Rollback policy scope.** This design only proposes _automatic_ rollback on a failed health check during apply. Is a _manual_ "roll back to the previous version" button (independent of a failed apply, e.g. "I updated successfully but want to revert anyway") in scope for this effort, or later?
+
+   **Resolved:** automatic-only in v1. A failed health check during apply is the only trigger for rollback, exactly as originally proposed; a manual "roll back to a previous version" button independent of a failed apply was explicitly chosen for **later** by the owner — recorded as a deferred item, §10.
+
 5. **Concurrency / maintenance window.** Should self-update refuse to start while a backup/restore job is in flight (a restore needs the container running throughout; an update-triggered outage mid-restore would compound two risky operations)? Should it require an explicit "no other jobs running" precondition, enforced where?
+
+   **Resolved:** yes, refuses outright, enforced server-side. `PanelSelfUpdateService.apply()` (`apps/server/src/modules/updates/panel-self-update.service.ts`) checks `JobsRepository.listActive()` for any job whose type starts with `backup.` before ever enqueuing the self-update job, and refuses with `CONFLICT` if one is in flight — before anything is enqueued, not a UI-level check alone (SU-C).
+
 6. **One published image (broker, reused) vs. a dedicated updater image.** §1 proposes reusing `dwg-broker`'s own image with an alternate command — no new image to publish, always version-locked to the broker code that launches it. The alternative (a separate `docker-webmail-gui-updater` image) is more narrowly auditable in isolation but adds a third image to build, sign, and keep in lockstep. Needs a call.
+
+   **Resolved:** the reused-broker-image approach, exactly as proposed. The updater is `apps/broker/dist/self-update/updater-entrypoint.js`, an alternate command inside the broker's own already-running image, launched via `launch-updater.ts` (SU-B). No third image was ever built or published.
+
 7. **The updater-crash gap (§4).** Accept "rollback plan written to the status file before any teardown, worst case is documented manual recovery" as sufficient for a first version, or require `dwg-broker` to detect and resume/force-rollback an incomplete update on its own next startup?
+
+   **Resolved:** option (a), accepted for v1. The rollback plan (both containers' captured recreate specs) is written to the status file immediately after capture, before any teardown begins (`updater.ts`'s `'in-progress'`-phase write, SU-B/SU-C) — a crash from that point on leaves a documented, by-hand-recoverable record behind, never silence. `dwg-broker` does not detect or resume an interrupted update on its own next startup; that automatic-resume path remains a deferred item, §10.
+
 8. **`DWG_IMAGE_MODE=build` installs.** An install built from source rather than pulled (`docker/compose.yaml`'s own dual `build:`/`image:` support) has no registry image matching what's running, so "pull the target version" doesn't apply the same way. Should self-update simply refuse for these installs (`panel.selfUpdateCheck`'s `updatePossible: false`), and if so, how does the panel know at runtime which mode it was installed under — that signal doesn't exist today and would need to be added (e.g. baked into the image at build time vs. pulled from a registry).
 
    **Resolved (SU-E):** yes, refuse, and the signal is now baked at build time. `docker/server/Dockerfile` and `docker/broker/Dockerfile` each take a `DWG_VERSION`/`DWG_IMAGE_ORIGIN` build ARG, turned into an image `ENV` — never a compose-level override, so an operator cannot casually flip a local build's reported origin via `.env`. `DWG_IMAGE_ORIGIN` defaults to `source`; only `.github/workflows/release.yml`'s publish step overrides it to `registry` (alongside the real release version) for the one build whose output it actually pushes to GHCR. `docker/compose.yaml`'s own `build.args` feeds the checkout's `DWG_VERSION` through for a local `docker compose build` too (including the installer's `DWG_IMAGE_MODE=build` path), so a source-built install still reports a real version — just never `registry` origin. `panel.selfUpdateCheck` (`apps/broker/src/operations.ts`) now reads both containers' baked facts via `extractBakedImageFacts` (`apps/broker/src/self-update/image-refs.ts`), inspecting each container's own env the same uniform way (`inspectContainerForRecreate`, already broker-internal) rather than the old digest-to-repo-tag join — which could not tell a published image from a locally built one sharing the identical tag (this section's own opening sentence). `updatePossible` is `false` whenever either container's baked marker is missing (an image built before this existed) or is not `origin: registry`, each with its own distinct, honest reason.
 
 9. **Retry cool-down.** After an automatic rollback, should the panel throttle immediate re-attempts (protects against a flapping loop if the target version is itself broken), or is "the admin decides when to try again" sufficient?
+
+   **Resolved:** none in v1. There is no throttle on re-attempting a self-update after an automatic rollback — "the admin decides when to try again," this question's own second option. Recorded as a deferred item, §10, in case a flapping-target-version scenario later makes this worth revisiting.
+
+---
+
+## 10. Deferred backlog (recorded at completion — SU-G, working agreement 9)
+
+Nothing below is silently dropped; each is a real, considered decision to defer, not an oversight. Also recorded in `FEATURE_MATRIX.md` §31c and `CHANGELOG.md`.
+
+- **A manual "roll back to a previous version" control**, independent of a failed apply (§9.4) — the owner chose **later**, not this effort. Automatic rollback-on-failed-health-check is the only rollback path v1 ships.
+- **A real-Docker-daemon CI test of the rollback path specifically** (a forced health failure driving an automatic rollback, verified against a real daemon rather than a fake). The rollback _logic itself_ is unit-proven exhaustively (`apps/broker/src/self-update/updater.test.ts`: server-health-fails-rollback-server-only, broker-health-fails-rollback-both, asserting the exact Docker call sequence and that rollback recreates from the _captured_ old spec, never a re-derived one). What a real daemon adds on top of that — that a container recreated from a cloned spec genuinely boots — is already covered by the real-daemon job's success path (`.github/workflows/self-update.yml`), which recreates two containers from cloned specs and asserts they come back healthy. Forcing a genuine rollback for real needs a deliberately broken target image; a bigger, separately-reviewed follow-up (SU-F's own report to the owner named this explicitly).
+- **Updater-crash resume-on-startup** (§9.7/§4) — v1 accepts documented manual recovery instead: the rollback plan is written to the status file before any teardown, and a crash mid-update is treated as a rare, by-hand-recoverable case, not an automatic one.
+- **Retry cool-down after a rollback** (§9.9) — none in v1; no throttle on re-attempting.
+- **`DANGEROUSLY_OVERRIDE_SELF_UPDATE_REGISTRY`** (`apps/broker/src/config.ts`, SU-F) is not a product feature. It exists solely so the real-daemon CI job above can point a real broker at a disposable local registry instead of the real GHCR, since nothing "newer" is ever actually published there for that job to pull. Read once, at broker process startup, from an env var — never a `BrokerRequest` field, never reachable from `/v1/ops` — and it can only ever replace the registry _host_ half of the two fixed repository constants, never the repository names themselves (`resolvePanelRepository`, `apps/broker/src/self-update/image-refs.ts`). It is never set by `docker/compose.yaml`, `installer/install.sh`, or any real deployment path; the only place it is ever set is `.github/workflows/self-update.yml`'s own generated, uncommitted compose override. Recorded here so its existence is never a surprise to a future reader of the broker's config surface.

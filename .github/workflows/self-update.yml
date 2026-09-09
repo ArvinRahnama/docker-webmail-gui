@@ -419,22 +419,42 @@ jobs:
 
       # The status file lives on the server-data named volume, shared
       # between the (now-gone) updater container and the new dwg-server
-      # (docs/design/self-update.md §4) — read directly off the new
-      # container's own filesystem, no HTTP round trip needed to prove
-      # the updater actually wrote it. `jq`, not `grep`: the file is
-      # written pretty-printed (`JSON.stringify(content, null, 2)`,
-      # `updater-entrypoint.ts`), so a no-whitespace `"key":"value"`
-      # grep pattern never matches `"key": "value"` — the first real run
-      # to reach this step wrote a genuinely correct status file and
-      # still failed here, on the assertion, not the data.
+      # (docs/design/self-update.md §4) — read as dwg-server's own user
+      # (`docker exec dwg-server cat ...`), deliberately never a root
+      # side-reader: that is exactly the real thing being proven here —
+      # the *same* process and user that `GET .../panel/last-result`
+      # (SU-C) actually runs as must be able to read what the updater
+      # wrote. A previous real run wrote a genuinely correct status file
+      # and still failed this exact read, silently: `docker exec` failing
+      # under `set -eu` inside a `$(...)` substitution aborts the script
+      # before the next `echo` ever runs, so the *cause* (the updater's
+      # container ran as a different, more-restrictive-umask user —
+      # `result-file-writer.ts`'s own header has the full account) never
+      # made it into the log. Deliberately not `set -e` here any more:
+      # stdout and stderr are captured to files explicitly, so a failure
+      # prints its own cause — including `ls -l`, run the identical way
+      # (`docker exec dwg-server`), which shows the file's actual mode —
+      # before this step exits.
       - name: Verify the status file reports a real success, with the correct from/to versions
         run: |
-          set -eu
-          RESULT=$(docker exec dwg-server cat /app/data/self-update-result.json)
-          echo "${RESULT}"
-          echo "${RESULT}" | jq -e --arg o "${OLD_VERSION}" --arg n "${NEW_VERSION}" \
-            '.phase == "done" and .outcome == "success" and .fromVersion == $o and .toVersion == $n' >/dev/null
-          echo "confirmed: the real updater wrote a real success verdict for a real v${OLD_VERSION} -> v${NEW_VERSION} swap."
+          set -u
+          if ! docker exec dwg-server cat /app/data/self-update-result.json \
+              > /tmp/status-file.json 2> /tmp/status-file.stderr; then
+            echo "FAIL: could not read the status file as dwg-server's own user"
+            echo "--- docker exec stderr ---"
+            cat /tmp/status-file.stderr
+            echo "--- ls -l /app/data/self-update-result.json, same user, for comparison ---"
+            docker exec dwg-server ls -l /app/data/self-update-result.json || true
+            exit 1
+          fi
+          cat /tmp/status-file.json
+          if ! jq -e --arg o "${OLD_VERSION}" --arg n "${NEW_VERSION}" \
+              '.phase == "done" and .outcome == "success" and .fromVersion == $o and .toVersion == $n' \
+              /tmp/status-file.json >/dev/null; then
+            echo "FAIL: the status file did not report the expected success verdict"
+            exit 1
+          fi
+          echo "confirmed: the real updater wrote a real success verdict for a real v${OLD_VERSION} -> v${NEW_VERSION} swap, and dwg-server's own user could read it."
 
       # Every source of evidence for "the updater launched but nothing
       # happened" (the exact failure mode SU-F's first real run hit),
@@ -458,9 +478,9 @@ jobs:
           cat /tmp/updater-inspect.json 2>/dev/null || echo "(no updater-inspect.json)"
           echo "--- background watcher's own log ---"
           cat /tmp/updater-watcher.log 2>/dev/null || echo "(no updater-watcher.log)"
-          echo "--- self-update-result.json on the server-data volume, read directly (never via docker exec) ---"
+          echo "--- self-update-result.json on the server-data volume, read directly by root (never via docker exec) — compare against the dwg-server-user read above ---"
           docker run --rm -v dwg-server-data:/data:ro alpine:3.20 \
-            sh -c 'cat /data/self-update-result.json 2>/dev/null || echo "(no status file present on the volume)"'
+            sh -c 'ls -l /data/self-update-result.json 2>/dev/null; cat /data/self-update-result.json 2>/dev/null || echo "(no status file present on the volume)"'
           echo "--- docker ps -a (including exited containers) ---"
           docker ps -a || true
           echo "--- compose logs ---"

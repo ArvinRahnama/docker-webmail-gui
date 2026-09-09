@@ -24,9 +24,12 @@
  * `dwg-server` itself uses) via a plain filesystem write — this process
  * has the volume mounted directly into its own container, so no Docker
  * API call is needed to reach it, unlike everything else this file does.
+ * The write itself (and the real-daemon permissions bug it used to have)
+ * lives in `result-file-writer.ts`, split out specifically so that part
+ * is directly testable — see that module's own header.
  */
-import { writeFile } from 'node:fs/promises';
 import { createRealDockerApi } from '../docker-client.js';
+import { writeReadableFile } from './result-file-writer.js';
 import { runSelfUpdate, type SelfUpdateResultFile, type UpdaterTarget } from './updater.js';
 
 const DEFAULT_DOCKER_SOCKET_PATH = '/var/run/docker.sock';
@@ -43,7 +46,7 @@ function requiredEnv(name: string): string {
 }
 
 async function writeResultFile(content: SelfUpdateResultFile): Promise<void> {
-  await writeFile(RESULT_FILE_PATH, JSON.stringify(content, null, 2), 'utf8');
+  await writeReadableFile(RESULT_FILE_PATH, JSON.stringify(content, null, 2));
 }
 
 async function main(): Promise<void> {

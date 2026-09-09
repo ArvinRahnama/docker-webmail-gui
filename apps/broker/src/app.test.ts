@@ -52,6 +52,7 @@ function testConfig(overrides: Partial<BrokerConfig> = {}): BrokerConfig {
     panelServer: { containerName: 'dwg-server', containerLabel: null },
     panelBroker: { containerName: 'dwg-broker', containerLabel: null },
     visibleServicePatterns: ['*mailserver*', 'roundcube*', '*docker-webmail-gui*'],
+    dangerouslyOverrideSelfUpdateRegistry: null,
     ...overrides,
   };
 }

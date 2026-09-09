@@ -96,6 +96,14 @@ const rawEnvSchema = z.object({
   // containers' own mounts and network attachments, so they stay
   // consistent automatically (`operations.ts`).
   VISIBLE_SERVICE_PATTERNS: z.string().optional(),
+
+  // CI-only escape hatch for the real-daemon self-update test (SU-F,
+  // `.github/workflows/self-update.yml`), never set by
+  // `docker/compose.yaml` or `installer/install.sh` — see
+  // `BrokerConfig.dangerouslyOverrideSelfUpdateRegistry`'s own doc
+  // comment below for the full reasoning and the one thing it is allowed
+  // to change.
+  DANGEROUSLY_OVERRIDE_SELF_UPDATE_REGISTRY: optionalStringVar(),
 });
 
 export interface BrokerConfig {
@@ -117,6 +125,31 @@ export interface BrokerConfig {
     readonly containerLabel: string | null;
   };
   readonly visibleServicePatterns: readonly string[];
+  /**
+   * `null` in every real deployment — there is no path that sets this in
+   * production. When set, replaces only the registry *host* portion of
+   * the two fixed panel image repositories
+   * (`apps/broker/src/self-update/image-refs.ts`'s `PANEL_SERVER_
+   * REPOSITORY`/`PANEL_BROKER_REPOSITORY`, e.g. `ghcr.io/arvinrahnama`),
+   * never the fixed `docker-webmail-gui-server`/`-broker` repository
+   * *names* — so this can only ever redirect *where* the same two
+   * well-known images are fetched from, never *which* images
+   * `panel.selfUpdateApply` composes a reference for.
+   *
+   * Exists solely so the real-daemon self-update CI job
+   * (`.github/workflows/self-update.yml`, docs/design/self-update.md §8)
+   * can point a real broker at a disposable local registry instead of
+   * the real GHCR — the "newer" version under test is never actually
+   * published there. Read once, here, at process startup from
+   * `DANGEROUSLY_OVERRIDE_SELF_UPDATE_REGISTRY` — never a `BrokerRequest`
+   * field, never reachable from `/v1/ops` at all
+   * (`packages/shared/src/broker.ts`'s `PanelSelfUpdateApplyRequestSchema`
+   * still carries only `targetVersion`, unchanged). `docker/compose.yaml`
+   * never sets this env var for either service, so a real install cannot
+   * reach it short of hand-editing that file or the container's launch
+   * command directly.
+   */
+  readonly dangerouslyOverrideSelfUpdateRegistry: string | null;
 }
 
 /** Thrown by {@link loadBrokerConfig} when the environment is missing or invalid. Never carries a secret value. */
@@ -165,6 +198,7 @@ export function loadBrokerConfig(env: NodeJS.ProcessEnv = process.env): BrokerCo
       containerLabel: data.PANEL_BROKER_CONTAINER_LABEL,
     }),
     visibleServicePatterns: Object.freeze([...parseVisiblePatterns(data.VISIBLE_SERVICE_PATTERNS)]),
+    dangerouslyOverrideSelfUpdateRegistry: data.DANGEROUSLY_OVERRIDE_SELF_UPDATE_REGISTRY,
   };
 
   return Object.freeze(config);

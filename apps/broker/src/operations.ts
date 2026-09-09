@@ -76,6 +76,7 @@ import {
 import {
   extractBakedImageFacts,
   panelImageReference,
+  resolvePanelRepository,
   PANEL_BROKER_REPOSITORY,
   PANEL_SERVER_REPOSITORY,
 } from './self-update/image-refs.js';
@@ -90,6 +91,8 @@ export interface OperationDeps {
   readonly panelBroker: ServiceIdentity;
   /** Glob patterns (container names / image repo tags) defining the visible webmail services beyond the three identities above. */
   readonly visibleServicePatterns: readonly string[];
+  /** `null` in every real deployment — see `BrokerConfig.dangerouslyOverrideSelfUpdateRegistry`'s own doc comment (`./config.js`) for the full reasoning. Consulted only by `handlePanelSelfUpdateApply`, via `resolvePanelRepository`. */
+  readonly dangerouslyOverrideSelfUpdateRegistry: string | null;
   readonly logger: Logger;
 }
 
@@ -673,7 +676,11 @@ async function handlePanelSelfUpdateCheck(
  * repository constants plus the request's own `targetVersion` — never
  * from anything else in the request, and there is nothing else in the
  * request to compose them from (`PanelSelfUpdateApplyRequestSchema` has
- * exactly one field).
+ * exactly one field). `resolvePanelRepository` can redirect the registry
+ * *host* those constants resolve under (`deps.
+ * dangerouslyOverrideSelfUpdateRegistry`, SU-F — `null` in every real
+ * deployment); it can never change the fixed repository *names*, and it
+ * has no effect on anything this request itself carries.
  *
  * The launched updater itself runs the broker's own *current* image
  * (`broker.image` below — not either target image, neither of which has
@@ -706,8 +713,16 @@ async function handlePanelSelfUpdateApply(
     throw new BrokerError('INTERNAL', "Could not read the broker's own container record.");
   }
 
-  const serverImageRef = panelImageReference(PANEL_SERVER_REPOSITORY, body.targetVersion);
-  const brokerImageRef = panelImageReference(PANEL_BROKER_REPOSITORY, body.targetVersion);
+  const serverRepository = resolvePanelRepository(
+    PANEL_SERVER_REPOSITORY,
+    deps.dangerouslyOverrideSelfUpdateRegistry,
+  );
+  const brokerRepository = resolvePanelRepository(
+    PANEL_BROKER_REPOSITORY,
+    deps.dangerouslyOverrideSelfUpdateRegistry,
+  );
+  const serverImageRef = panelImageReference(serverRepository, body.targetVersion);
+  const brokerImageRef = panelImageReference(brokerRepository, body.targetVersion);
 
   await callDocker(deps, 'panel.selfUpdateApply', () =>
     launchUpdater(deps.docker, {

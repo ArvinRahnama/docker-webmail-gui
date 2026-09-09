@@ -4,10 +4,52 @@
  * `operations.test.ts`'s `panel.selfUpdateCheck` suite does not itself
  * enumerate one by one (it exercises the handler end to end against a
  * few whole-env fixtures; this file pins the pure function's own
- * behaviour on malformed/partial input directly).
+ * behaviour on malformed/partial input directly) — and for
+ * `resolvePanelRepository` (SU-F, the real-daemon CI test's one broker
+ * code seam).
  */
 import { describe, expect, it } from 'vitest';
-import { extractBakedImageFacts } from './image-refs.js';
+import {
+  extractBakedImageFacts,
+  PANEL_BROKER_REPOSITORY,
+  PANEL_SERVER_REPOSITORY,
+  resolvePanelRepository,
+} from './image-refs.js';
+
+describe('resolvePanelRepository', () => {
+  it('returns the default repository unchanged when the override is null (every real deployment)', () => {
+    expect(resolvePanelRepository(PANEL_SERVER_REPOSITORY, null)).toBe(PANEL_SERVER_REPOSITORY);
+    expect(resolvePanelRepository(PANEL_BROKER_REPOSITORY, null)).toBe(PANEL_BROKER_REPOSITORY);
+  });
+
+  it('replaces only the registry host, never the fixed repository name', () => {
+    expect(resolvePanelRepository(PANEL_SERVER_REPOSITORY, 'localhost:5000/arvinrahnama')).toBe(
+      'localhost:5000/arvinrahnama/docker-webmail-gui-server',
+    );
+    expect(resolvePanelRepository(PANEL_BROKER_REPOSITORY, 'localhost:5000/arvinrahnama')).toBe(
+      'localhost:5000/arvinrahnama/docker-webmail-gui-broker',
+    );
+  });
+
+  it('cannot be used to smuggle in a different image name — only the host prefix ever changes', () => {
+    // However the override is spelled, the repository *name* suffix is
+    // always taken from the real, fixed constant, never from the
+    // override string itself.
+    const overridden = resolvePanelRepository(PANEL_SERVER_REPOSITORY, 'evil.example/not-real');
+    expect(overridden).toBe('evil.example/not-real/docker-webmail-gui-server');
+    expect(overridden.endsWith('/docker-webmail-gui-server')).toBe(true);
+  });
+
+  it('composes into a normal full image reference via panelImageReference, unaffected in shape', () => {
+    const repository = resolvePanelRepository(
+      PANEL_SERVER_REPOSITORY,
+      'localhost:5000/arvinrahnama',
+    );
+    expect(`${repository}:0.9.1`).toBe(
+      'localhost:5000/arvinrahnama/docker-webmail-gui-server:0.9.1',
+    );
+  });
+});
 
 describe('extractBakedImageFacts', () => {
   it('reads a well-formed registry-origin env', () => {

@@ -23,6 +23,9 @@ describe('loadBrokerConfig — defaults', () => {
       'roundcube*',
       '*docker-webmail-gui*',
     ]);
+    // The CI-only self-update registry override (SU-F): absent by
+    // default, exactly like every other real deployment.
+    expect(config.dangerouslyOverrideSelfUpdateRegistry).toBeNull();
   });
 
   it('returns a frozen object', () => {
@@ -58,6 +61,29 @@ describe('loadBrokerConfig — defaults', () => {
     });
     expect(config.panelBroker).toEqual({ containerName: 'panel-broker', containerLabel: null });
     expect(config.visibleServicePatterns).toEqual(['roundcube*', 'webmail-*']);
+  });
+});
+
+describe('loadBrokerConfig — DANGEROUSLY_OVERRIDE_SELF_UPDATE_REGISTRY (SU-F, CI-only)', () => {
+  it('is null when unset, exactly like every real deployment', () => {
+    const config = loadBrokerConfig({ BROKER_SHARED_SECRET: VALID_SECRET });
+    expect(config.dangerouslyOverrideSelfUpdateRegistry).toBeNull();
+  });
+
+  it('passes an explicitly set value straight through, verbatim', () => {
+    const config = loadBrokerConfig({
+      BROKER_SHARED_SECRET: VALID_SECRET,
+      DANGEROUSLY_OVERRIDE_SELF_UPDATE_REGISTRY: 'localhost:5000/arvinrahnama',
+    });
+    expect(config.dangerouslyOverrideSelfUpdateRegistry).toBe('localhost:5000/arvinrahnama');
+  });
+
+  it("treats an empty string the same as unset (optionalStringVar's own convention)", () => {
+    const config = loadBrokerConfig({
+      BROKER_SHARED_SECRET: VALID_SECRET,
+      DANGEROUSLY_OVERRIDE_SELF_UPDATE_REGISTRY: '',
+    });
+    expect(config.dangerouslyOverrideSelfUpdateRegistry).toBeNull();
   });
 });
 

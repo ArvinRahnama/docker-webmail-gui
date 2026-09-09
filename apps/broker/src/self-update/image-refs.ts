@@ -32,6 +32,31 @@
 export const PANEL_SERVER_REPOSITORY = 'ghcr.io/arvinrahnama/docker-webmail-gui-server';
 export const PANEL_BROKER_REPOSITORY = 'ghcr.io/arvinrahnama/docker-webmail-gui-broker';
 
+/**
+ * Applies `BrokerConfig.dangerouslyOverrideSelfUpdateRegistry` (SU-F,
+ * CI-only — see that field's own doc comment in `../config.ts`) to one
+ * of the two constants above. `null` (every real deployment) returns
+ * `defaultRepository` unchanged. When set, replaces only the registry
+ * *host* portion — everything up to and including the last `/` — never
+ * the fixed repository *name* suffix (`docker-webmail-gui-server` /
+ * `-broker`): the override can redirect *where* the same two well-known
+ * images are fetched from, never *which* image name gets composed.
+ * `operations.ts`'s `handlePanelSelfUpdateApply` is the only caller —
+ * `panel.selfUpdateCheck` never resolves a repository at all any more
+ * (SU-E's `extractBakedImageFacts`), and `updater.ts`'s
+ * `resolveFromVersion` intentionally keeps searching the real,
+ * unoverridden `PANEL_SERVER_REPOSITORY` (recovering a rollback plan's
+ * historical version, not composing a pull target).
+ */
+export function resolvePanelRepository(
+  defaultRepository: string,
+  registryOverride: string | null,
+): string {
+  if (registryOverride === null) return defaultRepository;
+  const name = defaultRepository.slice(defaultRepository.lastIndexOf('/') + 1);
+  return `${registryOverride}/${name}`;
+}
+
 /** Composes a full pull/create reference from a fixed repository and a version string. */
 export function panelImageReference(repository: string, version: string): string {
   return `${repository}:${version}`;

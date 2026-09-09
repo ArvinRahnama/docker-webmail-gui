@@ -1,0 +1,344 @@
+# The real-daemon half of panel self-update (SU-F, docs/design/
+# self-update.md §8: "What fakes genuinely cannot prove ... that needs a
+# real daemon"). Every other self-update test (SU-A through SU-E) runs
+# against fakes/stubs — this is the one place a real Docker Engine
+# actually recreates `dwg-server`/`dwg-broker` onto a genuinely different
+# image and is asserted to come back healthy. Mirrors `installer.yml`'s
+# own "install -> healthy -> uninstall" shape: bring up a real stack on a
+# real runner, act on it for real, assert the real result.
+#
+# --- The one problem worth explaining up front: where does "the newer
+# version" come from? ---
+#
+# `operations.ts`'s `handlePanelSelfUpdateApply` composes both target
+# image references from two hardcoded `ghcr.io/arvinrahnama/…` constants
+# (`apps/broker/src/self-update/image-refs.ts`) plus the request's own
+# `targetVersion`, and the updater then does a real `docker pull` of
+# that reference. Nothing "newer" is ever actually published to GHCR for
+# this test to pull — publishing a throwaway version to the real,
+# public registry on every CI run is not something this project does.
+#
+# Chosen fix: a disposable local registry (`registry:2`, this job's own
+# runner) the runner pushes two real, differently-versioned builds to
+# (v0.9.0 "old", v0.9.1 "new" — see the build step), plus one narrow,
+# broker-only escape hatch: `DANGEROUSLY_OVERRIDE_SELF_UPDATE_REGISTRY`,
+# an env var read once at broker process startup
+# (`apps/broker/src/config.ts`) and threaded through `OperationDeps`
+# (`apps/broker/src/operations.ts`) into `resolvePanelRepository`
+# (`apps/broker/src/self-update/image-refs.ts`), which replaces only the
+# registry *host* half of the two fixed repository constants — never the
+# fixed `docker-webmail-gui-server`/`-broker` repository *names*. It is
+# NOT a `BrokerRequest` field: `PanelSelfUpdateApplyRequestSchema`
+# (`packages/shared/src/broker.ts`) is completely unchanged by this,
+# still carrying only `targetVersion`, so `broker.test.ts`'s poison sweep
+# (every dangerous key rejected on every operation) needed no changes and
+# still passes — there is no new field anywhere a client could reach.
+# `docker/compose.yaml` never sets this env var for either service; the
+# only place it is ever set is this workflow's own CI-only compose
+# override file, generated below, never committed to the repository.
+# Rejected alternative: pre-seeding the daemon and making `pullImage`
+# tolerate an already-present tag — weaker, since it would mean the
+# "real pull" this job exists to prove never actually happens; this
+# job instead forces one (see the "drop the local copy" step below).
+#
+# The pull itself is unaffected by `dwg-broker`'s own `internal: true`
+# network (docs/design/self-update.md §1, "Registry access from an
+# `internal: true` network"): a pull issued over the Docker socket is
+# performed by the *daemon*, using the *host's* networking, not the
+# calling container's — which is exactly why the daemon only needs to
+# trust `localhost:5000` (this job's own step), not `dwg-broker` itself.
+#
+# --- What this job does not attempt ---
+#
+# A forced-failure/rollback run (a target build with a genuinely broken
+# healthcheck) is not included here. The clone-based recreate
+# (`RawContainerRecreateSpec`) does not capture a `Healthcheck` override
+# at all, so a compose-level "always unhealthy" override on the
+# *initial* container would not propagate to the container the updater
+# later creates from the captured spec — forcing a real rollback needs a
+# genuinely broken target *image*, which is a bigger, separately-reviewed
+# follow-up. This job asserts the success path in full: both containers
+# recreated onto the new image, both healthy, the status file reporting
+# success with the correct from/to versions.
+name: Self-update (real daemon)
+
+on:
+  workflow_dispatch: {}
+  push:
+    branches:
+      - main
+    paths:
+      - 'apps/broker/src/self-update/**'
+      - 'apps/broker/src/operations.ts'
+      - 'apps/broker/src/config.ts'
+      - 'apps/broker/src/docker-client.ts'
+      - 'apps/broker/src/docker-types.ts'
+      - 'apps/server/src/modules/updates/**'
+      - 'apps/server/src/drivers/broker/**'
+      - 'packages/shared/src/broker.ts'
+      - 'packages/shared/src/self-update.ts'
+      - 'packages/shared/src/jobs.ts'
+      - 'docker/**'
+      - '.github/workflows/self-update.yml'
+  pull_request:
+    paths:
+      - 'apps/broker/src/self-update/**'
+      - 'apps/broker/src/operations.ts'
+      - 'apps/broker/src/config.ts'
+      - 'apps/broker/src/docker-client.ts'
+      - 'apps/broker/src/docker-types.ts'
+      - 'apps/server/src/modules/updates/**'
+      - 'apps/server/src/drivers/broker/**'
+      - 'packages/shared/src/broker.ts'
+      - 'packages/shared/src/self-update.ts'
+      - 'packages/shared/src/jobs.ts'
+      - 'docker/**'
+      - '.github/workflows/self-update.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: self-update-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  REGISTRY: localhost:5000
+  OWNER: arvinrahnama
+  OLD_VERSION: 0.9.0
+  NEW_VERSION: 0.9.1
+
+jobs:
+  real-daemon-self-update:
+    name: Real-daemon self-update (build -> apply -> swap -> healthy)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Confirm this runner actually has Docker (the whole point of running here)
+        run: |
+          docker version
+          docker compose version
+
+      # Merges into whatever daemon.json the runner already ships
+      # (never overwrites it outright) — see this file's header for why
+      # the daemon, not `dwg-broker`, is the thing that needs to trust
+      # this host.
+      - name: Configure the daemon to trust the disposable local registry
+        run: |
+          set -eu
+          sudo mkdir -p /etc/docker
+          EXISTING='{}'
+          if [ -s /etc/docker/daemon.json ]; then
+            EXISTING="$(cat /etc/docker/daemon.json)"
+          fi
+          echo "${EXISTING}" | jq '. + {"insecure-registries": ["localhost:5000"]}' \
+            | sudo tee /etc/docker/daemon.json >/dev/null
+          cat /etc/docker/daemon.json
+          sudo systemctl restart docker
+          timeout 30 sh -c 'until docker version >/dev/null 2>&1; do sleep 1; done'
+
+      - name: Start the disposable local registry
+        run: |
+          docker run -d --name local-registry -p 5000:5000 registry:2
+          timeout 30 sh -c 'until curl -fsS http://localhost:5000/v2/ >/dev/null 2>&1; do sleep 1; done'
+          echo "confirmed: local registry answering on localhost:5000."
+
+      # Two real builds per image, differing only in the two SU-E build
+      # args (docker/server/Dockerfile, docker/broker/Dockerfile) — a
+      # genuinely different baked DWG_VERSION, not just a different tag
+      # on identical content, so the whole chain (baked version ->
+      # panel.selfUpdateCheck -> apply -> real swap -> new baked version
+      # observable afterward) is exercised for real, not simulated.
+      #
+      # The "old" build also gets a second, local-only tag under the
+      # real, unoverridden PANEL_SERVER_REPOSITORY/PANEL_BROKER_REPOSITORY
+      # names (never pushed anywhere — nothing ever pulls it) purely so
+      # `updater.ts`'s `resolveFromVersion` — which searches a running
+      # container's own image for a repo tag under that exact prefix —
+      # can find a match and honestly report `fromVersion` in the status
+      # file, the same as it would for a real GHCR-pulled install.
+      - name: 'Build the "old" panel images (v0.9.0, registry-origin) and push to the local registry'
+        run: |
+          set -eu
+          for svc in server broker; do
+            docker build \
+              -f "docker/${svc}/Dockerfile" \
+              --build-arg DWG_VERSION="${OLD_VERSION}" \
+              --build-arg DWG_IMAGE_ORIGIN=registry \
+              -t "${REGISTRY}/${OWNER}/docker-webmail-gui-${svc}:${OLD_VERSION}" \
+              .
+            docker tag \
+              "${REGISTRY}/${OWNER}/docker-webmail-gui-${svc}:${OLD_VERSION}" \
+              "ghcr.io/${OWNER}/docker-webmail-gui-${svc}:${OLD_VERSION}"
+            docker push "${REGISTRY}/${OWNER}/docker-webmail-gui-${svc}:${OLD_VERSION}"
+          done
+
+      # Pushed, then the *local* copy is deliberately removed — without
+      # this, the later `panel.selfUpdateApply` would find v0.9.1
+      # already present locally (we just built it on this same runner)
+      # and the "real pull" this job exists to prove would be a same-
+      # digest no-op rather than a genuine fetch from the registry.
+      - name: 'Build the "new" panel images (v0.9.1, registry-origin), push, then drop the local copy'
+        run: |
+          set -eu
+          for svc in server broker; do
+            docker build \
+              -f "docker/${svc}/Dockerfile" \
+              --build-arg DWG_VERSION="${NEW_VERSION}" \
+              --build-arg DWG_IMAGE_ORIGIN=registry \
+              -t "${REGISTRY}/${OWNER}/docker-webmail-gui-${svc}:${NEW_VERSION}" \
+              .
+            docker push "${REGISTRY}/${OWNER}/docker-webmail-gui-${svc}:${NEW_VERSION}"
+            docker rmi "${REGISTRY}/${OWNER}/docker-webmail-gui-${svc}:${NEW_VERSION}"
+          done
+
+      # Hand-written, not `installer/install.sh`: that script's own job is
+      # choosing pull-vs-build against the *real* GHCR image name, which
+      # is exactly what this job must not do. Only the three variables
+      # `docker/compose.yaml` actually requires (`:?`) — everything else
+      # keeps that file's own defaults.
+      - name: Write a minimal .env for this job
+        run: |
+          set -eu
+          COOKIE_SECRET="$(openssl rand -hex 32)"
+          BROKER_SHARED_SECRET="$(openssl rand -hex 32)"
+          DOCKER_GID="$(getent group docker | cut -d: -f3)"
+          {
+            echo "COOKIE_SECRET=${COOKIE_SECRET}"
+            echo "BROKER_SHARED_SECRET=${BROKER_SHARED_SECRET}"
+            echo "DOCKER_GID=${DOCKER_GID}"
+          } > .env
+
+      # The one place `DANGEROUSLY_OVERRIDE_SELF_UPDATE_REGISTRY` is ever
+      # set, anywhere in this project — this file's own header explains
+      # why. `image:` overrides both services onto this job's own
+      # pre-built, pre-pushed v0.9.0 — `docker compose up` never builds
+      # or pulls anything itself here, since both already exist locally
+      # under these exact tags.
+      - name: Write the CI-only compose override
+        run: |
+          cat > ci-self-update.override.yml <<EOF
+          services:
+            server:
+              image: ${REGISTRY}/${OWNER}/docker-webmail-gui-server:${OLD_VERSION}
+            broker:
+              image: ${REGISTRY}/${OWNER}/docker-webmail-gui-broker:${OLD_VERSION}
+              environment:
+                DANGEROUSLY_OVERRIDE_SELF_UPDATE_REGISTRY: ${REGISTRY}/${OWNER}
+          EOF
+          cat ci-self-update.override.yml
+
+      - name: Bring up the panel stack on v0.9.0
+        run: |
+          docker compose -f docker/compose.yaml -f ci-self-update.override.yml --env-file .env up -d
+
+      - name: Wait for the v0.9.0 stack to become healthy
+        run: |
+          set -eu
+          for _ in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:3000/api/v1/health 2>/dev/null | grep -q '"status":"ok"'; then
+              break
+            fi
+            sleep 2
+          done
+          curl -fsS http://127.0.0.1:3000/api/v1/health | tee /tmp/health-old.json
+          grep -q "\"version\":\"${OLD_VERSION}\"" /tmp/health-old.json
+          echo "confirmed: v${OLD_VERSION} up and healthy before triggering anything."
+
+      # No curl inside either image on purpose (both Dockerfiles' own
+      # header) and the broker publishes no port to the host at all
+      # (`installer.yml`'s own check) — `docker exec` into the broker's
+      # own container and speak to its own loopback with Node's global
+      # `fetch`, the same idiom both Dockerfiles' HEALTHCHECKs already
+      # use. The broker already has its own `BROKER_SHARED_SECRET` in its
+      # environment (compose sets it), so nothing needs passing in.
+      - name: 'panel.selfUpdateCheck: confirm both containers honestly report v0.9.0, registry-origin, possible'
+        run: |
+          set -eu
+          RESULT=$(docker exec dwg-broker node -e "
+            fetch('http://127.0.0.1:4000/v1/ops', {
+              method: 'POST',
+              headers: { 'content-type': 'application/json', 'x-broker-secret': process.env.BROKER_SHARED_SECRET },
+              body: JSON.stringify({ operation: 'panel.selfUpdateCheck' }),
+            }).then(async (r) => { console.log(await r.text()); process.exit(r.ok ? 0 : 1); });
+          ")
+          echo "${RESULT}"
+          echo "${RESULT}" | grep -q '"updatePossible":true'
+          echo "${RESULT}" | grep -q "\"serverVersion\":\"${OLD_VERSION}\""
+          echo "${RESULT}" | grep -q "\"brokerVersion\":\"${OLD_VERSION}\""
+
+      - name: 'panel.selfUpdateApply: trigger a REAL self-update to v0.9.1'
+        run: |
+          set -eu
+          RESULT=$(docker exec dwg-broker node -e "
+            fetch('http://127.0.0.1:4000/v1/ops', {
+              method: 'POST',
+              headers: { 'content-type': 'application/json', 'x-broker-secret': process.env.BROKER_SHARED_SECRET },
+              body: JSON.stringify({ operation: 'panel.selfUpdateApply', targetVersion: '${NEW_VERSION}' }),
+            }).then(async (r) => { console.log(await r.text()); process.exit(r.ok ? 0 : 1); });
+          ")
+          echo "${RESULT}"
+          echo "${RESULT}" | grep -q '"started":true'
+          echo "point of no return reached — the updater is launched; dwg-broker may be replaced at any moment now."
+
+      # Bounded, and tolerant of the container genuinely not existing for
+      # a moment mid-swap (stop -> remove -> create -> start) — a failed
+      # `docker inspect` during that gap means "not there yet", not an
+      # error, exactly like `updater.ts`'s own health-poll treats a
+      # not-yet-healthy container.
+      - name: Wait for the real swap to finish — both containers on v0.9.1, both healthy
+        run: |
+          set -eu
+          DEADLINE=$(( $(date +%s) + 240 ))
+          while :; do
+            SERVER_IMAGE=$(docker inspect dwg-server --format '{{.Config.Image}}' 2>/dev/null || echo '')
+            SERVER_HEALTH=$(docker inspect dwg-server --format '{{.State.Health.Status}}' 2>/dev/null || echo '')
+            BROKER_IMAGE=$(docker inspect dwg-broker --format '{{.Config.Image}}' 2>/dev/null || echo '')
+            BROKER_HEALTH=$(docker inspect dwg-broker --format '{{.State.Health.Status}}' 2>/dev/null || echo '')
+            echo "server: image=${SERVER_IMAGE} health=${SERVER_HEALTH} | broker: image=${BROKER_IMAGE} health=${BROKER_HEALTH}"
+
+            if [ "${SERVER_IMAGE}" = "${REGISTRY}/${OWNER}/docker-webmail-gui-server:${NEW_VERSION}" ] && \
+               [ "${SERVER_HEALTH}" = "healthy" ] && \
+               [ "${BROKER_IMAGE}" = "${REGISTRY}/${OWNER}/docker-webmail-gui-broker:${NEW_VERSION}" ] && \
+               [ "${BROKER_HEALTH}" = "healthy" ]; then
+              echo "confirmed: both containers swapped onto v${NEW_VERSION} and are healthy."
+              break
+            fi
+
+            if [ "$(date +%s)" -ge "${DEADLINE}" ]; then
+              echo "FAIL: timed out waiting for the real self-update to finish"
+              exit 1
+            fi
+            sleep 3
+          done
+
+      - name: Verify the public health endpoint reports the new version too
+        run: |
+          set -eu
+          curl -fsS http://127.0.0.1:3000/api/v1/health | tee /tmp/health-new.json
+          grep -q "\"version\":\"${NEW_VERSION}\"" /tmp/health-new.json
+
+      # The status file lives on the server-data named volume, shared
+      # between the (now-gone) updater container and the new dwg-server
+      # (docs/design/self-update.md §4) — read directly off the new
+      # container's own filesystem, no HTTP round trip needed to prove
+      # the updater actually wrote it.
+      - name: Verify the status file reports a real success, with the correct from/to versions
+        run: |
+          set -eu
+          RESULT=$(docker exec dwg-server cat /app/data/self-update-result.json)
+          echo "${RESULT}"
+          echo "${RESULT}" | grep -q '"phase":"done"'
+          echo "${RESULT}" | grep -q '"outcome":"success"'
+          echo "${RESULT}" | grep -q "\"toVersion\":\"${NEW_VERSION}\""
+          echo "${RESULT}" | grep -q "\"fromVersion\":\"${OLD_VERSION}\""
+          echo "confirmed: the real updater wrote a real success verdict for a real v${OLD_VERSION} -> v${NEW_VERSION} swap."
+
+      - name: Dump container logs on failure
+        if: failure()
+        run: |
+          docker compose -f docker/compose.yaml -f ci-self-update.override.yml --env-file .env logs --no-color || true
+          docker ps -a || true

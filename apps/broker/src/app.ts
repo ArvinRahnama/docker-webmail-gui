@@ -74,6 +74,7 @@ export function buildBrokerApp(options: BuildBrokerAppOptions): FastifyInstance 
         panelServer: config.panelServer,
         panelBroker: config.panelBroker,
         visibleServicePatterns: config.visibleServicePatterns,
+        dangerouslyOverrideSelfUpdateRegistry: config.dangerouslyOverrideSelfUpdateRegistry,
         logger,
       });
 
@@ -99,6 +100,7 @@ export function buildBrokerApp(options: BuildBrokerAppOptions): FastifyInstance 
     panelServer: config.panelServer,
     panelBroker: config.panelBroker,
     visibleServicePatterns: config.visibleServicePatterns,
+    dangerouslyOverrideSelfUpdateRegistry: config.dangerouslyOverrideSelfUpdateRegistry,
     logger,
   };
   registerArchiveRoutes(app, { config, docker, deps: operationDeps });

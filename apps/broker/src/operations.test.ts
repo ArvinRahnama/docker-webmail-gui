@@ -177,6 +177,7 @@ function deps(docker: DockerApi): OperationDeps {
     panelServer: { containerName: 'dwg-server', containerLabel: null },
     panelBroker: { containerName: 'dwg-broker', containerLabel: null },
     visibleServicePatterns: ['*mailserver*', 'roundcube*', '*docker-webmail-gui*'],
+    dangerouslyOverrideSelfUpdateRegistry: null,
     logger,
   };
 }
@@ -521,6 +522,39 @@ describe('panel.selfUpdateApply', () => {
       }),
     );
     expect(startContainer).toHaveBeenCalledExactlyOnceWith('updater-id');
+  });
+
+  // SU-F: the real-daemon CI test's one broker seam. `deps.
+  // dangerouslyOverrideSelfUpdateRegistry` is `null` in every other test
+  // in this file (via the shared `deps()` helper) — this is the one
+  // place it is set, proving it only ever changes the registry *host*
+  // half of the two composed image references, never anything the
+  // request itself carries (`targetVersion` alone still decides the
+  // version half, exactly as every other test above shows).
+  it('composes both target image refs against the overridden registry host when dangerouslyOverrideSelfUpdateRegistry is set', async () => {
+    const createContainer = vi.fn(async () => ({ id: 'updater-id' }));
+    const startContainer = vi.fn(async () => undefined);
+    const docker = selfUpdateDocker({ createContainer, startContainer });
+    const overridden: OperationDeps = {
+      ...deps(docker),
+      dangerouslyOverrideSelfUpdateRegistry: 'localhost:5000/arvinrahnama',
+    };
+
+    await handleOperation(
+      { operation: 'panel.selfUpdateApply', targetVersion: '0.4.0' },
+      overridden,
+    );
+
+    expect(createContainer).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({
+        env: [
+          'DWG_SELF_UPDATE_SERVER_CONTAINER_NAME=dwg-server',
+          'DWG_SELF_UPDATE_BROKER_CONTAINER_NAME=dwg-broker',
+          'DWG_SELF_UPDATE_SERVER_IMAGE_REF=localhost:5000/arvinrahnama/docker-webmail-gui-server:0.4.0',
+          'DWG_SELF_UPDATE_BROKER_IMAGE_REF=localhost:5000/arvinrahnama/docker-webmail-gui-broker:0.4.0',
+        ],
+      }),
+    );
   });
 
   it('removes a stale leftover updater container by name before launching a fresh one', async () => {

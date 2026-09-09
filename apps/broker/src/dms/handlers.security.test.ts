@@ -65,6 +65,7 @@ function harness(stdout = ''): { deps: OperationDeps; calls: RecordedExec[] } {
       panelServer: { containerName: 'dwg-server', containerLabel: null },
       panelBroker: { containerName: 'dwg-broker', containerLabel: null },
       visibleServicePatterns: ['*mailserver*', 'roundcube*', '*docker-webmail-gui*'],
+      dangerouslyOverrideSelfUpdateRegistry: null,
       logger,
     },
     calls,
@@ -123,6 +124,7 @@ describe('dms.file.read — a symbolic key, never a path', () => {
       panelServer: { containerName: 'dwg-server', containerLabel: null },
       panelBroker: { containerName: 'dwg-broker', containerLabel: null },
       visibleServicePatterns: ['*mailserver*', 'roundcube*', '*docker-webmail-gui*'],
+      dangerouslyOverrideSelfUpdateRegistry: null,
       logger,
     };
 
@@ -241,6 +243,7 @@ describe('dms command operations — the broker builds the argv', () => {
         panelServer: { containerName: 'dwg-server', containerLabel: null },
         panelBroker: { containerName: 'dwg-broker', containerLabel: null },
         visibleServicePatterns: ['*mailserver*', 'roundcube*', '*docker-webmail-gui*'],
+        dangerouslyOverrideSelfUpdateRegistry: null,
         logger,
       },
     );

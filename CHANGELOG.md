@@ -9,7 +9,7 @@ As of `1.0.0`, this project follows Semantic Versioning: incompatible changes
 to the public API, configuration format, or database schema bump the major
 version and are called out explicitly here.
 
-## [Unreleased]
+## [1.0.2] - 2026-09-14
 
 ### Fixed
 
@@ -804,6 +804,7 @@ document set rather than a product.
   will be called out here. Pin the exact image version rather than a
   floating tag — see `docs/docker.md`.
 
+[1.0.2]: https://github.com/ArvinRahnama/docker-webmail-gui/compare/v1.0.1...v1.0.2
 [1.0.1]: https://github.com/ArvinRahnama/docker-webmail-gui/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/ArvinRahnama/docker-webmail-gui/compare/v0.3.0...v1.0.0
 [0.3.0]: https://github.com/ArvinRahnama/docker-webmail-gui/compare/v0.2.0...v0.3.0

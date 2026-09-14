@@ -14,6 +14,39 @@ A self-hosted web admin panel for [`docker-mailserver`](https://github.com/docke
 
 Manage mailboxes, aliases, quotas, DKIM, Sieve rules, spam and antivirus settings, container health, logs and backups — from a browser, without handing that browser-facing process the keys to your machine.
 
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/dashboard-dark.png" />
+    <img src="docs/screenshots/dashboard-light.png" alt="Dashboard: overall health verdict, mail queue, spam, Docker storage, service health, certificate expiry and recent activity" width="100%" />
+  </picture>
+</p>
+
+## Screenshots
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/screenshots/mailboxes.png" alt="Mailboxes: search, domain filter, quotas, send/receive restrictions and bulk actions" /><br /><sub><b>Mailboxes</b> — quotas, restrictions and bulk actions</sub></td>
+    <td width="50%"><img src="docs/screenshots/aliases.png" alt="Aliases: internal aliases, external forwards and catch-all addresses" /><br /><sub><b>Aliases</b> — internal aliases, forwards and catch-alls</sub></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="docs/screenshots/email-auth.png" alt="Email authentication: live MX, SPF, DKIM, DMARC and reverse DNS checks for a domain" /><br /><sub><b>Email authentication</b> — live MX, SPF, DKIM, DMARC and PTR checks</sub></td>
+    <td width="50%"><img src="docs/screenshots/backups.png" alt="Backups: verified archives, S3/FTP remote destination and a backup schedule with retention" /><br /><sub><b>Backups</b> — verified archives, S3/FTP remote and scheduling</sub></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="docs/screenshots/monitoring.png" alt="Monitoring: mail container CPU, memory, PIDs and network, plus Docker host totals" /><br /><sub><b>Monitoring</b> — container resources and Docker host</sub></td>
+    <td width="50%">
+      <p align="center">
+        <img src="docs/screenshots/mobile-dashboard.png" alt="Dashboard on a phone" width="45%" />
+        &nbsp;
+        <img src="docs/screenshots/mobile-nav.png" alt="Navigation drawer on a phone" width="45%" />
+      </p>
+      <sub><b>On a phone</b> — every page is usable down to 320px, light or dark</sub>
+    </td>
+  </tr>
+</table>
+
+<sub>Screenshots use the built-in development fakes (`APP_MODE=development`) — example data, no real mail server.</sub>
+
 ## The problem this is built around
 
 A mail-server panel needs Docker access. **Read/write access to the Docker socket is root on the host** — one `POST /containers/create` with a bind mount or `Privileged: true` ends the discussion. An internet-reachable web application is the worst possible holder of that capability.

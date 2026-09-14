@@ -9,6 +9,50 @@ As of `1.0.0`, this project follows Semantic Versioning: incompatible changes
 to the public API, configuration format, or database schema bump the major
 version and are called out explicitly here.
 
+## [1.0.1] - 2026-09-14
+
+### Fixed
+
+- **Pages no longer render wider than a phone screen.** A visually hidden
+  "Actions" table header escaped its table's scroll box, widening the whole
+  document by up to ~600px on Backups, Jobs, Mailboxes and Aliases, so mobile
+  browsers zoomed the entire app out. Every route was then audited at
+  320–1440px (including dialogs, menus and a 740×360 landscape phone) and
+  about 90 further layout bugs fixed: dialogs get side gutters, stay inside the
+  viewport and scroll when tall; dropdown menus are clamped to the available
+  height; long emails, domains, ids, DKIM records, IPv6 addresses and error
+  messages wrap at natural break points instead of pushing buttons
+  off-screen; page headers, card headers and badges wrap cleanly; low-value
+  table columns hide on small screens with their values still shown.
+- Custom font sizes (`text-caption`, `text-body-sm`, …) were silently
+  dropped whenever a colour class followed them, because `tailwind-merge`
+  mistook them for colours. Type now renders at the designed sizes; text
+  inputs keep 16px on phones so iOS does not zoom on focus, and touch
+  targets stay at least 36px.
+- **Saving an S3 destination failed with only "Could not save the
+  destination".** An endpoint typed without a scheme (e.g. a provider's
+  bare `c123456.provider.net`) failed client-side validation and the error
+  was swallowed. Endpoints now get `https://` added, every field is
+  trimmed, Region may be left blank (defaults to `us-east-1`), and each
+  problem is shown inline under its field. Region display names with spaces
+  and endpoints carrying credentials, a query or a fragment are refused with
+  a specific message; bucket names are limited to a safe character set.
+- **Test connection** now explains S3 failures: a bucket-per-host endpoint
+  that serves a different bucket names the right one, and missing bucket,
+  unknown access key, bad signature, access denied, wrong region and a
+  non-S3 web page each get a specific message. Connection errors show only
+  the endpoint's origin, never secrets or signed URLs.
+- A per-backup **Upload to remote** job that failed was reported as
+  succeeded, with no reason shown; it now fails with the remote's error. A
+  repeated upload of a backup that is already on the remote succeeds.
+- Switching the destination type no longer carries a typed S3 secret over
+  into the FTP password field.
+- Dashboard headline now reads "1 item needs attention".
+
+### Added
+
+- Screenshots in the README.
+
 ## [1.0.0] - 2026-09-10
 
 ### Added
@@ -743,6 +787,7 @@ document set rather than a product.
   will be called out here. Pin the exact image version rather than a
   floating tag — see `docs/docker.md`.
 
+[1.0.1]: https://github.com/ArvinRahnama/docker-webmail-gui/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/ArvinRahnama/docker-webmail-gui/compare/v0.3.0...v1.0.0
 [0.3.0]: https://github.com/ArvinRahnama/docker-webmail-gui/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/ArvinRahnama/docker-webmail-gui/compare/v0.1.0...v0.2.0

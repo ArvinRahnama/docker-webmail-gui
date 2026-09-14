@@ -97,12 +97,43 @@
   --duration-slow: 240ms;
 }
 
+/* Mono family at the §4 mono-sm size, in one class — the IDs, digests,
+   keys and paths across the app use it. Tailwind has no such utility on
+   its own (`font-*` only maps --font-* families), so without this it
+   emitted nothing and those values rendered in the sans body font. A
+   `text-*` size next to it still wins: Tailwind orders a font-family
+   utility ahead of font-size-only ones. */
+@utility font-mono-sm {
+  font-family: var(--font-mono);
+  font-size: var(--text-mono-sm);
+  line-height: var(--text-mono-sm--line-height);
+}
+
+/* iOS Safari zooms the page into any focused text-entry control under
+   16px and leaves it zoomed (and sideways-pannable) after blur. Input,
+   Textarea and CommandInput carry `max-sm:text-base` themselves;
+   native <select>s are styled per call site (usually 13px), so they are
+   floored here instead. Deliberately unlayered: a rule inside @layer base
+   would lose to those call sites' `text-*` utilities. */
+@media (width < 40rem) {
+  select {
+    font-size: 1rem;
+  }
+}
+
 @layer base {
   body {
     background-color: var(--bg-app);
     color: var(--text-primary);
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
+  }
+
+  /* BreakableText's <wbr> break opportunities must not wrap text that is
+     meant to stay on one line: Chromium still breaks at <wbr> under
+     `white-space: nowrap`, so hide them inside nowrap/truncated boxes. */
+  :where(.whitespace-nowrap, .truncate) wbr {
+    display: none;
   }
 
   /* §4: "font-variant-numeric: tabular-nums globally on tables/metrics."

@@ -4,6 +4,7 @@ import { toast } from 'sonner';
 import { ArrowLeft, Copy, KeyRound, RefreshCw } from 'lucide-react';
 import type { DkimKeysize, PropagationRecordType } from '@dwg/shared';
 import { DKIM_KEYSIZES, PROPAGATION_RECORD_TYPES } from '@dwg/shared';
+import { BreakableText } from '@/components/breakable-text';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -152,13 +153,13 @@ export function EmailAuthDetailPage() {
           onRetry={() => void report.refetch()}
         />
       ) : report.isLoading || !report.data ? (
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
           {[0, 1, 2, 3, 4].map((i) => (
             <Skeleton key={i} className="h-40 w-full" />
           ))}
         </div>
       ) : (
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
           <DnsRecordCard
             title="MX"
             state={report.data.mx.state}
@@ -201,10 +202,14 @@ export function EmailAuthDetailPage() {
       )}
 
       <Card>
-        <CardHeader className="flex-row items-center justify-between gap-2 space-y-0">
-          <CardTitle className="text-body font-semibold">DKIM key management</CardTitle>
+        {/* flex-wrap: on a phone the badge drops below the title instead of squeezing both into 2-line wraps. */}
+        <CardHeader className="flex-row flex-wrap items-center justify-between gap-2 space-y-0">
+          <CardTitle className="min-w-0 text-body font-semibold [overflow-wrap:anywhere]">
+            DKIM key management
+          </CardTitle>
           {dkimStatus.data ? (
             <StatusBadge
+              className="shrink-0 whitespace-nowrap"
               status={
                 dkimStatus.data.publicRecord === null
                   ? 'unknown'
@@ -237,7 +242,11 @@ export function EmailAuthDetailPage() {
           {dkimStatus.data?.publicRecord ? (
             <div className="flex items-start justify-between gap-2 rounded-sm border border-border-subtle bg-bg-inset px-2.5 py-2">
               <div className="min-w-0 flex-1">
-                <p className="text-caption text-text-muted">{dkimStatus.data.publicRecord.name}</p>
+                {/* Wraps after a dot (`mail._domainkey.` / `example.com`), never
+                    mid-label unless one label alone is wider than the box. */}
+                <p className="break-words text-caption text-text-muted">
+                  <BreakableText text={dkimStatus.data.publicRecord.name} />
+                </p>
                 <code className="block break-all font-mono-sm text-caption text-text-primary">
                   {dkimStatus.data.publicRecord.value}
                 </code>
@@ -346,7 +355,7 @@ export function EmailAuthDetailPage() {
                     <th className="py-1.5 pr-3 font-medium">Resolver</th>
                     <th className="py-1.5 pr-3 font-medium">Address</th>
                     <th className="py-1.5 pr-3 font-medium">State</th>
-                    <th className="py-1.5 font-medium">Value</th>
+                    <th className="min-w-44 py-1.5 font-medium">Value</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -365,7 +374,7 @@ export function EmailAuthDetailPage() {
                           }
                         />
                       </td>
-                      <td className="py-1.5 break-all font-mono-sm">
+                      <td className="min-w-44 py-1.5 break-all font-mono-sm">
                         {result.values.length > 0 ? result.values.join('; ') : '—'}
                       </td>
                     </tr>

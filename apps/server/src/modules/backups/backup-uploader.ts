@@ -50,6 +50,12 @@ export const SYSTEM_UPLOAD_ACTOR: UploadActor = { adminId: null, label: 'Automat
 
 export type UploadOutcome =
   | { readonly status: 'uploaded' }
+  /**
+   * Nothing to do: a verified remote copy already exists and its local archive
+   * was reclaimed (e.g. a second queued "Upload to remote" for the same backup,
+   * or a reconcile that got there first). A success, not a skip.
+   */
+  | { readonly status: 'already-uploaded' }
   | { readonly status: 'skipped'; readonly reason: 'no-destination' | 'not-local' }
   | { readonly status: 'failed'; readonly error: string };
 
@@ -228,14 +234,18 @@ export class BackupUploader {
 
   // -------------------------------------------------------------------------
 
-  /** Uploads one backup and verifies the remote copy. Sets `uploaded` on success or `failed` on any error, never throwing for a remote failure. Does NOT prune or reclaim — callers compose that. */
+  /** Uploads one backup and verifies the remote copy. Sets `uploaded` on success or `failed` on any error, never throwing for a remote failure. A backup already uploaded and reclaimed is `already-uploaded`, with no remote call. Does NOT prune or reclaim — callers compose that. */
   private async uploadOne(backupId: string, actor: UploadActor): Promise<UploadOutcome> {
     const destination = this.deps.destinationProvider();
     if (destination === null) return { status: 'skipped', reason: 'no-destination' };
 
     const row = this.deps.backupsRepository.getRowById(backupId);
     if (row === null) throw new AppError('NOT_FOUND', `No backup with id ${backupId}.`);
-    if (row.local_present === 0) return { status: 'skipped', reason: 'not-local' };
+    if (row.local_present === 0) {
+      return row.upload_status === 'uploaded'
+        ? { status: 'already-uploaded' }
+        : { status: 'skipped', reason: 'not-local' };
+    }
 
     const manifest = this.deps.backupsRepository.getManifestById(backupId);
     if (manifest === null) throw new AppError('NOT_FOUND', `No backup with id ${backupId}.`);

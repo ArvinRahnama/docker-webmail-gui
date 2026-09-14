@@ -207,6 +207,27 @@ describe('BackupUploader.uploadBackup', () => {
     expect(existsSync(filePath)).toBe(true);
   });
 
+  it('a repeat upload of a backup already uploaded and reclaimed is already-uploaded, with no remote call', async () => {
+    await createRealBackup('bkp_1');
+    const stub = new StubDestination();
+    const uploader = makeUploader(stub);
+    expect(await uploader.uploadBackup('bkp_1')).toEqual({ status: 'uploaded' });
+    expect(repo.getSummaryById('bkp_1')?.localPresent).toBe(false);
+    stub.uploadThrows = true; // any second network attempt would now fail
+
+    expect(await uploader.uploadBackup('bkp_1')).toEqual({ status: 'already-uploaded' });
+    expect(repo.getSummaryById('bkp_1')?.uploadStatus).toBe('uploaded');
+    expect(auditRows('backup.upload')).toEqual([{ action: 'backup.upload', result: 'success' }]);
+  });
+
+  it('a backup missing locally that was never uploaded is skipped as not-local', async () => {
+    await createRealBackup('bkp_1');
+    repo.markLocalReclaimed('bkp_1');
+    const outcome = await makeUploader(new StubDestination()).uploadBackup('bkp_1');
+    expect(outcome).toEqual({ status: 'skipped', reason: 'not-local' });
+    expect(repo.getSummaryById('bkp_1')?.uploadStatus).toBe('pending');
+  });
+
   it('when the remote copy fails verification, marks failed, deletes the bad remote object, and KEEPS the local archive', async () => {
     const filePath = await createRealBackup('bkp_1');
     const stub = new StubDestination();

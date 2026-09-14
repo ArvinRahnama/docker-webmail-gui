@@ -42,7 +42,7 @@ import {
   type ApplyConfigResponse,
   type BackupDestinationSecretResponse,
   type BackupDestinationStatus,
-  type BackupDestinationUpdate,
+  type BackupDestinationUpdateInput,
   type BackupDetailResponse,
   type BackupMode,
   type BackupSchedule,
@@ -200,8 +200,16 @@ export async function fetchBackupDestination(): Promise<BackupDestinationStatus>
   return destination;
 }
 
+/**
+ * Sends the schema's *normalised* output (bare-host endpoint -> `https://`,
+ * blank region -> default, trimmed strings). Invalid input throws the schema's
+ * `ZodError` before any request is made. The destination form pre-validates
+ * with the same schema, so this parse is a safety net there; if it does throw,
+ * the form's save-error handler maps the error's issues to inline field errors,
+ * exactly like the server's `VALIDATION_FAILED` details.
+ */
 export async function updateBackupDestination(
-  update: BackupDestinationUpdate,
+  update: BackupDestinationUpdateInput,
 ): Promise<BackupDestinationStatus> {
   const body = BackupDestinationUpdateSchema.parse(update);
   const { destination } = await request(

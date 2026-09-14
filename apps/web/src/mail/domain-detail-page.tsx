@@ -11,10 +11,23 @@ import { PageHeader } from '@/components/page-header';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ApiClientError, ApiError } from '@/lib/api-client';
 import { formatQuota } from '@/lib/format';
+import { AddressText, AliasDestinationsList, addressFloorClassName } from './address-text';
 import { useDomainDetailQuery } from './use-mail-queries';
 
 const MAILBOX_COLUMNS: DataTableColumn<MailboxSummary>[] = [
-  { id: 'email', header: 'Address', sortValue: (row) => row.email, cell: (row) => row.email },
+  {
+    id: 'email',
+    header: 'Address',
+    sortValue: (row) => row.email,
+    // AddressText wraps a long address at `@ . _ -` instead of letting it
+    // size the column (and the table); short ones stay whole and unfloored.
+    cellClassName: 'break-words',
+    cell: (row) => (
+      <div className={addressFloorClassName(row.email)}>
+        <AddressText text={row.email} />
+      </div>
+    ),
+  },
   {
     id: 'quota',
     header: 'Quota',
@@ -24,11 +37,30 @@ const MAILBOX_COLUMNS: DataTableColumn<MailboxSummary>[] = [
 ];
 
 const ALIAS_COLUMNS: DataTableColumn<AliasSummary>[] = [
-  { id: 'address', header: 'Address', sortValue: (row) => row.address, cell: (row) => row.address },
+  {
+    id: 'address',
+    header: 'Address',
+    sortValue: (row) => row.address,
+    cellClassName: 'break-words',
+    cell: (row) => (
+      <div className="flex flex-col gap-1">
+        <div className={addressFloorClassName(row.address)}>
+          <AddressText text={row.address} />
+        </div>
+        {/* Narrow table: the Destinations column is hidden and its list
+            stacks under the address instead. */}
+        <div className="@lg:hidden">
+          <AliasDestinationsList recipients={row.recipients} withArrows />
+        </div>
+      </div>
+    ),
+  },
   {
     id: 'recipients',
     header: 'Destinations',
-    cell: (row) => row.recipients.join(', '),
+    headerClassName: 'hidden @lg:table-cell',
+    cellClassName: 'hidden @lg:table-cell break-words',
+    cell: (row) => <AliasDestinationsList recipients={row.recipients} />,
   },
   {
     id: 'type',
@@ -104,7 +136,9 @@ export function DomainDetailPage() {
             <CardHeader>
               <CardTitle>Aliases</CardTitle>
             </CardHeader>
-            <CardContent>
+            {/* `@container`: the Destinations column hides by the card's own
+                width, which the sidebar narrows at md-lg, not the viewport's. */}
+            <CardContent className="@container">
               <DataTable
                 data={query.data.aliases}
                 columns={ALIAS_COLUMNS}

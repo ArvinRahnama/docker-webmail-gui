@@ -1,6 +1,7 @@
 import { useEffect, useId, useState } from 'react';
 import type { ReactNode } from 'react';
 import { AlertTriangle } from 'lucide-react';
+import { BreakableText } from '@/components/breakable-text';
 import {
   AlertDialog,
   AlertDialogContent,
@@ -128,9 +129,14 @@ export function ConfirmDialog({
         <AlertDialogHeader>
           <AlertDialogTitle className="flex items-center gap-2">
             {tier >= 3 ? (
-              <AlertTriangle className="size-5 text-status-critical-fg" aria-hidden="true" />
+              <AlertTriangle
+                className="size-5 shrink-0 text-status-critical-fg"
+                aria-hidden="true"
+              />
             ) : null}
-            {title}
+            {/* min-w-0: a title carrying an unbroken IPv6, digest or address
+                may shrink below that token and wrap inside the dialog. */}
+            <span className="min-w-0">{title}</span>
           </AlertDialogTitle>
           <AlertDialogDescription>{description}</AlertDialogDescription>
         </AlertDialogHeader>
@@ -176,7 +182,16 @@ export function ConfirmDialog({
         {tierRequiresTypedConfirmation(tier) ? (
           <div className="flex flex-col gap-1.5">
             <Label htmlFor={inputId}>
-              Type <span className="font-mono-sm font-semibold">{resourceName}</span> to confirm
+              {/* No break-all: a mid-word split in "type this exact string"
+                  reads like a space to type. BreakableText lets the name wrap
+                  after its `@`, `.`, `_` and `-` instead; the dialog's
+                  inherited break-words only splits a label wider than the
+                  line. The <wbr>s add no characters to the copied text. */}
+              Type{' '}
+              <span className="font-mono-sm font-semibold">
+                <BreakableText text={resourceName ?? ''} />
+              </span>{' '}
+              to confirm
             </Label>
             <Input
               id={inputId}

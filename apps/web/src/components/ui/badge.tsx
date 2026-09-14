@@ -9,7 +9,7 @@ import { cn } from '@/lib/cn';
  * which a generic Badge has no obligation to enforce).
  */
 const badgeVariants = cva(
-  'inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-caption font-medium',
+  'inline-flex items-center gap-1 whitespace-nowrap rounded-full border px-2 py-0.5 text-caption font-medium',
   {
     variants: {
       variant: {

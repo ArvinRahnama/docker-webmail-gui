@@ -175,12 +175,18 @@ export function CommandPalette() {
       </Button>
 
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="max-w-xl gap-0 overflow-hidden p-0">
+        {/* Flex column (not the dialog's default grid) so the list, not the
+            clipped dialog, absorbs the height cut when the viewport is
+            shorter than max-h-96 (landscape phones); otherwise the last
+            groups sit below the dialog's edge where touch can't scroll. */}
+        <DialogContent className="flex max-w-xl flex-col gap-0 overflow-hidden p-0">
           <VisuallyHidden>
             <DialogTitle>Command palette</DialogTitle>
           </VisuallyHidden>
           <Command shouldFilter={false}>
+            {/* pr-7 keeps typed text clear of the dialog's absolute Close X. */}
             <CommandInput
+              className="pr-7"
               placeholder="Search or jump to…"
               value={query}
               onValueChange={setQuery}

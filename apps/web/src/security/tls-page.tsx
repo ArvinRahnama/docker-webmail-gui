@@ -37,7 +37,7 @@ function EndpointCard({ endpoint }: { endpoint: TlsEndpointResult }) {
       </CardHeader>
       <CardContent className="flex flex-col gap-2 text-body-sm">
         {!endpoint.reachable || !endpoint.certificate ? (
-          <p className="text-text-muted">
+          <p className="break-words text-text-muted">
             {endpoint.error ?? 'Unknown — could not read a certificate.'}
           </p>
         ) : (
@@ -74,7 +74,7 @@ function Row({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex items-start justify-between gap-3">
       <span className="shrink-0 text-text-muted">{label}</span>
-      <span className="text-right text-text-primary">{value}</span>
+      <span className="min-w-0 break-words text-right text-text-primary">{value}</span>
     </div>
   );
 }
@@ -119,7 +119,7 @@ export function TlsPage() {
           onRetry={() => void query.refetch()}
         />
       ) : query.isLoading || !query.data ? (
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
           {[0, 1, 2, 3, 4].map((i) => (
             <Skeleton key={i} className="h-48 w-full" />
           ))}
@@ -157,7 +157,7 @@ export function TlsPage() {
             </CardContent>
           </Card>
 
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
             {query.data.endpoints.map((endpoint) => (
               <EndpointCard key={endpoint.protocol} endpoint={endpoint} />
             ))}

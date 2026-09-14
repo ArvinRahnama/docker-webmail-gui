@@ -82,13 +82,13 @@ export function ClamavPage() {
         </CardHeader>
         <CardContent className="flex flex-col gap-2 text-body-sm">
           {!status.reachable ? (
-            <p className="text-text-muted">
+            <p className="break-words text-text-muted">
               {status.error ?? 'clamd is not reachable over its control socket.'}
             </p>
           ) : (
             <div className="flex items-start justify-between gap-3">
               <span className="shrink-0 text-text-muted">Version</span>
-              <span className="text-right font-mono-sm text-text-primary">
+              <span className="min-w-0 break-words text-right font-mono-sm text-text-primary">
                 {status.version ?? 'Unknown — reply did not match the expected format.'}
               </span>
             </div>

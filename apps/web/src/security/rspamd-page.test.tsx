@@ -102,6 +102,31 @@ describe('RspamdPage — statistics render from the real response, never fabrica
     expect(await screen.findByText(/Collecting/)).toBeInTheDocument();
   });
 
+  it('folds group and description under the symbol name for narrow screens, hiding their own columns below lg', async () => {
+    vi.mocked(fetchRspamdStatus).mockResolvedValue(makeStatus());
+    renderPage();
+
+    const table = await screen.findByRole('table', { name: 'Rspamd symbol scores' });
+    expect(within(table).getByText('statistics · Likely spam')).toHaveClass('lg:hidden');
+    expect(within(table).getByRole('columnheader', { name: 'Description' })).toHaveClass(
+      'hidden',
+      'lg:table-cell',
+    );
+  });
+
+  it('lets a symbol name wrap only after an underscore, never mid-identifier', async () => {
+    vi.mocked(fetchRspamdStatus).mockResolvedValue(makeStatus());
+    renderPage();
+
+    const table = await screen.findByRole('table', { name: 'Rspamd symbol scores' });
+    const name = within(table).getByText('BAYES_SPAM');
+    expect(name.innerHTML).toBe('BAYES_<wbr>SPAM');
+    // break-words, not overflow-wrap:anywhere, which would let the table
+    // squeeze the column until names split at any character.
+    expect(name.closest('td')).toHaveClass('break-words');
+    expect(name.closest('td')).not.toHaveClass('[overflow-wrap:anywhere]');
+  });
+
   it('reports the controller as critical and shows the real error when unreachable, and hides the write controls entirely', async () => {
     vi.mocked(fetchRspamdStatus).mockResolvedValue(
       makeStatus({

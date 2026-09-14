@@ -25,6 +25,28 @@ export interface FakeS3 {
   readonly sawAuthOnEveryRequest: () => boolean;
   /** Set to a part number to make that UploadPart fail once (then it clears itself). */
   failPartOnce: number | null;
+  /**
+   * Mimics providers whose endpoint host *is* the bucket (`<bucket>.provider.net`):
+   * a request for any other bucket gets 403 SignatureDoesNotMatch naming this one.
+   */
+  servedBucket: string | null;
+  /**
+   * Mimics a path-style provider that hosts only these buckets: a request for
+   * any other gets 404 NoSuchBucket naming the bucket that was requested, as
+   * AWS does.
+   */
+  knownBuckets: readonly string[] | null;
+  /**
+   * Set to make every request answer with this S3 `<Error>` until cleared.
+   * `fields` adds further elements after `<Code>` (e.g. the `StringToSign` /
+   * `CanonicalRequest` AWS echoes on SignatureDoesNotMatch, or `<Region>`),
+   * in order, XML-escaped.
+   */
+  errorResponse: {
+    readonly status: number;
+    readonly code: string;
+    readonly fields?: Readonly<Record<string, string>>;
+  } | null;
   close(): Promise<void>;
 }
 
@@ -49,6 +71,9 @@ export async function startFakeS3(): Promise<FakeS3> {
     multipart: new Map<string, Multipart>(),
     sawAuthOnEveryRequest: () => everyRequestSigned,
     failPartOnce: null,
+    servedBucket: null,
+    knownBuckets: null,
+    errorResponse: null,
     close: () => Promise.resolve(),
   };
 
@@ -66,6 +91,36 @@ export async function startFakeS3(): Promise<FakeS3> {
     const firstSlash = withoutLeadingSlash.indexOf('/');
     const key = firstSlash === -1 ? '' : withoutLeadingSlash.slice(firstSlash + 1);
     const q = url.searchParams;
+    const bucket =
+      firstSlash === -1 ? withoutLeadingSlash : withoutLeadingSlash.slice(0, firstSlash);
+
+    if (state.errorResponse !== null) {
+      res.writeHead(state.errorResponse.status, { 'content-type': 'application/xml' });
+      const fields = Object.entries(state.errorResponse.fields ?? {})
+        .map(([name, value]) => `<${name}>${xmlEscape(value)}</${name}>`)
+        .join('');
+      res.end(
+        `<?xml version="1.0"?><Error><Code>${xmlEscape(state.errorResponse.code)}</Code>` +
+          `${fields}</Error>`,
+      );
+      return;
+    }
+    if (state.knownBuckets !== null && !state.knownBuckets.includes(bucket)) {
+      res.writeHead(404, { 'content-type': 'application/xml' });
+      res.end(
+        `<?xml version="1.0"?><Error><Code>NoSuchBucket</Code>` +
+          `<BucketName>${xmlEscape(bucket)}</BucketName></Error>`,
+      );
+      return;
+    }
+    if (state.servedBucket !== null && bucket !== state.servedBucket) {
+      res.writeHead(403, { 'content-type': 'application/xml' });
+      res.end(
+        `<?xml version="1.0"?><Error><Code>SignatureDoesNotMatch</Code>` +
+          `<BucketName>${xmlEscape(state.servedBucket)}</BucketName></Error>`,
+      );
+      return;
+    }
 
     if (req.method === 'GET' && q.has('uploads')) {
       const uploads = [...state.multipart.entries()]

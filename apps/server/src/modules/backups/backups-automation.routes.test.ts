@@ -132,6 +132,63 @@ describe('backups automation routes — destination', () => {
     ).json() as BackupDestinationSecretResponse;
     expect(revealed.value).toBe(SECRET);
   });
+
+  it('stores the normalised S3 fields (bare host -> https://, blank region -> default, trimmed)', async () => {
+    const { app } = await setUpBackupsApp(NO_TIMERS);
+    const auth = await loginAs(app);
+
+    const response = await authedInject(app, auth, {
+      method: 'PUT',
+      url: '/api/v1/backups/destination',
+      payload: {
+        type: 's3',
+        endpoint: ' bucket.provider.example/ ',
+        region: '',
+        bucket: ' Mixed-Case ',
+        prefix: ' backups ',
+        accessKeyId: ' AKIAEXAMPLE ',
+        secretAccessKey: SECRET,
+      },
+    });
+    expect(response.statusCode).toBe(200);
+    expect((response.json() as BackupDestinationStatusResponse).destination).toMatchObject({
+      describe: 's3://Mixed-Case/backups',
+      s3: {
+        endpoint: 'https://bucket.provider.example',
+        region: 'us-east-1',
+        bucket: 'Mixed-Case',
+        prefix: 'backups',
+        accessKeyId: 'AKIAEXAMPLE',
+      },
+    });
+  });
+
+  it('refuses an invalid region with a per-field VALIDATION_FAILED detail', async () => {
+    const { app } = await setUpBackupsApp(NO_TIMERS);
+    const auth = await loginAs(app);
+
+    const response = await authedInject(app, auth, {
+      method: 'PUT',
+      url: '/api/v1/backups/destination',
+      payload: {
+        type: 's3',
+        endpoint: 'bucket.provider.example',
+        region: 'Tehran 3',
+        bucket: 'bucket',
+        prefix: '',
+        accessKeyId: 'AKIAEXAMPLE',
+        secretAccessKey: SECRET,
+      },
+    });
+    expect(response.statusCode).toBe(400);
+    const { error } = response.json() as {
+      error: { code: string; details: { path: string; message: string }[] };
+    };
+    expect(error.code).toBe('VALIDATION_FAILED');
+    expect(error.details).toEqual([
+      { path: 'region', message: expect.stringMatching(/region code/) },
+    ]);
+  });
 });
 
 describe('backups automation routes — remote round-trip', () => {
@@ -189,6 +246,65 @@ describe('backups automation routes — remote round-trip', () => {
       url: '/api/v1/backups/remote',
     });
     expect(response.statusCode).toBe(409);
+  });
+
+  it('a second queued upload of a backup the first job already uploaded and reclaimed succeeds', async () => {
+    const { app } = await setUpBackupsApp(NO_TIMERS);
+    const auth = await loginAs(app);
+    await configureS3(app, auth);
+    const backupId = await createBackup(app, auth);
+
+    // Both enqueued before either runs — the admin double-clicking "Upload to remote".
+    const acks = await Promise.all(
+      [1, 2].map(
+        async () =>
+          (
+            await authedInject(app, auth, {
+              method: 'POST',
+              url: `/api/v1/backups/${backupId}/upload`,
+            })
+          ).json() as BackupJobAck,
+      ),
+    );
+    for (const ack of acks) {
+      const job = await waitForJobToFinish(app, auth, ack.jobId);
+      expect(job.status).toBe('succeeded');
+      expect(job.errorMessage).toBeNull();
+    }
+
+    const detail = (
+      await authedInject(app, auth, { method: 'GET', url: `/api/v1/backups/${backupId}` })
+    ).json() as BackupDetailResponse;
+    expect(detail.backup.uploadStatus).toBe('uploaded');
+    expect(detail.backup.localPresent).toBe(false);
+  });
+
+  it('fails the upload job with the remote error when the upload does not land', async () => {
+    const { app } = await setUpBackupsApp(NO_TIMERS);
+    const auth = await loginAs(app);
+    await configureS3(app, auth);
+    const backupId = await createBackup(app, auth);
+
+    fake.errorResponse = { status: 403, code: 'AccessDenied' };
+    try {
+      const uploadAck = (
+        await authedInject(app, auth, {
+          method: 'POST',
+          url: `/api/v1/backups/${backupId}/upload`,
+        })
+      ).json() as BackupJobAck;
+      const job = await waitForJobToFinish(app, auth, uploadAck.jobId);
+      expect(job.status).toBe('failed');
+      expect(job.errorMessage).toMatch(/^Upload failed: /);
+    } finally {
+      fake.errorResponse = null;
+    }
+
+    const detail = (
+      await authedInject(app, auth, { method: 'GET', url: `/api/v1/backups/${backupId}` })
+    ).json() as BackupDetailResponse;
+    expect(detail.backup.uploadStatus).toBe('failed');
+    expect(detail.backup.localPresent).toBe(true);
   });
 
   it('rejects an import with a path-traversal backup id at the schema boundary', async () => {

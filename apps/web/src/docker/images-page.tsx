@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { Fragment, useState } from 'react';
 import { toast } from 'sonner';
 import { Trash2 } from 'lucide-react';
+import { BreakableText } from '@/components/breakable-text';
 import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { DataTable, type DataTableColumn } from '@/components/data-table';
@@ -24,6 +25,13 @@ function formatBytes(bytes: number): string {
   return `${value.toFixed(1)} ${units[unitIndex]}`;
 }
 
+function formatCreated(createdAt: number): string {
+  return new Date(createdAt * 1000).toLocaleString();
+}
+
+/** Break points inside an image reference such as `ghcr.io/org/name:0.2.0`. */
+const IMAGE_REF_SEPARATORS = '/:@._-';
+
 /**
  * `/docker/images` (M9 — FEATURE_MATRIX.md §24). "Prune dangling images" is
  * the only mutation: it always removes every dangling (untagged, unused)
@@ -41,17 +49,45 @@ export function ImagesPage() {
       id: 'repoTags',
       header: 'Tags',
       sortValue: (row) => row.repoTags[0] ?? row.id,
-      cell: (row) =>
-        row.repoTags.length > 0 ? (
-          <span className="font-mono-sm">{row.repoTags.join(', ')}</span>
-        ) : (
-          <span className="text-text-muted">&lt;none&gt;</span>
-        ),
+      // A registry reference breaks after `/ : . -` (break-words, not
+      // anywhere, so tags don't split mid-word), which keeps its minimum width
+      // to one path segment: a long tag can no longer force the nowrap
+      // columns past the table edge at 1024px.
+      cellClassName: 'break-words',
+      cell: (row) => (
+        <>
+          {row.repoTags.length > 0 ? (
+            <span className="font-mono-sm">
+              {row.repoTags.map((tag, index) => (
+                <Fragment key={tag}>
+                  {index > 0 ? ', ' : null}
+                  <BreakableText text={tag} separators={IMAGE_REF_SEPARATORS} />
+                </Fragment>
+              ))}
+            </span>
+          ) : (
+            <span className="text-text-muted">&lt;none&gt;</span>
+          )}
+          {/* Values of the columns hidden at this width move here: Image ID
+              below lg, Created below sm. */}
+          <span className="block text-caption text-text-muted lg:hidden">
+            <span className="font-mono-sm">{row.id.slice(0, 19)}</span>
+            <span className="sm:hidden"> · {formatCreated(row.createdAt)}</span>
+          </span>
+        </>
+      ),
     },
     {
       id: 'id',
       header: 'Image ID',
       sortValue: (row) => row.id,
+      // Short fixed-width values: keep them on one line so the auto-layout
+      // table gives the spare width to Tags instead of wrapping "488.3 / MB".
+      // Shown under the tags below lg instead: on a phone, and at md where
+      // the sidebar leaves ~460px, its 19 unbreakable characters would squeeze
+      // Tags into a tall column or add sideways scroll.
+      headerClassName: 'hidden lg:table-cell',
+      cellClassName: 'hidden whitespace-nowrap lg:table-cell',
       cell: (row) => (
         <span className="font-mono-sm text-text-secondary">{row.id.slice(0, 19)}</span>
       ),
@@ -60,13 +96,19 @@ export function ImagesPage() {
       id: 'size',
       header: 'Size',
       sortValue: (row) => row.sizeBytes,
+      cellClassName: 'whitespace-nowrap',
       cell: (row) => formatBytes(row.sizeBytes),
     },
     {
       id: 'created',
       header: 'Created',
       sortValue: (row) => row.createdAt,
-      cell: (row) => new Date(row.createdAt * 1000).toLocaleString(),
+      // Hidden on phones (shown under the tags). Unwrapped only from lg: on
+      // narrower tables the extra width of an unwrapped timestamp would add
+      // sideways scroll where the table used to fit.
+      headerClassName: 'hidden sm:table-cell',
+      cellClassName: 'hidden sm:table-cell lg:whitespace-nowrap',
+      cell: (row) => formatCreated(row.createdAt),
     },
   ];
 

@@ -169,35 +169,147 @@ export const BackupDestinationStatusResponseSchema = z.object({
 });
 export type BackupDestinationStatusResponse = z.infer<typeof BackupDestinationStatusResponseSchema>;
 
+/** Region signed into requests when the admin leaves Region blank. Most S3-compatible providers ignore the value; AWS itself needs the bucket's real region. */
+export const DEFAULT_S3_REGION = 'us-east-1';
+
+/** A leading `scheme://` — anything else (`host`, `host:9000`) is a bare host that gets `https://`. */
+const HAS_URL_SCHEME = /^[A-Za-z][A-Za-z0-9+.-]*:\/\//;
+
+/**
+ * Normalises what an admin types as the endpoint: `https://` is assumed when no
+ * scheme is given (providers show the bare host, e.g. `c123456.provider.net`),
+ * and trailing slashes are dropped because the S3 client appends `/<bucket>`.
+ */
+export function normalizeS3Endpoint(input: string): string {
+  const trimmed = input.trim();
+  const withScheme = HAS_URL_SCHEME.test(trimmed) ? trimmed : `https://${trimmed}`;
+  return withScheme.replace(/\/+$/, '');
+}
+
+/**
+ * Why a normalised endpoint is unusable, or `null` when it is fine. The S3
+ * client appends `/<bucket>/<key>` to the endpoint, so a query or fragment
+ * would swallow the bucket; userinfo is refused because credentials belong in
+ * their own (masked) fields, and anything in the URL is echoed into error
+ * messages and logs.
+ */
+function s3EndpointProblem(value: string): string | null {
+  // `http:/host`, `http//host` or `https:host` has no `://`, so normalising
+  // made it `https://http:/host` — a host literally named "http".
+  if (/^https?:\/\/https?(:|\/)/i.test(value)) {
+    return 'The endpoint scheme looks mistyped — write https://s3.example.com, or just the host.';
+  }
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    return 'Endpoint must be a host name or an http(s):// URL, e.g. https://s3.example.com.';
+  }
+  if ((url.protocol !== 'https:' && url.protocol !== 'http:') || url.hostname === '') {
+    return 'Endpoint must be a host name or an http(s):// URL, e.g. https://s3.example.com.';
+  }
+  if (url.username !== '' || url.password !== '' || /^[^:]+:\/\/[^/?#]*@/.test(value)) {
+    return 'Endpoint cannot contain a user name or password — put the access key ID and secret in their own fields.';
+  }
+  if (value.includes('?') || value.includes('#')) {
+    return 'Endpoint cannot contain a query string (?…) or fragment (#…) — use just the host, e.g. https://s3.example.com.';
+  }
+  return null;
+}
+
+/**
+ * S3 bucket charset. Case is deliberately not enforced — some providers allow
+ * mixed-case names, and whether the name is right is the connection test's
+ * job — but the name is a URL path segment, so `? # % /`, spaces and a
+ * dot-only name (`.`/`..`, which URL parsing collapses) are refused.
+ */
+const S3_BUCKET_NAME = /^[A-Za-z0-9._-]*$/;
+
+/**
+ * The region is signed into the SigV4 credential scope (`<date>/<region>/s3/…`),
+ * where a space or slash corrupts the Authorization header — so a provider's
+ * display name ("Tehran 3") is refused with a pointer to the region *code*.
+ */
+const S3_REGION_CODE = /^[A-Za-z0-9._-]*$/;
+
 /**
  * Update the destination config. For S3, `secretAccessKey` is optional: omit it
  * to keep the stored secret unchanged (the form never round-trips the real
  * secret back down to be re-submitted), or provide a new one to replace it.
+ *
+ * Every string is trimmed (values are usually pasted from a provider
+ * dashboard), and the S3 endpoint and region are normalised — so the *output*
+ * of this schema, not the raw input, is what the web client sends and the
+ * server stores. Messages name the field and the fix, because the form shows
+ * them inline under the offending input.
  */
 export const BackupDestinationUpdateSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('none') }),
   z.object({
     type: z.literal('s3'),
-    endpoint: z.string().url(),
-    region: z.string().min(1),
-    bucket: z.string().min(1),
-    prefix: z.string().regex(SAFE_PREFIX, 'Prefix may contain only letters, digits, . _ - and /.'),
-    accessKeyId: z.string().min(1),
-    secretAccessKey: z.string().min(1).optional(),
+    endpoint: z
+      .string()
+      .trim()
+      .min(1, 'Enter the endpoint, e.g. s3.example.com.')
+      .transform(normalizeS3Endpoint)
+      .superRefine((endpoint, ctx) => {
+        const problem = s3EndpointProblem(endpoint);
+        if (problem !== null) ctx.addIssue({ code: 'custom', message: problem });
+      }),
+    region: z
+      .string()
+      .trim()
+      .regex(
+        S3_REGION_CODE,
+        "Use the provider's region code (e.g. us-east-1) — letters, digits, . _ and - only, no spaces. Leave it blank if the provider has none.",
+      )
+      .transform((region) => (region === '' ? DEFAULT_S3_REGION : region))
+      .default(DEFAULT_S3_REGION),
+    bucket: z
+      .string()
+      .trim()
+      .min(1, 'Enter the bucket name.')
+      .regex(
+        S3_BUCKET_NAME,
+        'Bucket name may contain only letters, digits, . _ and - (no spaces or slashes).',
+      )
+      .refine((bucket) => !/^\.+$/.test(bucket), 'Bucket name cannot be only dots.'),
+    prefix: z
+      .string()
+      .trim()
+      .regex(SAFE_PREFIX, 'Prefix may contain only letters, digits, . _ - and /.'),
+    accessKeyId: z
+      .string()
+      .trim()
+      .min(1, 'Enter the access key ID.')
+      .regex(/^[^\s/]*$/, 'Access key ID cannot contain spaces or slashes.'),
+    // Trimmed like the rest: S3 secret keys never contain whitespace, so edge
+    // whitespace is always a paste artefact.
+    secretAccessKey: z.string().trim().min(1, 'Secret access key cannot be blank.').optional(),
   }),
   z.object({
     type: z.literal('ftp'),
-    host: z.string().min(1),
+    host: z.string().trim().min(1, 'Enter the FTP host.'),
     port: z.number().int().min(1).max(65535),
-    path: z.string().regex(SAFE_PREFIX, 'Path may contain only letters, digits, . _ - and /.'),
-    user: z.string().min(1),
+    path: z
+      .string()
+      .trim()
+      .regex(SAFE_PREFIX, 'Path may contain only letters, digits, . _ - and /.'),
+    user: z.string().trim().min(1, 'Enter the username.'),
     /** FTPS (explicit TLS). Off is plaintext FTP — allowed, but the UI should warn. */
     secure: z.boolean(),
-    /** Optional: omit to keep the stored password unchanged (never round-tripped to the client). */
+    /**
+     * Optional: omit to keep the stored password unchanged (never round-tripped
+     * to the client). Not trimmed — unlike an S3 secret, an FTP password is
+     * admin-chosen and may legitimately start or end with a space.
+     */
     password: z.string().min(1).optional(),
   }),
 ]);
+/** The normalised update — what the server receives after parsing. */
 export type BackupDestinationUpdate = z.infer<typeof BackupDestinationUpdateSchema>;
+/** What a client may submit before normalisation (e.g. a bare-host endpoint, a blank region). */
+export type BackupDestinationUpdateInput = z.input<typeof BackupDestinationUpdateSchema>;
 
 /** `POST /destination/reveal-secret` — the unmasked secret, plus the audit event this call writes. `null` when none is stored. */
 export const BackupDestinationSecretResponseSchema = z.object({

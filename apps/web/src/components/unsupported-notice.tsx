@@ -1,3 +1,4 @@
+import { useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { ExternalLink, HelpCircle } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
@@ -32,20 +33,7 @@ export type UnsupportedNoticeProps = InlineUnsupportedNoticeProps | TooltipUnsup
  */
 export function UnsupportedNotice(props: UnsupportedNoticeProps) {
   if (props.variant === 'tooltip') {
-    return (
-      <TooltipProvider>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <span tabIndex={0} className={cn('inline-flex cursor-not-allowed', props.className)}>
-              {props.children}
-            </span>
-          </TooltipTrigger>
-          <TooltipContent className="max-w-64">
-            <NoticeBody reason={props.reason} docsHref={props.docsHref} compact />
-          </TooltipContent>
-        </Tooltip>
-      </TooltipProvider>
-    );
+    return <TooltipNotice {...props} />;
   }
 
   return (
@@ -58,6 +46,60 @@ export function UnsupportedNotice(props: UnsupportedNoticeProps) {
       <HelpCircle className="mt-0.5 size-4 shrink-0 text-text-muted" aria-hidden="true" />
       <NoticeBody reason={props.reason} docsHref={props.docsHref} />
     </div>
+  );
+}
+
+/**
+ * Radix Tooltip deliberately ignores touch: it opens on hover or keyboard
+ * focus, and a tap closes it. On a phone that left the explanation
+ * unreachable, so a touch tap toggles it here instead (controlled `open`),
+ * while mouse and keyboard keep Radix's own behaviour. A tap anywhere
+ * else still dismisses it.
+ */
+function TooltipNotice({ reason, docsHref, className, children }: TooltipUnsupportedNoticeProps) {
+  const [open, setOpen] = useState(false);
+  const triggerRef = useRef<HTMLSpanElement>(null);
+  const lastPointerType = useRef('');
+
+  return (
+    <TooltipProvider>
+      <Tooltip open={open} onOpenChange={setOpen}>
+        <TooltipTrigger
+          asChild
+          onPointerDown={(event) => {
+            lastPointerType.current = event.pointerType;
+            // Stops Radix closing it here; the click below decides.
+            if (event.pointerType === 'touch') event.preventDefault();
+          }}
+          onClick={(event) => {
+            if (lastPointerType.current !== 'touch') return;
+            event.preventDefault();
+            setOpen((current) => !current);
+          }}
+        >
+          <span
+            ref={triggerRef}
+            tabIndex={0}
+            className={cn('inline-flex cursor-not-allowed', className)}
+          >
+            {children}
+          </span>
+        </TooltipTrigger>
+        <TooltipContent
+          className="max-w-64"
+          onPointerDownOutside={(event) => {
+            // A tap on the trigger is "outside" the content; leave the
+            // toggle to the trigger's click rather than closing and
+            // immediately reopening.
+            if (event.target instanceof Node && triggerRef.current?.contains(event.target)) {
+              event.preventDefault();
+            }
+          }}
+        >
+          <NoticeBody reason={reason} docsHref={docsHref} compact />
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
   );
 }
 
@@ -76,7 +118,12 @@ function NoticeBody({
   compact?: boolean | undefined;
 }) {
   return (
-    <span className={cn('flex flex-col gap-1', compact && 'text-caption')}>
+    <span
+      className={cn(
+        'flex min-w-0 flex-col gap-1 [overflow-wrap:anywhere]',
+        compact && 'text-caption',
+      )}
+    >
       <span>{reason}</span>
       {docsHref ? (
         <a

@@ -1,3 +1,4 @@
+import { BreakableText } from '@/components/breakable-text';
 import { DataTable, type DataTableColumn } from '@/components/data-table';
 import { EmptyState } from '@/components/empty-state';
 import { ErrorState } from '@/components/error-state';
@@ -12,9 +13,31 @@ export function NetworksPage() {
   const query = useNetworksQuery();
 
   const columns: DataTableColumn<NetworkSummary>[] = [
-    { id: 'name', header: 'Name', sortValue: (row) => row.name, cell: (row) => row.name },
+    {
+      id: 'name',
+      header: 'Name',
+      sortValue: (row) => row.name,
+      // `dwg_internal-network` style names break after `_ - .` instead of
+      // setting a column minimum that pushes Network ID off a 320px screen.
+      cellClassName: 'break-words',
+      cell: (row) => (
+        <>
+          <BreakableText text={row.name} />
+          {/* The Scope column is hidden on phones; its value moves here. */}
+          <span className="block text-caption text-text-muted sm:hidden">{row.scope} scope</span>
+        </>
+      ),
+    },
     { id: 'driver', header: 'Driver', sortValue: (row) => row.driver, cell: (row) => row.driver },
-    { id: 'scope', header: 'Scope', sortValue: (row) => row.scope, cell: (row) => row.scope },
+    {
+      id: 'scope',
+      header: 'Scope',
+      sortValue: (row) => row.scope,
+      // Hidden on phones (shown under the name) so Network ID fits on-screen.
+      headerClassName: 'hidden sm:table-cell',
+      cellClassName: 'hidden sm:table-cell',
+      cell: (row) => row.scope,
+    },
     {
       id: 'id',
       header: 'Network ID',

@@ -41,12 +41,19 @@ function NotificationRow({ notification }: { readonly notification: Notification
 
   const body = (
     <div className="flex flex-col gap-1">
-      <div className="flex items-center gap-2">
+      {/* Wraps so a long title gets its own line instead of a squeezed
+          column beside the badge; titles and bodies can carry unbroken
+          FQDNs, paths and digests, hence overflow-wrap:anywhere. */}
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
         <StatusBadge status={SEVERITY_TO_STATUS[notification.severity]} />
-        <span className="text-body-sm font-medium text-text-primary">{notification.title}</span>
+        <span className="min-w-0 text-body-sm font-medium text-text-primary [overflow-wrap:anywhere]">
+          {notification.title}
+        </span>
       </div>
       {notification.body ? (
-        <p className="text-caption text-text-secondary">{notification.body}</p>
+        <p className="text-caption text-text-secondary [overflow-wrap:anywhere]">
+          {notification.body}
+        </p>
       ) : null}
       <span className="text-caption text-text-muted">
         {formatDateTime(notification.createdAt)}
@@ -108,7 +115,13 @@ export function NotificationBell() {
           ) : null}
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-80">
+      {/* Column flex so the list below takes whatever height the (viewport-
+          clamped) menu has left and scrolls, keeping the header in view. */}
+      <DropdownMenuContent
+        align="end"
+        collisionPadding={8}
+        className="flex w-80 max-w-[calc(100vw-1rem)] flex-col"
+      >
         <div className="flex items-center justify-between px-2 py-1">
           <DropdownMenuLabel className="p-0">Notifications</DropdownMenuLabel>
           {unreadCount > 0 ? (
@@ -123,11 +136,11 @@ export function NotificationBell() {
             </Button>
           ) : null}
         </div>
-        <DropdownMenuSeparator />
+        <DropdownMenuSeparator className="shrink-0" />
         {notifications.length === 0 ? (
           <p className="px-2 py-3 text-body-sm text-text-secondary">Nothing to report.</p>
         ) : (
-          <div className="flex max-h-96 flex-col gap-1 overflow-auto">
+          <div className="flex max-h-96 min-h-0 flex-1 flex-col gap-1 overflow-y-auto overflow-x-hidden">
             {notifications.map((notification) => (
               <NotificationRow key={notification.id} notification={notification} />
             ))}

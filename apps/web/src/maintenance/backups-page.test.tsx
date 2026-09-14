@@ -208,7 +208,11 @@ describe('BackupsPage — list states (UX_ARCHITECTURE.md §9)', () => {
     expect(screen.getByText('Verification failed')).toBeInTheDocument();
     expect(screen.getByText('Cold')).toBeInTheDocument();
     // Contents are named per volume, never a bare count.
-    expect(screen.getAllByText('Mail data').length).toBeGreaterThan(0);
+    // Short badge names, with the full description on hover.
+    expect(screen.getAllByText('Mail').length).toBeGreaterThan(0);
+    expect(
+      screen.getAllByTitle('Configuration (.cf files, DKIM keys, TLS certificates)')[0],
+    ).toHaveTextContent('Config');
     expect(screen.getAllByText('512 MB').length).toBeGreaterThan(0);
   });
 });

@@ -48,6 +48,32 @@ describe('DataTable — rendering', () => {
     expect(screen.getByText('People')).toBeInTheDocument();
   });
 
+  it('applies per-column headerClassName/cellClassName (e.g. hiding a column on narrow screens)', () => {
+    const columns: DataTableColumn<Row>[] = [
+      ...COLUMNS,
+      {
+        id: 'extra',
+        header: 'Extra',
+        cell: (row) => `x-${row.id}`,
+        headerClassName: 'hidden sm:table-cell',
+        cellClassName: 'hidden sm:table-cell',
+      },
+    ];
+    renderTable({ columns });
+    expect(screen.getByRole('columnheader', { name: 'Extra' })).toHaveClass(
+      'hidden',
+      'sm:table-cell',
+    );
+    expect(screen.getByRole('columnheader', { name: /name/i })).not.toHaveClass('hidden');
+    expect(screen.getByText('x-a').closest('td')).toHaveClass('hidden', 'sm:table-cell');
+  });
+
+  it("makes the horizontal scroll box a containing block so the actions header's sr-only label can't widen the page", () => {
+    renderTable({ rowActions: (row) => <button>Delete {row.name}</button> });
+    const scroller = screen.getByRole('table').parentElement;
+    expect(scroller).toHaveClass('overflow-x-auto', 'relative');
+  });
+
   it('renders the caller-supplied empty state when data is empty, not a table', () => {
     renderTable({ data: [] });
     expect(screen.getByText('Nothing here')).toBeInTheDocument();

@@ -12,9 +12,11 @@ function isActivePath(pathname: string, to: string): boolean {
   return pathname === to || pathname.startsWith(`${to}/`);
 }
 
+// min-h-10 in the phone drawer (below md) and on any coarse pointer: the
+// 13px label is 34px tall with its padding, a little short for a thumb.
 const itemLinkClass = (isActive: boolean) =>
   cn(
-    'flex items-center gap-2.5 rounded-md px-3 py-2 text-body-sm font-medium transition-colors duration-fast ease-standard',
+    'flex items-center gap-2.5 rounded-md px-3 py-2 text-body-sm font-medium transition-colors duration-fast ease-standard max-md:min-h-10 pointer-coarse:min-h-10',
     isActive
       ? 'bg-accent-subtle-bg text-accent'
       : 'text-text-secondary hover:bg-bg-inset hover:text-text-primary',

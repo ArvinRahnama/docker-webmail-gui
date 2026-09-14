@@ -73,7 +73,15 @@ export function Fail2banPage() {
   }
 
   const columns: DataTableColumn<BannedIpRow>[] = [
-    { id: 'ip', header: 'IP address', sortValue: (row) => row.ip, cell: (row) => row.ip },
+    {
+      id: 'ip',
+      header: 'IP address',
+      sortValue: (row) => row.ip,
+      cell: (row) => row.ip,
+      // A full IPv6 has no break opportunity (colons aren't one) and would
+      // push the Unban column out of the scroll box on phones.
+      cellClassName: 'break-all font-mono-sm',
+    },
     {
       id: 'actions',
       header: '',

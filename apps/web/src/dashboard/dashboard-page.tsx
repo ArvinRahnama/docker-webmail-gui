@@ -50,13 +50,20 @@ function toStatus(state: string): Status {
 
 function SignalRow({ signal }: { readonly signal: DashboardSignal }) {
   const content = (
-    <div className="flex items-center justify-between gap-3 rounded-sm px-2 py-1.5">
-      <div className="flex items-center gap-2">
+    // Wraps rather than squeezing: on a narrow card the message drops under
+    // the badge + label, and messages carrying unbreakable tokens (socket
+    // paths, hostnames from an error) break instead of widening the page.
+    <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 rounded-sm px-2 py-1.5">
+      <div className="flex min-w-0 items-center gap-2">
         <StatusBadge status={toStatus(signal.state)} />
-        <span className="text-body-sm font-medium text-text-primary">{signal.label}</span>
+        <span className="text-body-sm font-medium text-text-primary [overflow-wrap:anywhere]">
+          {signal.label}
+        </span>
       </div>
       {signal.message ? (
-        <span className="text-body-sm text-text-secondary">{signal.message}</span>
+        <span className="min-w-0 text-body-sm text-text-secondary [overflow-wrap:anywhere]">
+          {signal.message}
+        </span>
       ) : null}
     </div>
   );
@@ -125,15 +132,20 @@ function labelForAction(action: string): string {
 
 function ActivityRow({ entry }: { readonly entry: DashboardActivityEntry }) {
   return (
-    <li className="flex items-center justify-between gap-3 border-b border-border-subtle px-1 py-2 text-body-sm last:border-b-0">
-      <div className="flex flex-col">
-        <span className="font-medium text-text-primary">{labelForAction(entry.action)}</span>
-        <span className="text-caption text-text-muted">
+    // On phones the date/badge wrap under the text instead of being crushed
+    // to one word per line; targets like `backup:job_<ULID>` or long email
+    // addresses break rather than pushing the row past the card.
+    <li className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 border-b border-border-subtle px-1 py-2 text-body-sm last:border-b-0">
+      <div className="flex min-w-0 flex-[1_1_12rem] flex-col">
+        <span className="font-medium text-text-primary [overflow-wrap:anywhere]">
+          {labelForAction(entry.action)}
+        </span>
+        <span className="text-caption text-text-muted [overflow-wrap:anywhere]">
           {entry.actorLabel}
           {entry.target ? ` · ${entry.target}` : ''}
         </span>
       </div>
-      <div className="flex items-center gap-2">
+      <div className="flex shrink-0 items-center gap-2 whitespace-nowrap">
         {entry.result === 'failure' ? <StatusBadge status="critical" label="Failed" /> : null}
         <span className="text-caption text-text-muted">{formatDateTime(entry.occurredAt)}</span>
       </div>
@@ -163,7 +175,7 @@ export function DashboardPage() {
       <div className="flex flex-col gap-6">
         <PageHeader title="Dashboard" description="Is it healthy. Is anything broken." />
         <Skeleton className="h-24 w-full" />
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
           {[0, 1, 2, 3].map((i) => (
             <Skeleton key={i} className="h-28 w-full" />
           ))}
@@ -182,7 +194,7 @@ export function DashboardPage() {
       {/* Row 1 — verdict. */}
       <Card>
         <CardContent className="flex flex-col gap-3 p-5">
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
             <StatusBadge status={toStatus(verdict.tone)} variant="solid" />
             <span className="text-display font-semibold text-text-primary">{verdict.headline}</span>
           </div>
@@ -198,8 +210,10 @@ export function DashboardPage() {
         </CardContent>
       </Card>
 
-      {/* Row 2 — four metric tiles. */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      {/* Row 2 — four metric tiles. Four across only from xl: breakpoints
+          measure the viewport, and at lg the md+ sidebar leaves ~168px tiles
+          too narrow for a display-size value. */}
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <MetricTile
           icon={ListOrdered}
           label="Mail queue"

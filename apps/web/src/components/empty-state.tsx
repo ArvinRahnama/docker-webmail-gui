@@ -76,10 +76,18 @@ export function EmptyState(props: EmptyStateProps) {
       <FilterX className="size-8 text-text-muted" aria-hidden="true" />
       <h2 className="text-h3 font-semibold text-text-primary">No results match your filters</h2>
       {props.activeFilters.length > 0 ? (
-        <ul className="flex flex-wrap justify-center gap-1.5" aria-label="Active filters">
+        // max-w-full down to the truncating span: a filter label is often
+        // an unbroken pasted address, and this centred list would
+        // otherwise overflow both edges of a phone screen.
+        <ul
+          className="flex max-w-full flex-wrap justify-center gap-1.5"
+          aria-label="Active filters"
+        >
           {props.activeFilters.map((filter) => (
-            <li key={filter}>
-              <Badge variant="outline">{filter}</Badge>
+            <li key={filter} className="max-w-full">
+              <Badge variant="outline" className="max-w-full" title={filter}>
+                <span className="min-w-0 truncate">{filter}</span>
+              </Badge>
             </li>
           ))}
         </ul>

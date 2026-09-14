@@ -16,9 +16,9 @@
  *    the two rather than pretending the stream is the whole record.
  */
 import { useMemo, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, X } from 'lucide-react';
 import {
   isActiveJobStatus,
   type Job,
@@ -27,6 +27,7 @@ import {
   type JobStatus,
   type JobType,
 } from '@dwg/shared';
+import { BreakableText } from '@/components/breakable-text';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { DataTable, type DataTableColumn } from '@/components/data-table';
 import { EmptyState } from '@/components/empty-state';
@@ -194,7 +195,13 @@ function JobLogList({ entries }: JobLogListProps) {
       className="max-h-[24rem] overflow-auto rounded-sm bg-bg-inset p-2 font-mono-sm"
     >
       {entries.map((entry) => (
-        <li key={entry.id} className="flex gap-2 rounded-sm px-1 py-0.5">
+        // Wraps rather than squeezing: on a phone the timestamp and level
+        // keep one line and the message drops below them at full width,
+        // instead of getting whatever is left beside two shrink-0 spans.
+        <li
+          key={entry.id}
+          className="flex flex-wrap items-start gap-x-2 gap-y-0.5 rounded-sm px-1 py-0.5"
+        >
           <span className="shrink-0 text-text-muted">{formatDateTime(entry.loggedAt)}</span>
           <span
             className={cn(
@@ -204,7 +211,9 @@ function JobLogList({ entries }: JobLogListProps) {
           >
             {LOG_LEVEL_LABELS[entry.level]}
           </span>
-          <span className="text-text-primary">{entry.message}</span>
+          <span className="min-w-0 flex-[1_1_16rem] wrap-anywhere text-text-primary">
+            {entry.message}
+          </span>
         </li>
       ))}
     </ol>
@@ -231,9 +240,27 @@ export function JobsPage() {
         header: 'Job',
         sortValue: (row) => JOB_TYPE_LABELS[row.type],
         cell: (row) => (
-          <div className="flex flex-col">
-            <span className="font-medium text-text-primary">{JOB_TYPE_LABELS[row.type]}</span>
-            <span className="font-mono-sm text-text-muted">{row.id}</span>
+          // The floor keeps the label, id and date readable: without it the
+          // table squeezes this column to its longest word and every row turns
+          // into a tower of one-word lines. It is lowest below sm, where the
+          // id is hidden and Status and Cancel need the rest of a 320px screen.
+          <div className="flex min-w-24 flex-col sm:min-w-32 lg:min-w-40">
+            {/*
+              The row's primary way in — on a phone the only one, since the
+              trailing View button is hidden there.
+            */}
+            <Link
+              to={`/maintenance/jobs/${encodeURIComponent(row.id)}`}
+              className="font-medium text-accent hover:underline"
+            >
+              {JOB_TYPE_LABELS[row.type]}
+            </Link>
+            {/* One unbreakable token; the detail page shows it on phones. */}
+            <span className="hidden font-mono-sm break-all text-text-muted sm:block">{row.id}</span>
+            {/* Stands in for the Created column, which is hidden below lg. */}
+            <span className="text-caption text-text-muted lg:hidden">
+              {formatDateTime(row.createdAt)}
+            </span>
           </div>
         ),
       },
@@ -242,15 +269,23 @@ export function JobsPage() {
         header: 'Status',
         sortValue: (row) => row.status,
         cell: (row) => (
-          <div className="flex flex-col gap-1">
+          <div className="flex flex-col items-start gap-1">
             <StatusBadge
               status={JOB_STATUS_TONE[row.status]}
               label={JOB_STATUS_LABELS[row.status]}
             />
+            {/* Stands in for the Progress column wherever that is hidden (see below). */}
+            <span className="block text-caption text-text-secondary sm:hidden md:block lg:hidden">
+              {progressLabel(row)}
+            </span>
             {row.status === 'failed' && row.errorMessage !== null ? (
               // §9: a failed job states why on the list itself — an admin
               // should not have to open the detail view to learn that much.
-              <span className="text-caption text-status-critical-fg">{row.errorMessage}</span>
+              // The md floor stops a crowded desktop table squeezing the
+              // message into a one-word-wide column many lines tall.
+              <span className="max-w-xs text-caption wrap-anywhere text-status-critical-fg md:min-w-40">
+                {row.errorMessage}
+              </span>
             ) : null}
           </div>
         ),
@@ -259,32 +294,57 @@ export function JobsPage() {
         id: 'progress',
         header: 'Progress',
         sortValue: (row) => row.progress,
-        cellClassName: 'w-40',
+        // Shown only where the table has room for it: not on a phone, and not
+        // at md, where the sidebar leaves a phone-sized content area. There the
+        // Status cell carries the progress label instead.
+        headerClassName: 'hidden sm:table-cell md:hidden lg:table-cell',
+        cellClassName: 'hidden w-40 sm:table-cell md:hidden lg:table-cell',
         cell: (row) => <JobProgress job={row} />,
       },
       {
         id: 'createdBy',
         header: 'Started by',
         sortValue: (row) => row.createdByLabel,
-        cell: (row) => row.createdByLabel,
+        // min-w keeps an ordinary address on one line when the table is
+        // tight; a longer one breaks after its dots and `@` rather than
+        // mid-word, and never widens the column past the table's scroller.
+        cell: (row) => (
+          <span className="inline-block min-w-32 break-words">
+            <BreakableText text={row.createdByLabel} />
+          </span>
+        ),
+        // Low-value columns give way first on narrow screens, so Job, Status
+        // and Progress stay readable without a sideways scroll; the job
+        // detail page still shows all of them.
+        headerClassName: 'hidden xl:table-cell',
+        cellClassName: 'hidden xl:table-cell',
       },
       {
         id: 'createdAt',
         header: 'Created',
         sortValue: (row) => row.createdAt,
         cell: (row) => formatDateTime(row.createdAt),
+        headerClassName: 'hidden lg:table-cell',
+        cellClassName: 'hidden lg:table-cell',
       },
       {
         id: 'startedAt',
         header: 'Started',
         sortValue: (row) => row.startedAt ?? '',
         cell: (row) => formatDateTime(row.startedAt),
+        // The least telling stamp (usually Created to the minute), so it is
+        // the first to go: at 1280px the table needs its width for a failed
+        // job's message.
+        headerClassName: 'hidden 2xl:table-cell',
+        cellClassName: 'hidden 2xl:table-cell',
       },
       {
         id: 'finishedAt',
         header: 'Finished',
         sortValue: (row) => row.finishedAt ?? '',
         cell: (row) => formatDateTime(row.finishedAt),
+        headerClassName: 'hidden xl:table-cell',
+        cellClassName: 'hidden xl:table-cell',
       },
     ],
     [],
@@ -319,24 +379,30 @@ export function JobsPage() {
             />
           }
           rowActions={(row) => (
-            <div className="flex justify-end gap-1">
+            <div className="flex flex-wrap justify-end gap-1">
+              {/* Below sm the job label link opens the job; View would only push Cancel off screen. */}
               <Button
                 type="button"
                 variant="ghost"
                 size="sm"
+                className="hidden sm:inline-flex"
                 onClick={() => navigate(`/maintenance/jobs/${encodeURIComponent(row.id)}`)}
               >
                 View
               </Button>
               {/* Cancellability is `isActiveJobStatus`, never a second list of statuses that could drift from it. */}
               {isActiveJobStatus(row.status) ? (
+                // Icon-only below sm so it stays on screen beside Job and
+                // Status; the label remains the accessible name at every size.
                 <Button
                   type="button"
                   variant="ghost"
                   size="sm"
+                  className="max-sm:px-1.5"
                   onClick={() => setPendingCancel(row)}
                 >
-                  Cancel job
+                  <X className="sm:hidden" aria-hidden="true" />
+                  <span className="max-sm:sr-only">Cancel job</span>
                 </Button>
               ) : null}
             </div>
@@ -489,7 +555,7 @@ export function JobDetailPage() {
         <CardContent className="flex flex-col gap-4">
           <JobProgress job={job} size="lg" />
 
-          <dl className="grid grid-cols-2 gap-x-6 gap-y-2 text-body-sm sm:grid-cols-4">
+          <dl className="grid grid-cols-2 gap-x-6 gap-y-2 text-body-sm lg:grid-cols-4">
             <div>
               <dt className="text-text-secondary">Created</dt>
               <dd className="text-text-primary">{formatDateTime(job.createdAt)}</dd>
@@ -504,18 +570,18 @@ export function JobDetailPage() {
             </div>
             <div>
               <dt className="text-text-secondary">Job id</dt>
-              <dd className="font-mono-sm text-text-primary">{job.id}</dd>
+              <dd className="font-mono-sm break-all text-text-primary">{job.id}</dd>
             </div>
             {backupId !== null ? (
               <div>
                 <dt className="text-text-secondary">Backup</dt>
-                <dd className="font-mono-sm text-text-primary">{backupId}</dd>
+                <dd className="font-mono-sm break-all text-text-primary">{backupId}</dd>
               </div>
             ) : null}
           </dl>
 
           {job.status === 'failed' && job.errorMessage !== null ? (
-            <p className="rounded-sm bg-status-critical-bg px-3 py-2 text-body-sm text-status-critical-fg">
+            <p className="rounded-sm bg-status-critical-bg px-3 py-2 text-body-sm wrap-anywhere text-status-critical-fg">
               {job.errorMessage}
             </p>
           ) : null}

@@ -11,6 +11,13 @@ export const DropdownMenuPortal = DropdownMenuPrimitive.Portal;
 export const DropdownMenuSub = DropdownMenuPrimitive.Sub;
 export const DropdownMenuRadioGroup = DropdownMenuPrimitive.RadioGroup;
 
+/**
+ * The 13px item type is 30px tall with its padding — compact enough for a
+ * mouse, under a comfortable tap target. Phones (below sm) and any coarse
+ * pointer (a landscape phone, a tablet) get 36px instead.
+ */
+const ITEM_TOUCH_HEIGHT = 'max-sm:min-h-9 pointer-coarse:min-h-9';
+
 export const DropdownMenuSubTrigger = forwardRef<
   ElementRef<typeof DropdownMenuPrimitive.SubTrigger>,
   ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.SubTrigger> & { inset?: boolean }
@@ -19,6 +26,7 @@ export const DropdownMenuSubTrigger = forwardRef<
     ref={ref}
     className={cn(
       'flex cursor-default select-none items-center gap-2 rounded-sm px-2 py-1.5 text-body-sm text-text-primary outline-none focus:bg-bg-raised data-[state=open]:bg-bg-raised',
+      ITEM_TOUCH_HEIGHT,
       inset && 'pl-8',
       className,
     )}
@@ -37,7 +45,7 @@ export const DropdownMenuSubContent = forwardRef<
   <DropdownMenuPrimitive.SubContent
     ref={ref}
     className={cn(
-      'z-50 min-w-32 overflow-hidden rounded-md border border-border-default bg-bg-raised p-1 shadow-md',
+      'z-50 max-h-(--radix-dropdown-menu-content-available-height) min-w-32 overflow-y-auto overflow-x-hidden rounded-md border border-border-default bg-bg-raised p-1 shadow-md',
       className,
     )}
     {...props}
@@ -54,7 +62,10 @@ export const DropdownMenuContent = forwardRef<
       ref={ref}
       sideOffset={sideOffset}
       className={cn(
-        'dwg-pop-content z-50 min-w-40 overflow-hidden rounded-md border border-border-default bg-bg-raised p-1 shadow-md',
+        // Clamped to the space Radix measured between the trigger and the
+        // viewport edge: the page is scroll-locked while a menu is open, so
+        // on a landscape phone the lower items would otherwise be unreachable.
+        'dwg-pop-content z-50 max-h-(--radix-dropdown-menu-content-available-height) min-w-40 overflow-y-auto overflow-x-hidden rounded-md border border-border-default bg-bg-raised p-1 shadow-md',
         className,
       )}
       {...props}
@@ -74,6 +85,7 @@ export const DropdownMenuItem = forwardRef<
     ref={ref}
     className={cn(
       'relative flex cursor-default select-none items-center gap-2 rounded-sm px-2 py-1.5 text-body-sm outline-none transition-colors duration-fast focus:bg-bg-raised data-[disabled]:pointer-events-none data-[disabled]:opacity-50',
+      ITEM_TOUCH_HEIGHT,
       destructive ? 'text-status-critical-fg focus:bg-status-critical-bg' : 'text-text-primary',
       inset && 'pl-8',
       className,
@@ -91,6 +103,7 @@ export const DropdownMenuCheckboxItem = forwardRef<
     ref={ref}
     className={cn(
       'relative flex cursor-default select-none items-center gap-2 rounded-sm py-1.5 pl-8 pr-2 text-body-sm text-text-primary outline-none transition-colors duration-fast focus:bg-bg-raised data-[disabled]:pointer-events-none data-[disabled]:opacity-50',
+      ITEM_TOUCH_HEIGHT,
       className,
     )}
     {...props}
@@ -113,6 +126,7 @@ export const DropdownMenuRadioItem = forwardRef<
     ref={ref}
     className={cn(
       'relative flex cursor-default select-none items-center gap-2 rounded-sm py-1.5 pl-8 pr-2 text-body-sm text-text-primary outline-none transition-colors duration-fast focus:bg-bg-raised data-[disabled]:pointer-events-none data-[disabled]:opacity-50',
+      ITEM_TOUCH_HEIGHT,
       className,
     )}
     {...props}

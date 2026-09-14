@@ -365,19 +365,19 @@ export function PanelUpdateCard() {
   return (
     <>
       <Card>
-        <CardHeader className="flex flex-row items-center justify-between gap-4">
+        <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2">
           <CardTitle>Panel</CardTitle>
-          <StatusBadge status={tone} label={label} />
+          <StatusBadge status={tone} label={label} className="whitespace-nowrap" />
         </CardHeader>
         <CardContent className="flex flex-col gap-4 text-body-sm">
           <dl className="grid grid-cols-1 gap-x-6 gap-y-3 sm:grid-cols-2">
             <div className="flex flex-col gap-1">
               <dt className="text-text-muted">Running now</dt>
-              <dd>{status.currentVersion ?? 'Could not be resolved'}</dd>
+              <dd className="wrap-anywhere">{status.currentVersion ?? 'Could not be resolved'}</dd>
             </div>
             <div className="flex flex-col gap-1">
               <dt className="text-text-muted">Latest published</dt>
-              <dd>{status.latestVersion ?? 'Could not be resolved'}</dd>
+              <dd className="wrap-anywhere">{status.latestVersion ?? 'Could not be resolved'}</dd>
             </div>
           </dl>
 
@@ -386,12 +386,15 @@ export function PanelUpdateCard() {
           ) : null}
 
           {runningJob !== null ? (
-            <div className="flex flex-col gap-3 rounded-md border border-border-default bg-bg-inset p-3">
+            // bg-bg-surface, not bg-bg-inset: JobProgress's track is
+            // bg-bg-inset, and on a matching background a 0% bar is invisible.
+            <div className="flex flex-col gap-3 rounded-md border border-border-default bg-bg-surface p-3">
               <JobProgress job={runningJob} size="lg" />
               <Button
                 type="button"
                 variant="secondary"
                 size="sm"
+                className="self-start"
                 onClick={() => navigate(`/maintenance/jobs/${encodeURIComponent(runningJob.id)}`)}
               >
                 View job log

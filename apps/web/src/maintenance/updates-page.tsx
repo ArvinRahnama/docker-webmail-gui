@@ -118,9 +118,9 @@ export function UpdatesPage() {
       />
 
       <Card>
-        <CardHeader className="flex flex-row items-center justify-between gap-4">
+        <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2">
           <CardTitle>docker-mailserver</CardTitle>
-          <StatusBadge status={tone} label={label} />
+          <StatusBadge status={tone} label={label} className="whitespace-nowrap" />
         </CardHeader>
         <CardContent className="flex flex-col gap-4 text-body-sm">
           <dl className="grid grid-cols-1 gap-x-6 gap-y-3 sm:grid-cols-2">

@@ -22,8 +22,9 @@
  * or login-every-connection (FTP) path — and asserts the literal secret value
  * appears in none of: the raw captured log text, the `job_logs` table, any of
  * the HTTP response bodies seen along the way (including a forced-failure
- * `/destination/test` error response and a forced-failure upload's
- * `uploadError` field), or the `backup_destination_snapshots.config_json`
+ * `/destination/test` error response, a forced-failure upload's
+ * `uploadError` field and its failed job), `jobs.error_message`, or the
+ * `backup_destination_snapshots.config_json`
  * rows written by the pre-change snapshot. A positive control per
  * destination type proves the capture would actually catch a leak.
  */
@@ -121,7 +122,7 @@ describe('the S3 secret never leaks across a real config-apply + upload', () => 
     rmSync(backupDir, { recursive: true, force: true });
   });
 
-  it('is absent from logs, job logs, every response body, and the config snapshot', async () => {
+  it('is absent from logs, job logs, every response body, the config snapshot, and a forced-failure error message', async () => {
     const sink = new CapturingSink();
     const { app, db } = await bootApp(backupDir, sink);
     const responseBodies: string[] = [];
@@ -201,6 +202,77 @@ describe('the S3 secret never leaks across a real config-apply + upload', () => 
         (await authedInject(app, auth, { method: 'GET', url: `/api/v1/backups/${backupId}` })).body,
       );
 
+      // 6. Forced failure: make the fake answer every request with an
+      // AWS-shaped SignatureDoesNotMatch that echoes the signing material —
+      // here even the secret itself, as a hostile or buggy provider might —
+      // then drive `/destination/test` (its diagnosis reads the error body)
+      // and an upload job for a second, not-yet-uploaded backup (backup #1 is
+      // already uploaded and reclaimed, so retrying it makes no network call).
+      // The failed job's `Upload failed: <reason>` reaches `jobs.error_message`,
+      // the job runner's error log and the job API response.
+      const secondCreateAck = (
+        await authedInject(app, auth, {
+          method: 'POST',
+          url: '/api/v1/backups',
+          payload: { mode: 'warm' },
+        })
+      ).json() as BackupJobAck;
+      expect((await waitForJobToFinish(app, auth, secondCreateAck.jobId)).status).toBe('succeeded');
+      const secondList = (
+        await authedInject(app, auth, { method: 'GET', url: '/api/v1/backups' })
+      ).json() as BackupListResponse;
+      const secondBackupId = secondList.backups.find((backup) => backup.id !== backupId)!.id;
+
+      fake.errorResponse = {
+        status: 403,
+        code: 'SignatureDoesNotMatch',
+        fields: {
+          Message: `The request signature we calculated does not match. ${SECRET}`,
+          AWSAccessKeyId: 'AKIAEXAMPLE',
+          StringToSign: `AWS4-HMAC-SHA256\n20260101T000000Z\n${SECRET}`,
+          SignatureProvided: SECRET,
+          CanonicalRequest: `GET\n/backups-bucket\n${SECRET}`,
+        },
+      };
+
+      const testConnResponse = await authedInject(app, auth, {
+        method: 'POST',
+        url: '/api/v1/backups/destination/test',
+      });
+      expect(testConnResponse.statusCode).toBeGreaterThanOrEqual(400);
+      expect(testConnResponse.body).toMatch(/rejected the request signature/);
+      responseBodies.push(testConnResponse.body);
+
+      const failedUploadAck = (
+        await authedInject(app, auth, {
+          method: 'POST',
+          url: `/api/v1/backups/${secondBackupId}/upload`,
+        })
+      ).json() as BackupJobAck;
+      const failedJob = await waitForJobToFinish(app, auth, failedUploadAck.jobId);
+      // Prove this is a genuine forced failure, not a vacuous check.
+      expect(failedJob.status).toBe('failed');
+      expect(failedJob.errorMessage).toMatch(/^Upload failed: /);
+      expect(failedJob.errorMessage as string).not.toContain(SECRET);
+      responseBodies.push(
+        (
+          await authedInject(app, auth, {
+            method: 'GET',
+            url: `/api/v1/jobs/${failedUploadAck.jobId}`,
+          })
+        ).body,
+      );
+
+      const failedDetailResponse = await authedInject(app, auth, {
+        method: 'GET',
+        url: `/api/v1/backups/${secondBackupId}`,
+      });
+      responseBodies.push(failedDetailResponse.body);
+      const failedDetail = failedDetailResponse.json() as BackupDetailResponse;
+      expect(failedDetail.backup.uploadStatus).toBe('failed');
+      expect(failedDetail.backup.uploadError).not.toBeNull();
+      fake.errorResponse = null;
+
       // --- Assertions ------------------------------------------------------
       const logText = sink.text();
       expect(logText.length).toBeGreaterThan(0); // something was actually logged
@@ -209,8 +281,14 @@ describe('the S3 secret never leaks across a real config-apply + upload', () => 
         .all<{ message: string }>('SELECT message FROM job_logs')
         .map((row) => row.message)
         .join('\n');
+      const jobErrorText = db
+        .all<{ error_message: string | null }>('SELECT error_message FROM jobs')
+        .map((row) => row.error_message ?? '')
+        .join('\n');
+      expect(jobErrorText).toMatch(/Upload failed: /);
 
       expect(logText).not.toContain(SECRET);
+      expect(jobErrorText).not.toContain(SECRET);
       expect(jobLogText).not.toContain(SECRET);
       for (const body of responseBodies) {
         expect(body).not.toContain(SECRET);
@@ -337,14 +415,17 @@ describe('the FTP password never leaks across a real config-apply + upload', () 
       // synchronous route (an immediate error HTTP response from
       // `FtpDestination#withClient`'s connect-failure branch) and an upload
       // job through the real failure path. `uploadBackup` never throws for a
-      // remote failure (by design — see backup-uploader.ts), so the job
-      // itself still reports `succeeded`; the failure instead lands in the
-      // backup's `uploadError` field, which is what we check here.
+      // remote failure (by design — see backup-uploader.ts); it records the
+      // error in the backup's `uploadError`, and the upload route then fails
+      // the job with `Upload failed: <reason>`. That message reaches
+      // `jobs.error_message`, the job runner's error log and the job API
+      // response, so all of them are checked here.
       //
       // Retrying backup #1 would not exercise this: a successfully-uploaded
       // backup has its local archive reclaimed (`reclaimLocalStaging`), so a
-      // second upload attempt on it is a local no-op `skipped` outcome, never
-      // a real network attempt. A second, not-yet-uploaded backup is needed.
+      // second upload attempt on it is a local no-op `already-uploaded`
+      // outcome, never a real network attempt. A second, not-yet-uploaded
+      // backup is needed.
       await fake.close();
 
       const testConnResponse = await authedInject(app, auth, {
@@ -373,7 +454,18 @@ describe('the FTP password never leaks across a real config-apply + upload', () 
           url: `/api/v1/backups/${secondBackupId}/upload`,
         })
       ).json() as BackupJobAck;
-      await waitForJobToFinish(app, auth, failedUploadAck.jobId);
+      const failedJob = await waitForJobToFinish(app, auth, failedUploadAck.jobId);
+      expect(failedJob.status).toBe('failed');
+      expect(failedJob.errorMessage).toMatch(/^Upload failed: /);
+      expect(failedJob.errorMessage as string).not.toContain(FTP_PASSWORD);
+      responseBodies.push(
+        (
+          await authedInject(app, auth, {
+            method: 'GET',
+            url: `/api/v1/jobs/${failedUploadAck.jobId}`,
+          })
+        ).body,
+      );
 
       const failedDetailResponse = await authedInject(app, auth, {
         method: 'GET',
@@ -395,8 +487,15 @@ describe('the FTP password never leaks across a real config-apply + upload', () 
         .map((row) => row.message)
         .join('\n');
 
+      const jobErrorText = db
+        .all<{ error_message: string | null }>('SELECT error_message FROM jobs')
+        .map((row) => row.error_message ?? '')
+        .join('\n');
+      expect(jobErrorText).toMatch(/Upload failed: /);
+
       expect(logText).not.toContain(FTP_PASSWORD);
       expect(jobLogText).not.toContain(FTP_PASSWORD);
+      expect(jobErrorText).not.toContain(FTP_PASSWORD);
       for (const body of responseBodies) {
         expect(body).not.toContain(FTP_PASSWORD);
       }

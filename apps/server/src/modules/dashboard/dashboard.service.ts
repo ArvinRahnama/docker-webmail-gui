@@ -421,7 +421,9 @@ function buildVerdict(
   const headline =
     problems.length === 0
       ? 'All systems healthy'
-      : `${problems.length} item${problems.length === 1 ? '' : 's'} need attention`;
+      : problems.length === 1
+        ? '1 item needs attention'
+        : `${problems.length} items need attention`;
 
   return { tone, headline, problems };
 }

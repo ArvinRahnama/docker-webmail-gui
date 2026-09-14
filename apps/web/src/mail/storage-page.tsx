@@ -8,7 +8,9 @@ import { PageHeader } from '@/components/page-header';
 import { Skeleton } from '@/components/ui/skeleton';
 import { UnsupportedNotice } from '@/components/unsupported-notice';
 import { ApiClientError, ApiError } from '@/lib/api-client';
+import { cn } from '@/lib/cn';
 import { formatBytes, formatPercent, formatQuota } from '@/lib/format';
+import { AddressText, addressFloorClassName } from './address-text';
 import { useMailCapabilitiesQuery, useQuotaReportQuery } from './use-mail-queries';
 
 const WARN_THRESHOLD = 0.8;
@@ -50,17 +52,33 @@ export function StoragePage() {
       id: 'email',
       header: 'Mailbox',
       sortValue: (row) => row.email,
+      // AddressText wraps a long address at `@ . _ -` instead of letting it
+      // size the column (and the table); short ones stay whole and unfloored.
+      cellClassName: 'break-words',
       cell: (row) => (
         <button
           type="button"
           onClick={() => navigate(`/mail/mailboxes/${encodeURIComponent(row.email)}`)}
-          className="font-medium text-accent hover:underline"
+          className={cn(
+            'text-left font-medium text-accent hover:underline',
+            addressFloorClassName(row.email),
+          )}
         >
-          {row.email}
+          <AddressText text={row.email} />
         </button>
       ),
     },
-    { id: 'domain', header: 'Domain', sortValue: (row) => row.domain, cell: (row) => row.domain },
+    {
+      id: 'domain',
+      header: 'Domain',
+      sortValue: (row) => row.domain,
+      cellClassName: 'break-words',
+      cell: (row) => (
+        <div className={addressFloorClassName(row.domain)}>
+          <AddressText text={row.domain} />
+        </div>
+      ),
+    },
     {
       id: 'quota',
       header: 'Limit',

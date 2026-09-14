@@ -165,8 +165,26 @@ export async function registerBackupsAutomationRoutes(
           createdByAdminId: actor.adminId,
           createdByLabel: actor.label,
           metadata: { backupId: id },
-          execute: () =>
-            uploader.uploadBackup(id, actor).then((outcome) => ({ backupId: id, ...outcome })),
+          // The uploader never throws for a remote failure (it records `failed`
+          // on the backup row), but this job exists only to upload: a failed or
+          // skipped outcome must fail the job so its card shows the reason.
+          // `already-uploaded` (a second click, or a reconcile got there first)
+          // is a success — the backup is on the remote.
+          execute: async () => {
+            const outcome = await uploader.uploadBackup(id, actor);
+            if (outcome.status === 'failed') {
+              throw new AppError('UPSTREAM_UNAVAILABLE', `Upload failed: ${outcome.error}`);
+            }
+            if (outcome.status === 'skipped') {
+              throw new AppError(
+                'CONFLICT',
+                outcome.reason === 'no-destination'
+                  ? 'No remote destination is configured.'
+                  : 'This backup is no longer on the local disk, so there is nothing to upload.',
+              );
+            }
+            return { backupId: id, ...outcome };
+          },
         });
         void reply.send(BackupJobAckSchema.parse({ jobId: job.id }));
       });

@@ -11,7 +11,8 @@ export const Textarea = forwardRef<
     <textarea
       ref={ref}
       className={cn(
-        'flex min-h-32 w-full rounded-sm border border-border-default bg-bg-surface px-3 py-2 text-body text-text-primary shadow-sm transition-colors duration-fast ease-standard placeholder:text-text-muted',
+        // max-sm:text-base: see input.tsx (iOS Safari focus zoom).
+        'flex min-h-32 w-full rounded-sm border border-border-default bg-bg-surface px-3 py-2 text-body text-text-primary max-sm:text-base shadow-sm transition-colors duration-fast ease-standard placeholder:text-text-muted',
         'hover:border-border-strong',
         'disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:border-border-default',
         'aria-[invalid=true]:border-status-critical-fg',

@@ -69,13 +69,17 @@ export function ErrorState({
       <button
         type="button"
         onClick={copyErrorId}
-        className="inline-flex items-center gap-1.5 rounded-sm bg-bg-inset px-2 py-1 font-mono-sm text-text-secondary transition-colors duration-fast hover:text-text-primary"
+        // max-w-full + break-all: the id (a 47-char `client_…` one in
+        // particular) is a single unbreakable token; centred by
+        // items-center, it otherwise overflows both edges on a phone.
+        // min-h-8 keeps a 32px tap target at the 12px mono size.
+        className="inline-flex min-h-8 max-w-full items-center gap-1.5 rounded-sm bg-bg-inset px-2 py-1 font-mono text-mono-sm text-text-secondary transition-colors duration-fast hover:text-text-primary"
       >
-        <span className="select-all">{errorId}</span>
+        <span className="min-w-0 select-all break-all">{errorId}</span>
         {copied ? (
-          <Check className="size-3.5 text-status-healthy-fg" aria-hidden="true" />
+          <Check className="size-3.5 shrink-0 text-status-healthy-fg" aria-hidden="true" />
         ) : (
-          <Copy className="size-3.5" aria-hidden="true" />
+          <Copy className="size-3.5 shrink-0" aria-hidden="true" />
         )}
         <span className="sr-only">{copied ? 'Copied' : 'Copy error ID'}</span>
       </button>

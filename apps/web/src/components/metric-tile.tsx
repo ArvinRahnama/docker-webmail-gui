@@ -69,7 +69,7 @@ export function MetricTile({
         {unknown ? (
           <UnknownValue />
         ) : (
-          <div className="flex items-baseline gap-1.5" aria-hidden="true">
+          <div className="flex flex-wrap items-baseline gap-x-1.5" aria-hidden="true">
             <span className="text-display font-semibold tabular-nums text-text-primary">
               {value}
             </span>

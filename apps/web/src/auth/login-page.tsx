@@ -39,8 +39,8 @@ export function LoginPage() {
     loginMutation.error instanceof ApiError ? loginMutation.error.message : GENERIC_LOGIN_FAILURE;
 
   return (
-    <div className="flex min-h-dvh items-center justify-center bg-bg-app px-4">
-      <div className="w-full max-w-sm rounded-lg border border-border-default bg-bg-surface p-8 shadow-md">
+    <div className="flex min-h-dvh items-center justify-center bg-bg-app px-4 py-6">
+      <div className="w-full max-w-sm rounded-lg border border-border-default bg-bg-surface p-6 shadow-md sm:p-8">
         <div className="mb-6 flex flex-col items-center text-center">
           <BrandMark className="mb-4 h-16" />
           <h1 className="text-h1 font-semibold text-text-primary">Docker Webmail GUI</h1>

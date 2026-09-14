@@ -36,8 +36,9 @@ export const DialogContent = forwardRef<
         // (command-palette.tsx) overrides `overflow-hidden` itself — its
         // own `CommandList` owns internal scrolling — and `cn()`'s
         // tailwind-merge resolves that override correctly since it is
-        // passed after this base string.
-        'dwg-modal-content fixed left-1/2 top-1/2 z-50 grid max-h-[85vh] w-full max-w-lg -translate-x-1/2 -translate-y-1/2 gap-4 overflow-y-auto rounded-lg border border-border-default bg-bg-surface p-6 shadow-md',
+        // passed after this base string. Width, column track and
+        // break-words: see alert-dialog.tsx's identical string.
+        'dwg-modal-content fixed left-1/2 top-1/2 z-50 grid max-h-[85vh] w-[calc(100%-2rem)] max-w-lg -translate-x-1/2 -translate-y-1/2 grid-cols-[minmax(0,1fr)] gap-4 overflow-y-auto break-words rounded-lg border border-border-default bg-bg-surface p-6 shadow-md',
         className,
       )}
       {...props}
@@ -71,7 +72,11 @@ export const DialogTitle = forwardRef<
 >(({ className, ...props }, ref) => (
   <DialogPrimitive.Title
     ref={ref}
-    className={cn('text-h2 font-semibold text-text-primary', className)}
+    className={cn(
+      // pr-6 keeps a long title clear of DialogContent's absolute Close X.
+      'pr-6 text-h2 font-semibold text-text-primary',
+      className,
+    )}
     {...props}
   />
 ));

@@ -101,6 +101,10 @@ export function QueuePage() {
       id: 'arrivalTime',
       header: 'Arrived',
       sortValue: (row) => row.arrivalTime,
+      // On portrait phones the table scrolls anyway, so keep the date on one
+      // line rather than squeezing it onto three; from sm up letting it wrap
+      // is what keeps the whole table inside the content column.
+      cellClassName: 'whitespace-nowrap sm:whitespace-normal',
       cell: (row) => formatDateTime(unixToIso(row.arrivalTime)),
     },
     {
@@ -117,7 +121,7 @@ export function QueuePage() {
         description="Currently queued messages, from postqueue -j — read-only."
       />
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         {(['incoming', 'active', 'deferred', 'hold'] as const).map((name) => (
           <MetricTile key={name} label={QUEUE_LABELS[name]} value={byQueue[name] ?? 0} />
         ))}
@@ -145,11 +149,19 @@ export function QueuePage() {
         caption="Currently queued mail messages"
         initialSort={{ id: 'arrivalTime', desc: false }}
         emptyState={
-          <EmptyState
-            variant="first-run"
-            title="Nothing queued"
-            description="No messages are currently sitting in any Postfix queue."
-          />
+          search ? (
+            <EmptyState
+              variant="filtered"
+              activeFilters={[`Search: ${search}`]}
+              onClearFilters={() => setSearch('')}
+            />
+          ) : (
+            <EmptyState
+              variant="first-run"
+              title="Nothing queued"
+              description="No messages are currently sitting in any Postfix queue."
+            />
+          )
         }
       />
     </div>

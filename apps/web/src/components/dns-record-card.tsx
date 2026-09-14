@@ -64,8 +64,11 @@ export function DnsRecordCard({
   return (
     <Card>
       <CardHeader className="flex-row items-center justify-between gap-2 space-y-0">
-        <CardTitle className="text-body font-semibold">{title}</CardTitle>
-        <StatusBadge status={status} />
+        {/* The title can carry an unbroken DKIM selector: it wraps, the badge stays one line. */}
+        <CardTitle className="min-w-0 text-body font-semibold [overflow-wrap:anywhere]">
+          {title}
+        </CardTitle>
+        <StatusBadge status={status} className="shrink-0 whitespace-nowrap" />
       </CardHeader>
       <CardContent className="flex flex-col gap-3">
         <p className="text-body-sm text-text-secondary">{description}</p>
@@ -108,7 +111,8 @@ export function DnsRecordCard({
                   )}
                   aria-hidden="true"
                 />
-                <span>{issue.message}</span>
+                {/* Messages embed IPv6 addresses and hostnames with no break opportunity. */}
+                <span className="min-w-0 [overflow-wrap:anywhere]">{issue.message}</span>
               </li>
             ))}
           </ul>

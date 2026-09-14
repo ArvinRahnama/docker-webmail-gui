@@ -89,6 +89,23 @@ describe('QueuePage — read-only, real data only', () => {
     expect(screen.queryByText('newsletter@example.com')).not.toBeInTheDocument();
   });
 
+  it('says the search matched nothing (not "Nothing queued") and offers to clear it', async () => {
+    vi.mocked(fetchMailQueue).mockResolvedValue(makeQueue());
+    const user = userEvent.setup();
+    renderPage();
+
+    await screen.findByText('newsletter@example.com');
+    const search = screen.getByRole('textbox', { name: /search queue by sender/i });
+    await user.type(search, 'nobody');
+
+    expect(screen.getByText('No results match your filters')).toBeInTheDocument();
+    expect(screen.queryByText('Nothing queued')).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Clear filters' }));
+    expect(search).toHaveValue('');
+    expect(screen.getByText('newsletter@example.com')).toBeInTheDocument();
+  });
+
   it('shows the real, honest empty state when nothing is queued', async () => {
     vi.mocked(fetchMailQueue).mockResolvedValue(
       makeQueue({ entries: [], byQueue: { incoming: 0, active: 0, deferred: 0, hold: 0 } }),

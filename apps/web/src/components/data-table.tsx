@@ -218,7 +218,12 @@ export function DataTable<T extends RowData>({
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="overflow-x-auto rounded-md border border-border-default">
+      {/* `relative` is load-bearing: `sr-only` is position:absolute, and an
+          overflow box only clips absolutely positioned descendants whose
+          containing block is inside it. Without it the Actions header's
+          sr-only label escapes to the viewport at the table's far-right
+          edge and widens the whole page (mobile browsers then zoom out). */}
+      <div className="relative overflow-x-auto rounded-md border border-border-default">
         <table className="w-full border-collapse text-body-sm">
           <caption className="sr-only">{caption}</caption>
           <thead>
@@ -238,12 +243,16 @@ export function DataTable<T extends RowData>({
                 {headerGroup.headers.map((header) => {
                   const canSort = header.column.getCanSort();
                   const direction = header.column.getIsSorted();
+                  const columnDef = columns.find((c) => c.id === header.column.id);
                   return (
                     <th
                       key={header.id}
                       scope="col"
                       aria-sort={canSort ? ariaSortFor(direction) : undefined}
-                      className="px-3 py-2 text-left font-semibold text-text-secondary"
+                      className={cn(
+                        'px-3 py-2 text-left font-semibold text-text-secondary',
+                        columnDef?.headerClassName,
+                      )}
                     >
                       {header.isPlaceholder ? null : canSort ? (
                         <button

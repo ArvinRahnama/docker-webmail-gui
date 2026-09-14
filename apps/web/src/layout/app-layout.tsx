@@ -51,12 +51,12 @@ export function AppLayout() {
 
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="sticky top-0 z-30 border-b border-border-default bg-bg-surface">
-          <div className="flex h-14 items-center gap-3 px-4">
+          <div className="flex h-14 items-center gap-2 px-4 sm:gap-3">
             <Button
               type="button"
               variant="ghost"
               size="icon"
-              className="md:hidden"
+              className="shrink-0 md:hidden"
               aria-label="Open navigation"
               onClick={() => setDrawerOpen(true)}
             >
@@ -77,7 +77,12 @@ export function AppLayout() {
           </div>
         </header>
 
-        <main id="main-content" className="flex-1 px-4 py-6 md:px-6">
+        {/* Safety net, not a fix: `relative` + `overflow-x-clip` keep any
+            stray wide descendant (including absolutely positioned ones, which
+            only clip against a positioned ancestor) from widening the whole
+            document, which makes mobile browsers zoom the page out. `clip`
+            creates no scroll container, so sticky descendants keep working. */}
+        <main id="main-content" className="relative flex-1 overflow-x-clip px-4 py-6 md:px-6">
           <div className="mx-auto flex w-full max-w-6xl flex-col gap-6">
             <PageIconProvider>
               <Outlet />

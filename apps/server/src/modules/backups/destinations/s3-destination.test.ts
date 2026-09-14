@@ -1,3 +1,4 @@
+import { createServer } from 'node:http';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -47,7 +48,127 @@ describe('S3Destination', () => {
   it('testConnection rejects when the endpoint is unreachable', async () => {
     const dest = makeDestination();
     await fake.close(); // now nothing is listening
-    await expect(dest.testConnection()).rejects.toThrow();
+    await expect(dest.testConnection()).rejects.toThrow(
+      /Could not connect to http:\/\/127\.0\.0\.1:\d+ \(ECONNREFUSED\)/,
+    );
+  });
+
+  it('a connect failure names only the endpoint origin, never userinfo, path or query stored in it', async () => {
+    const port = fake.port;
+    await fake.close();
+    const dest = makeDestination({
+      endpoint: `http://user:TOPSECRET@127.0.0.1:${port}/TOPSECRET-path?token=TOPSECRET`,
+    });
+    const failure = dest.testConnection();
+    await expect(failure).rejects.toThrow(
+      new RegExp(`^Could not connect to http://127\\.0\\.0\\.1:${port} \\(`),
+    );
+    await expect(failure).rejects.not.toThrow(/TOPSECRET/);
+  });
+
+  it('testConnection names the bucket an endpoint actually serves when it differs', async () => {
+    fake.servedBucket = 'c123456';
+    const dest = makeDestination({ bucket: 'Company-Website' });
+    await expect(dest.testConnection()).rejects.toThrow(
+      'This endpoint serves bucket "c123456", not "Company-Website" — set Bucket to c123456.',
+    );
+
+    await expect(makeDestination({ bucket: 'c123456' }).testConnection()).resolves.toBeUndefined();
+  });
+
+  it('testConnection blames an endpoint path, not the bucket, when the path was taken as the bucket', async () => {
+    fake.knownBuckets = ['backups-bucket'];
+    const dest = makeDestination({ endpoint: `http://127.0.0.1:${fake.port}/minio` });
+    const failure = dest.testConnection();
+    await expect(failure).rejects.toThrow(
+      /endpoint URL has a path \(\/minio\).*bucket "minio" instead of "backups-bucket"\. Remove the path/,
+    );
+    await expect(failure).rejects.not.toThrow(/set Bucket/);
+
+    await expect(makeDestination().testConnection()).resolves.toBeUndefined();
+  });
+
+  it.each([
+    [404, 'NoSuchBucket', /Bucket "backups-bucket" does not exist/],
+    [403, 'InvalidAccessKeyId', /does not recognise this access key ID/],
+    [403, 'SignatureDoesNotMatch', /rejected the request signature.*secret access key/],
+    [403, 'AccessDenied', /Access to bucket "backups-bucket" was denied/],
+    [400, 'AuthorizationHeaderMalformed', /rejected the region\. Check the Region field/],
+    [500, 'InternalError', /S3 error InternalError \(HTTP 500\)/],
+  ])('testConnection explains an HTTP %i %s', async (status, code, message) => {
+    fake.errorResponse = { status, code };
+    await expect(makeDestination().testConnection()).rejects.toThrow(message);
+  });
+
+  it('testConnection names the region an AuthorizationHeaderMalformed error says the bucket is in', async () => {
+    fake.errorResponse = {
+      status: 400,
+      code: 'AuthorizationHeaderMalformed',
+      fields: {
+        Message: "The authorization header is malformed; the region 'us-east-1' is wrong",
+        Region: 'eu-west-1',
+      },
+    };
+    await expect(makeDestination().testConnection()).rejects.toThrow(
+      'The bucket is in region "eu-west-1", not "us-east-1" — set Region to eu-west-1.',
+    );
+  });
+
+  it('never echoes what AWS sends back on SignatureDoesNotMatch (StringToSign, CanonicalRequest, key id)', async () => {
+    const MARKER = 'ECHOxMARKERx42';
+    fake.errorResponse = {
+      status: 403,
+      code: 'SignatureDoesNotMatch',
+      fields: {
+        Message: `The request signature we calculated does not match the signature you provided. ${MARKER}`,
+        AWSAccessKeyId: `AKIA${MARKER}`,
+        StringToSign: `AWS4-HMAC-SHA256\n20260101T000000Z\n20260101/us-east-1/s3/aws4_request\n${MARKER}`,
+        SignatureProvided: MARKER,
+        StringToSignBytes: `41 57 53 ${MARKER}`,
+        CanonicalRequest: `GET\n/backups-bucket\nlist-type=2&max-keys=0\nhost:${MARKER}`,
+        CanonicalRequestBytes: `47 45 54 ${MARKER}`,
+        RequestId: MARKER,
+        HostId: MARKER,
+      },
+    };
+    const failure = makeDestination().testConnection();
+    await expect(failure).rejects.toThrow(/rejected the request signature/);
+    await expect(failure).rejects.not.toThrow(new RegExp(MARKER));
+  });
+
+  it('does not echo an error field that is not a short token (free text in Code, Region or BucketName)', async () => {
+    const MARKER = 'ECHOxMARKERx43';
+    fake.errorResponse = {
+      status: 400,
+      code: 'AuthorizationHeaderMalformed',
+      fields: { Region: `eu-west-1 ${MARKER}`, BucketName: `other bucket ${MARKER}` },
+    };
+    const regionFailure = makeDestination().testConnection();
+    await expect(regionFailure).rejects.toThrow(/rejected the region/);
+    await expect(regionFailure).rejects.not.toThrow(new RegExp(MARKER));
+
+    fake.errorResponse = { status: 403, code: `Denied <b>${MARKER}</b>` };
+    const codeFailure = makeDestination().testConnection();
+    await expect(codeFailure).rejects.toThrow(
+      /Could not reach the S3 bucket "backups-bucket" \(HTTP 403\)/,
+    );
+    await expect(codeFailure).rejects.not.toThrow(new RegExp(MARKER));
+  });
+
+  it('testConnection refuses a 200 that is not an S3 bucket listing (e.g. a web page)', async () => {
+    const web = createServer((_req, res) => {
+      res.writeHead(200, { 'content-type': 'text/html' });
+      res.end('<!doctype html><title>Dashboard</title>');
+    });
+    await new Promise<void>((resolve) => web.listen(0, '127.0.0.1', resolve));
+    const address = web.address();
+    const port = typeof address === 'object' && address !== null ? address.port : 0;
+    try {
+      const dest = makeDestination({ endpoint: `http://127.0.0.1:${port}` });
+      await expect(dest.testConnection()).rejects.toThrow(/not as an S3 API/);
+    } finally {
+      await new Promise<void>((resolve) => web.close(() => resolve()));
+    }
   });
 
   it('round-trips a small backup via single-part upload, list, download and delete', async () => {
@@ -101,6 +222,19 @@ describe('S3Destination', () => {
 
     expect(fake.multipart.size).toBe(0);
     expect(fake.objects.get(key)).toEqual(payload);
+  });
+
+  it('keeps a legacy stored bucket name with URL metacharacters inside its own path segment', async () => {
+    // The schema refuses such names now; one stored before must still never
+    // turn into a fragment/query that re-targets the request.
+    const dest = makeDestination({ bucket: 'legacy#bucket' });
+    const key = backupObjectKey('backups', 'bkp_legacy');
+    const payload = Buffer.from('legacy bucket archive');
+    const src = await writeFixture('legacy.tar', payload);
+
+    await dest.upload({ key, filePath: src, sizeBytes: payload.length });
+
+    expect([...fake.objects.keys()]).toEqual([key]);
   });
 
   it('list ignores non-backup objects under the prefix', async () => {

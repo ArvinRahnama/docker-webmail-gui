@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Search } from 'lucide-react';
+import { BreakableText } from '@/components/breakable-text';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { EmptyState } from '@/components/empty-state';
 import { Input } from '@/components/ui/input';
@@ -67,10 +68,19 @@ export function MailboxPicker({ title, description, destinationPrefix }: Mailbox
                     onClick={() =>
                       navigate(`${destinationPrefix}/${encodeURIComponent(mailbox.email)}`)
                     }
-                    className="flex w-full items-center justify-between gap-3 px-3 py-2.5 text-left text-body-sm text-text-primary transition-colors duration-fast hover:bg-bg-inset"
+                    className="flex w-full flex-col items-start justify-between gap-0.5 px-3 py-2.5 text-left text-body-sm text-text-primary transition-colors duration-fast hover:bg-bg-inset sm:flex-row sm:items-center sm:gap-3"
                   >
-                    <span className="font-medium">{mailbox.email}</span>
-                    <span className="text-text-muted">{mailbox.domain}</span>
+                    {/* Both spans may shrink or a long address widens the page. The
+                        domain repeats the end of the address, so from sm it gives way
+                        first (truncating down to 4rem) before the address wraps; the
+                        address then wraps after `@ . _ -`, and break-words splits
+                        inside a label only when one label alone is wider than the row. */}
+                    <span className="min-w-0 max-w-full break-words font-medium">
+                      <BreakableText text={mailbox.email} />
+                    </span>
+                    <span className="min-w-0 max-w-full truncate text-text-muted sm:min-w-16 sm:max-w-[40%] sm:shrink-[100000]">
+                      {mailbox.domain}
+                    </span>
                   </button>
                 </li>
               ))}

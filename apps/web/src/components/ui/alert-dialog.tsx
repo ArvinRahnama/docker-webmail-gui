@@ -38,7 +38,21 @@ export const AlertDialogContent = forwardRef<
         // scroll to. Every caller gets a scrollable dialog once its own
         // content is tall enough to need one; nothing changes for a
         // dialog that already fits.
-        'dwg-modal-content fixed left-1/2 top-1/2 z-50 grid max-h-[85vh] w-full max-w-lg -translate-x-1/2 -translate-y-1/2 gap-4 overflow-y-auto rounded-lg border border-border-default bg-bg-surface p-6 shadow-md',
+        //
+        // w-[calc(100%-2rem)] (not w-full) keeps a 16px gutter on phones,
+        // including under a caller's wider max-w-* override. The single
+        // minmax(0,1fr) track stops an unbroken address, IPv6 or id in
+        // the dialog from sizing the implicit auto track past the
+        // dialog's width, which pushed the footer buttons off to the right
+        // behind a sideways scroll; the inherited `break-words` then wraps
+        // that value at the edge of its (now bounded) block.
+        //
+        // Deliberately not `[overflow-wrap:anywhere]` here: inherited by
+        // every descendant, it shrinks each flex item's min-content to one
+        // character, so a label beside a long value splits mid-word
+        // ("Runni|ng image"). A flex item that holds an unbroken dynamic
+        // value needs `min-w-0` (or its own overflow-wrap:anywhere).
+        'dwg-modal-content fixed left-1/2 top-1/2 z-50 grid max-h-[85vh] w-[calc(100%-2rem)] max-w-lg -translate-x-1/2 -translate-y-1/2 grid-cols-[minmax(0,1fr)] gap-4 overflow-y-auto break-words rounded-lg border border-border-default bg-bg-surface p-6 shadow-md',
         className,
       )}
       {...props}

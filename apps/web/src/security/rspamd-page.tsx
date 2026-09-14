@@ -29,7 +29,9 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { StatusBadge } from '@/components/status/status-badge';
 import { Textarea } from '@/components/ui/textarea';
 import { UnsupportedNotice } from '@/components/unsupported-notice';
+import { BreakableText } from '@/components/breakable-text';
 import { ApiClientError, ApiError } from '@/lib/api-client';
+import { cn } from '@/lib/cn';
 import { formatDateTime } from '@/lib/format';
 import {
   useLearnRspamdHamMutation,
@@ -46,11 +48,13 @@ function EditableScoreRow({
   score,
   pending,
   onSave,
+  className,
 }: {
   readonly name: string;
   readonly score: number | null;
   readonly pending: boolean;
   readonly onSave: (score: number) => void;
+  readonly className?: string;
 }) {
   const [value, setValue] = useState(score === null ? '' : String(score));
   const parsed = Number(value);
@@ -58,14 +62,14 @@ function EditableScoreRow({
   const changed = isValid && parsed !== score;
 
   return (
-    <div className="flex items-center gap-2">
+    <div className={cn('flex items-center gap-2', className)}>
       <Input
         aria-label={`Score for ${name}`}
         type="number"
         step="0.1"
         value={value}
         onChange={(event) => setValue(event.target.value)}
-        className="w-24"
+        className="w-20 sm:w-24"
       />
       <Button
         type="button"
@@ -130,17 +134,48 @@ function SymbolScoresCard({ symbols }: { readonly symbols: readonly RspamdSymbol
   const [savingSymbol, setSavingSymbol] = useState<string | null>(null);
 
   const columns: DataTableColumn<RspamdSymbol>[] = [
-    { id: 'name', header: 'Symbol', sortValue: (row) => row.name, cell: (row) => row.name },
+    {
+      id: 'name',
+      header: 'Symbol',
+      sortValue: (row) => row.name,
+      // Below lg there is no room for four columns (the Score + Save
+      // control would sit ~800px to the right on a phone), so Group and
+      // Description fold into this cell and their own columns hide.
+      // Symbol names are identifiers admins copy and search for: they wrap
+      // only after an underscore (`FREEMAIL_REPLYTO_` / `NEQ_FROM_DOM`), and
+      // break-words (unlike overflow-wrap:anywhere) keeps each segment's
+      // width as the column's minimum so the table can't split `MIME_HTML_O`
+      // / `NLY`. From lg, where the table has room, a name stays on one line
+      // (the <wbr>s are hidden there too: Chromium breaks at a <wbr> even
+      // under white-space: nowrap).
+      cell: (row) => (
+        <>
+          <span className="lg:whitespace-nowrap lg:[&_wbr]:hidden">
+            <BreakableText text={row.name} separators="_" />
+          </span>
+          {row.group || row.description ? (
+            <span className="block text-caption text-text-muted lg:hidden">
+              {[row.group, row.description].filter(Boolean).join(' · ')}
+            </span>
+          ) : null}
+        </>
+      ),
+      cellClassName: 'break-words',
+    },
     {
       id: 'group',
       header: 'Group',
       sortValue: (row) => row.group ?? '',
       cell: (row) => row.group ?? '—',
+      headerClassName: 'hidden lg:table-cell',
+      cellClassName: 'hidden lg:table-cell',
     },
     {
       id: 'description',
       header: 'Description',
       cell: (row) => row.description ?? '—',
+      headerClassName: 'hidden lg:table-cell',
+      cellClassName: 'hidden lg:table-cell',
     },
     {
       id: 'score',
@@ -150,6 +185,7 @@ function SymbolScoresCard({ symbols }: { readonly symbols: readonly RspamdSymbol
         <EditableScoreRow
           name={row.name}
           score={row.score}
+          className="flex-wrap sm:flex-nowrap"
           pending={mutation.isPending && savingSymbol === row.name}
           onSave={(score) => {
             setSavingSymbol(row.name);

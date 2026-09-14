@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { toast } from 'sonner';
 import { Play, RotateCw, Square } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
+import { BreakableText } from '@/components/breakable-text';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ConfirmDialog } from '@/components/confirm-dialog';
@@ -21,6 +22,9 @@ import {
   useStartContainerMutation,
   useStopContainerMutation,
 } from './use-docker-queries';
+
+/** Break points inside an image reference such as `ghcr.io/org/name:0.2.0`. */
+const IMAGE_REF_SEPARATORS = '/:@._-';
 
 /** Docker's own `State` vocabulary (`running`, `exited`, `restarting`, `paused`, …) reduced to the six-state UI vocabulary — never the other direction, since Docker can report states this project has no obligation to invent a new status colour for. */
 function statusForContainerState(state: string): Status {
@@ -54,9 +58,33 @@ export function ContainersPage() {
       id: 'name',
       header: 'Name',
       sortValue: (row) => row.names[0] ?? row.id,
-      cell: (row) => <span className="font-mono-sm">{row.names[0] ?? row.id}</span>,
+      cellClassName: 'break-words',
+      cell: (row) => (
+        <>
+          <span className="font-mono-sm">
+            <BreakableText text={row.names[0] ?? row.id} />
+          </span>
+          {/* The Image column is hidden on phones; its value moves here.
+              overflow-wrap:anywhere so a long path segment such as
+              `roundcubemail:` can't widen the column past a 320px screen. */}
+          <span className="block text-caption text-text-muted [overflow-wrap:anywhere] sm:hidden">
+            <BreakableText text={row.image} separators={IMAGE_REF_SEPARATORS} />
+          </span>
+        </>
+      ),
     },
-    { id: 'image', header: 'Image', sortValue: (row) => row.image, cell: (row) => row.image },
+    {
+      id: 'image',
+      header: 'Image',
+      sortValue: (row) => row.image,
+      // Hidden on phones so State/Status (the columns that matter there) start
+      // on-screen; the image is shown under the name there instead. Breaking
+      // at `/ : .` keeps a long registry reference from setting the column's
+      // minimum width and pushing Status out of the table at tablet widths.
+      headerClassName: 'hidden sm:table-cell',
+      cellClassName: 'hidden break-words sm:table-cell',
+      cell: (row) => <BreakableText text={row.image} separators={IMAGE_REF_SEPARATORS} />,
+    },
     {
       id: 'state',
       header: 'State',
@@ -93,9 +121,11 @@ export function ContainersPage() {
             <Skeleton className="h-24 w-full" />
           ) : (
             <div className="flex flex-wrap items-center justify-between gap-4">
-              <div className="flex flex-col gap-1">
-                <div className="flex items-center gap-2">
-                  <span className="font-mono-sm text-body-sm">{managed.name}</span>
+              <div className="flex min-w-0 flex-col gap-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-mono-sm text-body-sm [overflow-wrap:anywhere]">
+                    {managed.name}
+                  </span>
                   <StatusBadge
                     status={statusForContainerState(managed.state.status)}
                     label={managed.state.status}
@@ -104,12 +134,12 @@ export function ContainersPage() {
                     <Badge variant="outline">{managed.state.health}</Badge>
                   ) : null}
                 </div>
-                <p className="text-caption text-text-muted">
+                <p className="text-caption text-text-muted [overflow-wrap:anywhere]">
                   Restarted {managed.restartCount} time{managed.restartCount === 1 ? '' : 's'} —
                   image {managed.image}
                 </p>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <Button
                   type="button"
                   variant="secondary"

@@ -33,6 +33,7 @@ import type {
   ConfigSnapshotSummary,
   ValidateConfigResponse,
 } from '@dwg/shared';
+import { BreakableText } from '@/components/breakable-text';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { DataTable, type DataTableColumn } from '@/components/data-table';
 import { ErrorState } from '@/components/error-state';
@@ -121,7 +122,7 @@ function DiffRow({ change }: DiffRowProps) {
   return (
     <span className="flex flex-col gap-1 border-b border-border-subtle pb-2 last:border-b-0 last:pb-0">
       <span className="flex flex-wrap items-center gap-2">
-        <span className="font-mono-sm">{change.key}</span>
+        <span className="font-mono-sm break-all">{change.key}</span>
         {change.classification === null ? null : (
           <Badge variant="neutral">{CLASSIFICATION_LABELS[change.classification]}</Badge>
         )}
@@ -129,11 +130,12 @@ function DiffRow({ change }: DiffRowProps) {
 
       {change.allowed ? (
         <span className="block text-body-sm">
-          <span className="text-text-muted">
+          {/* Values are often one unbreakable token (a generated secret, a URL). */}
+          <span className="wrap-anywhere text-text-muted">
             {change.currentValue === null ? 'Currently hidden or unset' : change.currentValue}
           </span>{' '}
           <span aria-hidden="true">→</span>{' '}
-          <span className="font-mono-sm">{change.proposedValue}</span>
+          <span className="font-mono-sm break-all">{change.proposedValue}</span>
         </span>
       ) : (
         <span className="block text-body-sm text-status-critical-fg">
@@ -242,18 +244,29 @@ export function ConfigPage() {
     {
       id: 'createdAt',
       header: 'Taken',
-      cell: (snapshot) => formatDateTime(snapshot.createdAt),
+      // Below sm the "By" column is hidden and its label moves under the
+      // timestamp, so the Roll back button stays on screen on a phone.
+      cell: (snapshot) => (
+        <span className="flex flex-col">
+          <span>{formatDateTime(snapshot.createdAt)}</span>
+          <span className="break-all text-text-muted sm:hidden">{snapshot.createdByLabel}</span>
+        </span>
+      ),
       sortValue: (snapshot) => snapshot.createdAt,
     },
     {
       id: 'createdBy',
       header: 'By',
-      cell: (snapshot) => snapshot.createdByLabel,
+      cell: (snapshot) => <span className="break-all">{snapshot.createdByLabel}</span>,
       sortValue: (snapshot) => snapshot.createdByLabel,
+      headerClassName: 'hidden sm:table-cell',
+      cellClassName: 'hidden sm:table-cell',
     },
     {
       id: 'actions',
       header: 'Actions',
+      // Shrink to the button so the remaining width goes to the timestamp.
+      cellClassName: 'w-px whitespace-nowrap',
       cell: (snapshot) => (
         <Button
           type="button"
@@ -314,8 +327,15 @@ export function ConfigPage() {
             return (
               <Card key={setting.key}>
                 <CardHeader className="flex flex-row flex-wrap items-start justify-between gap-2">
-                  <div className="flex flex-col gap-1">
-                    <CardTitle className="font-mono-sm">{setting.key}</CardTitle>
+                  <div className="flex min-w-0 flex-col gap-1">
+                    {/*
+                      Title size in the mono face (text-h3 wins over CardTitle's
+                      text-h2 through cn). Keys break after an underscore only
+                      when one is too long for the card, never mid-word.
+                    */}
+                    <CardTitle className="font-mono text-h3 break-words">
+                      <BreakableText text={setting.key} />
+                    </CardTitle>
                     <p className="text-body-sm text-text-secondary">{setting.description}</p>
                   </div>
                   <Badge variant={editable ? 'neutral' : 'outline'}>

@@ -113,6 +113,20 @@ const BACKUP_MODE_CAVEATS: Readonly<Record<BackupMode, string>> = {
   cold: 'The managed container is stopped first, producing a consistent archive. Mail is not delivered or served for the duration of the backup.',
 };
 
+/**
+ * One-word volume names for the table's Contents badges (the docker-mailserver
+ * volume names). The full descriptions (`BACKUP_VOLUME_LABELS`, e.g.
+ * "Configuration (.cf files, DKIM keys, TLS certificates)") made every row a
+ * stack of multi-line pills and the table too wide for a 1280px screen; they
+ * stay in each badge's `title` and in the delete/restore confirmations.
+ */
+const BACKUP_VOLUME_SHORT_LABELS: Readonly<Record<(typeof BACKUP_VOLUME_KEYS)[number], string>> = {
+  mail: 'Mail',
+  mailState: 'State',
+  mailLog: 'Logs',
+  dmsConfig: 'Config',
+};
+
 const VERIFICATION_LABELS: Readonly<Record<BackupVerificationStatus, string>> = {
   unverified: 'Not verified',
   verified: 'Verified',
@@ -149,6 +163,23 @@ function errorIdOf(error: unknown): string {
 
 function errorMessageOf(error: unknown, fallback: string): string {
   return error instanceof ApiError ? error.message : fallback;
+}
+
+/**
+ * An email-shaped "Created by" label with a line-break opportunity after the
+ * `@`, so a narrow table can wrap it there instead of the whole address
+ * setting the column's minimum width.
+ */
+function BreakAfterAt({ text }: { readonly text: string }) {
+  const at = text.indexOf('@');
+  if (at <= 0) return text;
+  return (
+    <>
+      {text.slice(0, at + 1)}
+      <wbr />
+      {text.slice(at + 1)}
+    </>
+  );
 }
 
 /** Volumes in the schema's declared order, never the server's array order, so two rows never disagree about how a backup is described. */
@@ -215,23 +246,27 @@ function RestorePreflightReport({ preflight }: { readonly preflight: RestorePref
         </p>
       )}
 
+      {/*
+        Labels never shrink: beside an unbreakable image digest a shrinking
+        label would split mid-word ("Runni|ng"); the digest wraps instead.
+      */}
       <dl className="grid grid-cols-1 gap-x-6 gap-y-1 sm:grid-cols-2">
         <div className="flex gap-2">
-          <dt className="text-text-muted">Container</dt>
+          <dt className="shrink-0 text-text-muted">Container</dt>
           <dd>{preflight.containerRunning ? 'Running' : 'Stopped'}</dd>
         </div>
         <div className="flex gap-2">
-          <dt className="text-text-muted">Archive compatible</dt>
+          <dt className="shrink-0 text-text-muted">Archive compatible</dt>
           <dd>{preflight.manifestCompatible ? 'Yes' : 'No'}</dd>
         </div>
         <div className="flex gap-2">
-          <dt className="text-text-muted">Running image</dt>
+          <dt className="shrink-0 text-text-muted">Running image</dt>
           <dd className="font-mono-sm break-all">
             {preflight.currentDmsImageDigest ?? 'Could not be resolved'}
           </dd>
         </div>
         <div className="flex gap-2">
-          <dt className="text-text-muted">Archive image</dt>
+          <dt className="shrink-0 text-text-muted">Archive image</dt>
           <dd className="font-mono-sm break-all">
             {preflight.backup.dmsImageDigest ?? 'Not recorded'}
           </dd>
@@ -346,16 +381,20 @@ export function BackupsPage() {
         id: 'size',
         header: 'Size',
         sortValue: (row) => row.sizeBytes,
-        cell: (row) => formatBytes(row.sizeBytes),
+        cell: (row) => <span className="whitespace-nowrap">{formatBytes(row.sizeBytes)}</span>,
       },
       {
         id: 'contents',
         header: 'Contents',
         cell: (row) => (
-          <ul className="flex flex-wrap gap-1">
+          // Two badges per line: a row stays two badge lines tall, and the
+          // column is no wider than its two widest labels.
+          <ul className="grid w-max grid-cols-2 gap-1">
             {orderedVolumeKeys(row).map((key) => (
               <li key={key}>
-                <Badge variant="neutral">{BACKUP_VOLUME_LABELS[key]}</Badge>
+                <Badge variant="neutral" title={BACKUP_VOLUME_LABELS[key]}>
+                  {BACKUP_VOLUME_SHORT_LABELS[key]}
+                </Badge>
               </li>
             ))}
           </ul>
@@ -370,6 +409,7 @@ export function BackupsPage() {
             <StatusBadge
               status={VERIFICATION_TONE[row.verificationStatus]}
               label={VERIFICATION_LABELS[row.verificationStatus]}
+              className="whitespace-nowrap"
             />
             {row.verifiedAt !== null ? (
               <span className="text-caption text-text-muted">
@@ -388,6 +428,7 @@ export function BackupsPage() {
             <StatusBadge
               status={UPLOAD_TONE[row.uploadStatus]}
               label={BACKUP_UPLOAD_STATUS_LABELS[row.uploadStatus]}
+              className="whitespace-nowrap"
             />
             {!row.localPresent ? (
               <span className="text-caption text-text-muted">Remote only</span>
@@ -399,7 +440,7 @@ export function BackupsPage() {
         id: 'createdBy',
         header: 'Created by',
         sortValue: (row) => row.createdByLabel,
-        cell: (row) => row.createdByLabel,
+        cell: (row) => <BreakAfterAt text={row.createdByLabel} />,
       },
     ],
     [],
@@ -522,7 +563,12 @@ export function BackupsPage() {
         a larger screen to restore. Everything else here works normally.
       </p>
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      {/*
+        A date-time at display size needs ~345px, so a tile narrower than
+        ~240px breaks it over three lines. Four-up only where tiles are that
+        wide; single column at md, where the sidebar eats 16rem.
+      */}
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-1 lg:grid-cols-2 2xl:grid-cols-4">
         <MetricTile label="Backups" value={totals.count} />
         <MetricTile label="Total size" value={formatBytes(totals.sizeBytes)} />
         <MetricTile
@@ -547,7 +593,8 @@ export function BackupsPage() {
         without dominating the page. The two components own their own loading,
         save and secret-reveal behaviour (see backup-remote-settings.tsx).
       */}
-      <div className="grid gap-4 lg:grid-cols-2">
+      {/* items-start: the shorter card keeps its own height instead of stretching into an empty box. */}
+      <div className="grid gap-4 lg:grid-cols-2 lg:items-start">
         <RemoteDestinationCard />
         <BackupScheduleCard />
       </div>
@@ -573,7 +620,9 @@ export function BackupsPage() {
                 </Button>
               ) : null}
               {runningJob.status === 'failed' && runningJob.errorMessage !== null ? (
-                <span className="text-body-sm text-status-critical-fg">
+                // Uploader errors carry long hostnames/paths: let them break
+                // anywhere rather than push the card wider than the page.
+                <span className="min-w-0 text-body-sm text-status-critical-fg [overflow-wrap:anywhere]">
                   {runningJob.errorMessage}
                 </span>
               ) : null}

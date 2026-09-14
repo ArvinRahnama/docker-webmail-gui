@@ -73,8 +73,8 @@ export function ChangePasswordPage() {
       : GENERIC_FAILURE;
 
   return (
-    <div className="flex min-h-dvh items-center justify-center bg-bg-app px-4">
-      <div className="w-full max-w-sm rounded-lg border border-border-default bg-bg-surface p-8 shadow-md">
+    <div className="flex min-h-dvh items-center justify-center bg-bg-app px-4 py-6">
+      <div className="w-full max-w-sm rounded-lg border border-border-default bg-bg-surface p-6 shadow-md sm:p-8">
         <div className="mb-6">
           <h1 className="text-h1 font-semibold text-text-primary">Change your password</h1>
           <p className="mt-1 text-body-sm text-text-secondary">

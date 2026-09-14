@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { MoreHorizontal } from 'lucide-react';
 import type { MailboxRestrictScope, MailboxSummary } from '@dwg/shared';
+import { BreakableText } from '@/components/breakable-text';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { DataTable, type DataTableColumn } from '@/components/data-table';
 import { Badge } from '@/components/ui/badge';
@@ -29,9 +30,11 @@ import { PasswordField } from '@/components/password-field';
 import { Skeleton } from '@/components/ui/skeleton';
 import { UnsupportedNotice } from '@/components/unsupported-notice';
 import { ApiClientError, ApiError } from '@/lib/api-client';
+import { cn } from '@/lib/cn';
 import { formatQuota } from '@/lib/format';
 import { NewPasswordSchema } from '@dwg/shared';
 import { toast } from 'sonner';
+import { AddressText, addressFloorClassName } from './address-text';
 import {
   useBulkQuotaMailboxesMutation,
   useBulkRestrictMailboxesMutation,
@@ -51,7 +54,7 @@ function RestrictionBadges({ mailbox }: { mailbox: MailboxSummary }) {
     return <span className="text-text-muted">—</span>;
   }
   return (
-    <div className="flex gap-1">
+    <div className="flex flex-wrap gap-1">
       {mailbox.restricted.send ? <Badge variant="outline">Send restricted</Badge> : null}
       {mailbox.restricted.receive ? <Badge variant="outline">Receive restricted</Badge> : null}
     </div>
@@ -226,17 +229,35 @@ export function MailboxesListPage() {
       id: 'email',
       header: 'Address',
       sortValue: (row) => row.email,
+      // Auto table layout never shrinks a column below its min-content, so an
+      // unbroken address would size the whole table to it. AddressText lets a
+      // long address wrap at `@ . _ -` (mid-label only for an unbroken one),
+      // and the floor stops a squeezed column stacking it one label per line.
+      cellClassName: 'break-words',
       cell: (row) => (
         <button
           type="button"
           onClick={() => navigate(`/mail/mailboxes/${encodeURIComponent(row.email)}`)}
-          className="font-medium text-accent hover:underline"
+          className={cn(
+            'text-left font-medium text-accent hover:underline',
+            addressFloorClassName(row.email),
+          )}
         >
-          {row.email}
+          <AddressText text={row.email} />
         </button>
       ),
     },
-    { id: 'domain', header: 'Domain', sortValue: (row) => row.domain, cell: (row) => row.domain },
+    {
+      id: 'domain',
+      header: 'Domain',
+      sortValue: (row) => row.domain,
+      cellClassName: 'break-words',
+      cell: (row) => (
+        <div className={addressFloorClassName(row.domain)}>
+          <AddressText text={row.domain} />
+        </div>
+      ),
+    },
     {
       id: 'quota',
       header: 'Quota',
@@ -296,7 +317,7 @@ export function MailboxesListPage() {
               value={domainFilter}
               onChange={(event) => setDomainFilter(event.target.value)}
               aria-label="Filter by domain"
-              className="h-9 rounded-sm border border-border-default bg-bg-surface px-3 text-body-sm text-text-primary"
+              className="h-9 max-w-full rounded-sm border border-border-default bg-bg-surface px-3 text-body-sm text-text-primary sm:max-w-xs"
             >
               <option value="">All domains</option>
               {(domainsQuery.data?.domains ?? []).map((d) => (
@@ -307,8 +328,8 @@ export function MailboxesListPage() {
             </select>
 
             {selectedIds.size > 0 && canManage ? (
-              <div className="ml-auto flex items-center gap-2 text-body-sm text-text-secondary">
-                <span>{selectedIds.size} selected</span>
+              <div className="ml-auto flex flex-wrap items-center justify-end gap-2 text-body-sm text-text-secondary">
+                <span className="whitespace-nowrap">{selectedIds.size} selected</span>
                 <Button
                   size="sm"
                   variant="secondary"
@@ -551,7 +572,10 @@ export function MailboxesListPage() {
         impactSummary={
           <div className="flex flex-col gap-3">
             <p>
-              Deletes <strong>{deleteAddress}</strong>
+              Deletes{' '}
+              <strong>
+                <BreakableText text={deleteAddress ?? ''} />
+              </strong>
               {deleteImpactQuery.data
                 ? deleteImpactQuery.data.dependentAliases.length > 0
                   ? ` — ${deleteImpactQuery.data.dependentAliases.length} alias(es) currently point at this address and will lose that recipient.`

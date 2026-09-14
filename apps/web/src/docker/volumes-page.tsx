@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { toast } from 'sonner';
 import { ShieldAlert, Trash2 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
+import { BreakableText } from '@/components/breakable-text';
 import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { DataTable, type DataTableColumn } from '@/components/data-table';
@@ -35,22 +36,47 @@ export function VolumesPage() {
       header: 'Name',
       sortValue: (row) => row.name,
       cell: (row) => (
-        <div className="flex items-center gap-2">
-          <span className="font-mono-sm">{row.name}</span>
-          {row.isProtected ? (
-            <Badge variant="outline" className="gap-1">
-              <ShieldAlert className="size-3" aria-hidden="true" />
-              Protected
-            </Badge>
-          ) : null}
-        </div>
+        <>
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+            {/* Anonymous volumes are 64 hex chars with no break opportunity;
+                named ones prefer breaking after `_ - .`. */}
+            <span className="font-mono-sm [overflow-wrap:anywhere]">
+              <BreakableText text={row.name} />
+            </span>
+            {row.isProtected ? (
+              <Badge variant="outline" className="gap-1">
+                <ShieldAlert className="size-3" aria-hidden="true" />
+                Protected
+              </Badge>
+            ) : null}
+          </div>
+          {/* Driver and Mountpoint columns are hidden on phones; their values move here. */}
+          <span className="mt-0.5 block text-caption text-text-muted [overflow-wrap:anywhere] sm:hidden">
+            {row.driver} · <BreakableText text={row.mountpoint} separators="/_-." />
+          </span>
+        </>
       ),
     },
-    { id: 'driver', header: 'Driver', sortValue: (row) => row.driver, cell: (row) => row.driver },
+    {
+      id: 'driver',
+      header: 'Driver',
+      sortValue: (row) => row.driver,
+      headerClassName: 'hidden sm:table-cell',
+      cellClassName: 'hidden sm:table-cell',
+      cell: (row) => row.driver,
+    },
     {
       id: 'mountpoint',
       header: 'Mountpoint',
-      cell: (row) => <span className="font-mono-sm text-text-secondary">{row.mountpoint}</span>,
+      // Driver and Mountpoint are hidden on phones, where they pushed Remove
+      // ~500px off-screen; both are shown under the name there instead.
+      headerClassName: 'hidden sm:table-cell',
+      cellClassName: 'hidden sm:table-cell',
+      cell: (row) => (
+        <span className="font-mono-sm text-text-secondary [overflow-wrap:anywhere]">
+          <BreakableText text={row.mountpoint} separators="/_-." />
+        </span>
+      ),
     },
     {
       id: 'actions',

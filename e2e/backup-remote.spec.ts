@@ -96,7 +96,7 @@ test.describe.serial('scheduled backups and remote destinations', () => {
     // 1. Configure the S3 destination through the UI, pointed at the fake.
     await page.getByLabel('Destination', { exact: true }).selectOption('s3');
     await page.getByLabel('Endpoint').fill(`http://127.0.0.1:${fake.port}`);
-    await page.getByLabel('Region').fill('us-east-1');
+    await page.getByLabel('Region (optional)').fill('us-east-1');
     await page.getByLabel('Bucket').fill('e2e-bucket');
     await page.getByLabel('Prefix (optional)').fill('backups');
     await page.getByLabel('Access key ID').fill('AKIAE2EEXAMPLE');

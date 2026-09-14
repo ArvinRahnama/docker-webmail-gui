@@ -29,7 +29,8 @@ export const CommandInput = forwardRef<
     <CommandPrimitive.Input
       ref={ref}
       className={cn(
-        'flex h-11 w-full bg-transparent py-3 text-body-sm text-text-primary outline-none placeholder:text-text-muted disabled:cursor-not-allowed disabled:opacity-50',
+        // max-sm:text-base: see input.tsx (iOS Safari focus zoom).
+        'flex h-11 w-full bg-transparent py-3 text-body-sm text-text-primary max-sm:text-base outline-none placeholder:text-text-muted disabled:cursor-not-allowed disabled:opacity-50',
         className,
       )}
       {...props}

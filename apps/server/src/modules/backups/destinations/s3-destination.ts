@@ -75,6 +75,15 @@ function firstMatch(source: string, pattern: RegExp): string | null {
   return match ? xmlUnescape(match[1]!) : null;
 }
 
+/** An S3 `<Error>` field worth echoing to an admin: a short token (code, bucket, region), never free text. */
+const ERROR_FIELD_TOKEN = /^[A-Za-z0-9._-]{1,128}$/;
+
+/** Reads one short token field of an S3 `<Error>` body; anything else (missing, long, odd characters) is `null`. */
+function errorField(xml: string, element: 'Code' | 'BucketName' | 'Region'): string | null {
+  const value = firstMatch(xml, new RegExp(`<${element}>([\\s\\S]*?)</${element}>`));
+  return value !== null && ERROR_FIELD_TOKEN.test(value) ? value : null;
+}
+
 interface UploadedPart {
   readonly partNumber: number;
   readonly etag: string;
@@ -112,14 +121,25 @@ export class S3Destination implements BackupDestination {
     };
   }
 
+  /**
+   * The bucket as one path segment. A no-op for every name the schema accepts
+   * (`[A-Za-z0-9._-]`); for a legacy stored name it keeps `? # / %` from
+   * re-targeting the request at another path — the signer then encodes the
+   * `%` again, so such a request fails its signature instead of landing
+   * somewhere else.
+   */
+  private get bucketSegment(): string {
+    return encodeURIComponent(this.config.bucket);
+  }
+
   private objectUrl(key: string, params?: Record<string, string>): URL {
-    const url = new URL(`${this.endpoint}/${this.config.bucket}/${key}`);
+    const url = new URL(`${this.endpoint}/${this.bucketSegment}/${key}`);
     for (const [name, value] of Object.entries(params ?? {})) url.searchParams.set(name, value);
     return url;
   }
 
   private bucketUrl(params?: Record<string, string>): URL {
-    const url = new URL(`${this.endpoint}/${this.config.bucket}`);
+    const url = new URL(`${this.endpoint}/${this.bucketSegment}`);
     for (const [name, value] of Object.entries(params ?? {})) url.searchParams.set(name, value);
     return url;
   }
@@ -150,18 +170,100 @@ export class S3Destination implements BackupDestination {
     });
   }
 
+  private parsedEndpoint(): URL | null {
+    try {
+      return new URL(this.endpoint);
+    } catch {
+      return null;
+    }
+  }
+
+  /** `scheme://host[:port]` of the endpoint — safe to show: no userinfo, path, query or fragment. */
+  private endpointOrigin(): string {
+    return this.parsedEndpoint()?.origin ?? 'the endpoint';
+  }
+
   private static ok(statusCode: number): boolean {
     return statusCode >= 200 && statusCode < 300;
   }
 
   async testConnection(): Promise<void> {
-    const response = await this.send('GET', this.bucketUrl({ 'list-type': '2', 'max-keys': '0' }));
-    await response.body.dump();
+    let response: Awaited<ReturnType<typeof request>>;
+    try {
+      response = await this.send('GET', this.bucketUrl({ 'list-type': '2', 'max-keys': '0' }));
+    } catch (error) {
+      // DNS/TCP/TLS failures (or an unparseable stored endpoint): name only the
+      // endpoint's origin and the error code — never the stored string (which
+      // could carry userinfo or a query), a signed URL, a header, or a
+      // free-text error message.
+      const code = (error as { code?: unknown }).code;
+      const reason =
+        typeof code === 'string' ? code : error instanceof Error ? error.name : 'unknown error';
+      throw new AppError(
+        'UPSTREAM_UNAVAILABLE',
+        `Could not connect to ${this.endpointOrigin()} (${reason}). Check the endpoint.`,
+      );
+    }
+    const body = await response.body.text();
     if (!S3Destination.ok(response.statusCode)) {
       throw new AppError(
         'UPSTREAM_UNAVAILABLE',
-        `Could not reach the S3 bucket "${this.config.bucket}" (HTTP ${response.statusCode}). Check the endpoint, region, bucket name and credentials.`,
+        this.diagnoseFailure(response.statusCode, body) ??
+          `Could not reach the S3 bucket "${this.config.bucket}" (HTTP ${response.statusCode}). Check the endpoint, region, bucket name and credentials.`,
       );
+    }
+    // A web page answering 200 (e.g. a provider's dashboard) is not a bucket.
+    if (!body.includes('<ListBucketResult')) {
+      throw new AppError(
+        'UPSTREAM_UNAVAILABLE',
+        `The endpoint answered, but not as an S3 API (HTTP ${response.statusCode}, no bucket listing). Check the endpoint URL.`,
+      );
+    }
+  }
+
+  /**
+   * Turns an S3 `<Error>` body into an admin-actionable sentence, or `null` when
+   * the body says nothing more useful than the status code. Only non-secret
+   * fields (`Code`, `BucketName`, `Region`) are read, and only as short tokens
+   * — never `StringToSign`, `CanonicalRequest`, `AWSAccessKeyId` or
+   * `Message`, which AWS and others echo back on a signature failure.
+   */
+  private diagnoseFailure(statusCode: number, xml: string): string | null {
+    const bucket = this.config.bucket;
+    const code = errorField(xml, 'Code');
+    const servedBucket = errorField(xml, 'BucketName');
+
+    if (servedBucket !== null && servedBucket !== bucket) {
+      const endpoint = this.parsedEndpoint();
+      const endpointPath = endpoint === null ? '' : endpoint.pathname.replace(/\/+$/, '');
+      // Providers that put the bucket in the host (`<bucket>.provider.net`)
+      // answer for that bucket only and name it in the error.
+      if (endpointPath === '' || endpoint?.hostname.startsWith(`${servedBucket}.`) === true) {
+        return `This endpoint serves bucket "${servedBucket}", not "${bucket}" — set Bucket to ${servedBucket}.`;
+      }
+      // Otherwise the endpoint's own path was taken as the bucket
+      // (`https://host/minio` + `/<bucket>` -> bucket "minio").
+      return `The endpoint URL has a path (${endpointPath}), so the provider looked for bucket "${servedBucket}" instead of "${bucket}". Remove the path from the endpoint — just the host, e.g. ${endpoint?.origin ?? 'https://s3.example.com'}.`;
+    }
+    switch (code) {
+      case 'NoSuchBucket':
+        return `Bucket "${bucket}" does not exist at this endpoint. Check the bucket name — if the endpoint host starts with a bucket name (<bucket>.provider.net), use that.`;
+      case 'InvalidAccessKeyId':
+        return 'The provider does not recognise this access key ID. Check the access key ID.';
+      case 'SignatureDoesNotMatch':
+        return `The provider rejected the request signature (HTTP ${statusCode}). Check the secret access key — and Region, if the provider uses one.`;
+      case 'AccessDenied':
+        return `Access to bucket "${bucket}" was denied (HTTP ${statusCode}). Check that these credentials may list and write that bucket.`;
+      case 'AuthorizationHeaderMalformed': {
+        const region = errorField(xml, 'Region');
+        return region !== null
+          ? `The bucket is in region "${region}", not "${this.config.region}" — set Region to ${region}.`
+          : 'The provider rejected the region. Check the Region field.';
+      }
+      default:
+        return code !== null
+          ? `S3 error ${code} (HTTP ${statusCode}) from bucket "${bucket}". Check the endpoint, region, bucket name and credentials.`
+          : null;
     }
   }
 

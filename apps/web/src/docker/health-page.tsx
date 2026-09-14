@@ -44,18 +44,22 @@ export function HealthPage() {
       {query.isLoading ? (
         <Skeleton className="h-64 w-full" />
       ) : (
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+        // Three across only from lg: from md the sidebar eats 256px and three
+        // cards would be ~144px, narrower than label + status pill.
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {(query.data ?? []).map((check) => (
             <Card key={check.id}>
               <CardContent className="flex flex-col gap-2 pt-6">
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-body-sm font-semibold text-text-primary">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="min-w-0 text-body-sm font-semibold text-text-primary">
                     {check.label}
                   </span>
                   <StatusBadge status={check.state} />
                 </div>
                 {check.message ? (
-                  <p className="text-body-sm text-text-secondary">{check.message}</p>
+                  <p className="text-body-sm text-text-secondary [overflow-wrap:anywhere]">
+                    {check.message}
+                  </p>
                 ) : null}
                 <p className="text-caption text-text-muted">
                   Checked {new Date(check.checkedAt).toLocaleTimeString()}

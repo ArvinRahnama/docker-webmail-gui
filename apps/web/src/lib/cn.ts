@@ -1,5 +1,26 @@
 import { type ClassValue, clsx } from 'clsx';
-import { twMerge } from 'tailwind-merge';
+import { extendTailwindMerge } from 'tailwind-merge';
+
+/**
+ * The project's type scale (`--text-*` in styles/index.css's @theme). Stock
+ * tailwind-merge only knows t-shirt sizes, so without this it reads
+ * `text-caption` as a text *colour* and a later `text-text-secondary` in
+ * the same cn() call silently deletes the font size (and a later size
+ * deletes an earlier colour). Keep in sync with index.css.
+ */
+const FONT_SIZE_TOKENS = [
+  'display',
+  'h1',
+  'h2',
+  'h3',
+  'body',
+  'body-sm',
+  'caption',
+  'mono',
+  'mono-sm',
+];
+
+const twMerge = extendTailwindMerge({ extend: { theme: { text: FONT_SIZE_TOKENS } } });
 
 /**
  * Standard shadcn/ui `cn` helper: `clsx` for conditional class composition,

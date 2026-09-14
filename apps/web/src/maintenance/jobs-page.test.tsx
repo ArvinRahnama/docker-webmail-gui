@@ -77,6 +77,19 @@ describe('JobsPage — list states (UX_ARCHITECTURE.md §9)', () => {
   });
 });
 
+describe('JobsPage — navigation', () => {
+  it('links each job label to its detail page, so the row is reachable without the trailing View button', async () => {
+    vi.mocked(fetchJobs).mockResolvedValue([
+      makeJob({ id: 'job/with slash', status: 'succeeded', progress: 100 }),
+    ]);
+
+    renderPage();
+
+    const link = await screen.findByRole('link', { name: 'Create backup' });
+    expect(link).toHaveAttribute('href', '/maintenance/jobs/job%2Fwith%20slash');
+  });
+});
+
 describe('JobsPage — cancel is offered only for active statuses', () => {
   it('offers Cancel job for queued and running jobs and for no other status', async () => {
     vi.mocked(fetchJobs).mockResolvedValue([
@@ -162,14 +175,17 @@ describe('JobsPage — job data is shown as reported, never inferred', () => {
 
     const measured = screen.getByRole('progressbar', { name: 'Verify backup progress' });
     expect(measured).toHaveAttribute('aria-valuenow', '45');
-    expect(screen.getByText('45%')).toBeInTheDocument();
+    // Each label renders twice: in the Progress column (md and up) and under
+    // the status badge, which stands in for that column below md. CSS shows
+    // exactly one of the two at any width.
+    expect(screen.getAllByText('45%')).toHaveLength(2);
 
     // A running job the runner has not scored is stated as such — not
     // dressed up as movement it never reported.
     const unmeasured = screen.getByRole('progressbar', { name: 'Restore backup progress' });
     expect(unmeasured).toHaveAttribute('aria-valuenow', '0');
-    expect(screen.getByText('No measured progress yet')).toBeInTheDocument();
-    expect(screen.getByText('Not started')).toBeInTheDocument();
+    expect(screen.getAllByText('No measured progress yet')).toHaveLength(2);
+    expect(screen.getAllByText('Not started')).toHaveLength(2);
   });
 
   it('shows who started the job and its lifecycle timestamps', async () => {

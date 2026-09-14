@@ -86,6 +86,34 @@ describe('DashboardPage — the verdict (UX_ARCHITECTURE.md §6.1 Row 1)', () =>
     expect(await screen.findByText('Signed in')).toBeInTheDocument();
     expect(screen.getByText('admin@example.com')).toBeInTheDocument();
   });
+
+  it('lets a long unbreakable activity target wrap instead of pushing the timestamp off a phone screen', async () => {
+    // jsdom has no layout, so this pins the classes a real-browser check at
+    // 320px showed are needed: without them the row overflowed the page.
+    const target = 'backup:job_01M2EK5T7M9NSP10389NTW11ER';
+    vi.mocked(fetchDashboard).mockResolvedValue(
+      makeSnapshot({
+        recentActivity: [
+          {
+            id: 'al_2',
+            occurredAt: '2026-08-22T08:55:00.000Z',
+            actorLabel: 'admin@example.com',
+            action: 'backup.create',
+            target,
+            result: 'failure',
+          },
+        ],
+      }),
+    );
+    renderPage();
+
+    const caption = await screen.findByText(`admin@example.com · ${target}`);
+    expect(caption).toHaveClass('[overflow-wrap:anywhere]');
+    expect(caption.parentElement).toHaveClass('min-w-0');
+    const row = caption.closest('li');
+    expect(row).toHaveClass('flex-wrap');
+    expect(screen.getByText('Failed').closest('div')).toHaveClass('shrink-0', 'whitespace-nowrap');
+  });
 });
 
 describe('DashboardPage — a subsystem down (M11 exit criterion: degraded-state rendering)', () => {

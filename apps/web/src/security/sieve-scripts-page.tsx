@@ -93,7 +93,7 @@ export function SieveScriptsPage() {
     <div className="flex flex-col gap-6">
       <PageHeader title="Sieve filters" description={user} />
 
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[280px_1fr]">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[280px_minmax(0,1fr)]">
         <Card>
           <CardHeader className="flex-row items-center justify-between gap-2 space-y-0">
             <CardTitle className="text-body font-semibold">Scripts</CardTitle>
@@ -151,7 +151,7 @@ export function SieveScriptsPage() {
         {activeName === null ? (
           <Card>
             <CardContent className="flex h-full min-h-40 items-center justify-center text-body-sm text-text-muted">
-              Choose a script on the left, or create a new one.
+              Choose a script from the list, or create a new one.
             </CardContent>
           </Card>
         ) : (
@@ -170,7 +170,9 @@ export function SieveScriptsPage() {
                   />
                 </div>
               ) : (
-                <CardTitle className="text-body font-semibold">{activeName}</CardTitle>
+                <CardTitle className="min-w-0 text-body font-semibold [overflow-wrap:anywhere]">
+                  {activeName}
+                </CardTitle>
               )}
               {!isNewScript && selectedName ? (
                 <div className="flex shrink-0 gap-2">

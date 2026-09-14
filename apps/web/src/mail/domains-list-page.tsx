@@ -10,6 +10,8 @@ import { ErrorState } from '@/components/error-state';
 import { PageHeader } from '@/components/page-header';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ApiClientError, ApiError } from '@/lib/api-client';
+import { cn } from '@/lib/cn';
+import { AddressText, addressFloorClassName } from './address-text';
 import { useDomainsQuery } from './use-mail-queries';
 
 /**
@@ -39,13 +41,19 @@ export function DomainsListPage() {
       id: 'domain',
       header: 'Domain',
       sortValue: (row) => row.domain,
+      // AddressText wraps a long domain at its dots instead of letting it
+      // size the column (and the table); short ones stay whole and unfloored.
+      cellClassName: 'break-words',
       cell: (row) => (
         <button
           type="button"
           onClick={() => navigate(`/mail/domains/${encodeURIComponent(row.domain)}`)}
-          className="font-medium text-accent hover:underline"
+          className={cn(
+            'text-left font-medium text-accent hover:underline',
+            addressFloorClassName(row.domain),
+          )}
         >
-          {row.domain}
+          <AddressText text={row.domain} />
         </button>
       ),
     },

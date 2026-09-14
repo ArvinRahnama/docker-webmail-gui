@@ -56,14 +56,17 @@ export function LogsPage() {
         }
       />
 
-      <div className="flex items-center gap-1 border-b border-border-default">
+      {/* Tabs stay on one line: px-2 below sm lets all three fit at 320px;
+          overflow-x-auto is only a fallback for longer labels, rather than
+          wrapping a tab onto a second line under the border. */}
+      <div className="flex items-center gap-1 overflow-x-auto border-b border-border-default">
         {SOURCES.map((item) => (
           <button
             key={item.id}
             type="button"
             onClick={() => setSource(item.id)}
             className={cn(
-              'rounded-t-sm px-3 py-2 text-body-sm font-medium transition-colors duration-fast',
+              'shrink-0 whitespace-nowrap rounded-t-sm px-2 py-2 sm:px-3 text-body-sm font-medium transition-colors duration-fast',
               source === item.id
                 ? 'border-b-2 border-accent text-accent'
                 : 'text-text-secondary hover:text-text-primary',

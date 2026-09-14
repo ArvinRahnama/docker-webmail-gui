@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import type { DomainSummary } from '@dwg/shared';
+import { BreakableText } from '@/components/breakable-text';
 import { DataTable, type DataTableColumn } from '@/components/data-table';
 import { Input } from '@/components/ui/input';
 import { EmptyState } from '@/components/empty-state';
@@ -41,9 +42,11 @@ export function EmailAuthListPage() {
         <button
           type="button"
           onClick={() => navigate(`/security/email-auth/${encodeURIComponent(row.domain)}`)}
-          className="font-medium text-accent hover:underline"
+          className="text-left font-medium text-accent wrap-anywhere hover:underline"
         >
-          {row.domain}
+          {/* Prefers breaking after a dot; wrap-anywhere stays as the fallback
+              for a single label wider than the cell. */}
+          <BreakableText text={row.domain} />
         </button>
       ),
     },

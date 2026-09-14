@@ -4,6 +4,7 @@ import { toast } from 'sonner';
 import { ArrowLeft } from 'lucide-react';
 import { NewPasswordSchema } from '@dwg/shared';
 import type { MailboxRestrictScope } from '@dwg/shared';
+import { BreakableText } from '@/components/breakable-text';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -26,6 +27,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { UnsupportedNotice } from '@/components/unsupported-notice';
 import { ApiClientError, ApiError } from '@/lib/api-client';
 import { formatBytes, formatPercent, formatQuota } from '@/lib/format';
+import { AddressText } from './address-text';
 import {
   useChangeMailboxPasswordMutation,
   useClearMailboxQuotaMutation,
@@ -243,13 +245,13 @@ export function MailboxDetailPage() {
           ) : (
             <ul className="flex flex-col gap-1.5">
               {dependentAliases.map((alias) => (
-                <li key={alias.id} className="text-body-sm">
+                <li key={alias.id} className="text-body-sm break-words">
                   <button
                     type="button"
                     onClick={() => navigate('/mail/aliases')}
-                    className="text-accent hover:underline"
+                    className="text-left text-accent hover:underline"
                   >
-                    {alias.address}
+                    <AddressText text={alias.address} />
                   </button>
                   <span className="text-text-muted"> ({alias.type})</span>
                 </li>
@@ -439,7 +441,11 @@ export function MailboxDetailPage() {
         impactSummary={
           <div className="flex flex-col gap-3">
             <p>
-              Deletes <strong>{mailbox.email}</strong>.{' '}
+              Deletes{' '}
+              <strong>
+                <BreakableText text={mailbox.email} />
+              </strong>
+              .{' '}
               {dependentAliases.length > 0
                 ? `${dependentAliases.length} alias(es) currently point at this address and will lose that recipient.`
                 : 'No aliases point at this address.'}

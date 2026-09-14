@@ -9,14 +9,22 @@
  * stored), the secret input starts blank and empty means "keep the stored
  * one", and the real value only ever appears through the explicit, audited
  * reveal action.
+ *
+ * Validation is never swallowed: the destination form checks the update
+ * against the shared schema before sending it, and both those issues and the
+ * server's `VALIDATION_FAILED` details land inline under the offending input,
+ * with a toast that names the field.
  */
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
+import { ZodError } from 'zod';
 import {
   BACKUP_FREQUENCIES,
   BACKUP_FREQUENCY_LABELS,
   BACKUP_MODES,
+  BackupDestinationUpdateSchema,
   type BackupDestinationStatus,
+  type BackupDestinationUpdateInput,
   type BackupFrequency,
   type BackupMode,
   type BackupSchedule,
@@ -35,7 +43,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { StatusBadge } from '@/components/status/status-badge';
-import { ApiError } from '@/lib/api-client';
+import { ApiClientError, ApiError } from '@/lib/api-client';
 import { formatBytes, formatDateTime } from '@/lib/format';
 import {
   useBackupDestinationQuery,
@@ -51,13 +59,22 @@ import {
 const SELECT_CLASS =
   'h-9 w-full rounded-sm border border-border-default bg-bg-surface px-3 text-body-sm text-text-primary';
 
+/**
+ * Two field columns only where the card itself is wide enough for them
+ * (`@lg`: a 32rem content box, set by `@container` on the CardContent). The
+ * card's width depends on the sidebar and on whether the cards sit two-up,
+ * so the viewport is the wrong thing to ask: at 1440px a two-up card has room
+ * for two columns, at 1280px two columns would truncate the Mode select.
+ */
+const FIELD_GRID_CLASS = 'grid grid-cols-1 gap-4 @lg:grid-cols-2';
+
 const BACKUP_MODE_LABELS: Readonly<Record<BackupMode, string>> = {
   warm: 'Warm (container keeps running)',
   cold: 'Cold (container stopped)',
 };
 
 function errorMessageOf(error: unknown, fallback: string): string {
-  return error instanceof ApiError ? error.message : fallback;
+  return error instanceof ApiError || error instanceof ApiClientError ? error.message : fallback;
 }
 
 // ---------------------------------------------------------------------------
@@ -78,6 +95,97 @@ interface DestinationForm {
   readonly path: string;
   readonly user: string;
   readonly secure: boolean;
+}
+
+/** Field name (as the schema and the server's `details[].path` spell it) -> its label, for toasts. */
+const DESTINATION_FIELD_LABELS: Readonly<Record<string, string>> = {
+  endpoint: 'Endpoint',
+  region: 'Region',
+  bucket: 'Bucket',
+  prefix: 'Prefix',
+  accessKeyId: 'Access key ID',
+  secretAccessKey: 'Secret access key',
+  host: 'Host',
+  port: 'Port',
+  path: 'Path',
+  user: 'Username',
+  password: 'Password',
+};
+
+interface FieldIssue {
+  readonly path: string;
+  readonly message: string;
+}
+
+type FieldErrors = Readonly<Record<string, string>>;
+
+/** The server's per-field `VALIDATION_FAILED` details (`[{ path, message }]`, see `parseBody`), or `null` for any other error. */
+function serverFieldIssuesOf(error: unknown): readonly FieldIssue[] | null {
+  if (!(error instanceof ApiError) || error.code !== 'VALIDATION_FAILED') return null;
+  if (!Array.isArray(error.details)) return null;
+  const issues = error.details.flatMap((detail) =>
+    typeof detail === 'object' &&
+    detail !== null &&
+    !Array.isArray(detail) &&
+    typeof detail['path'] === 'string' &&
+    typeof detail['message'] === 'string'
+      ? [{ path: detail['path'], message: detail['message'] }]
+      : [],
+  );
+  return issues.length > 0 ? issues : null;
+}
+
+/** The shared schema's own issues, in the same `{ path, message }` shape as the server's details. */
+function schemaFieldIssuesOf(error: ZodError): FieldIssue[] {
+  return error.issues.map((issue) => ({ path: issue.path.join('.'), message: issue.message }));
+}
+
+/** First message per field, keyed by field name. */
+function fieldErrorsOf(issues: readonly FieldIssue[]): FieldErrors {
+  const errors: Record<string, string> = {};
+  for (const issue of issues) errors[issue.path] ??= issue.message;
+  return errors;
+}
+
+/** "Region: Use the provider's region code…" — the toast names the field, since it may be scrolled out of view on a phone. */
+function issuesToastMessage(issues: readonly FieldIssue[]): string {
+  const [first] = issues;
+  if (first === undefined) return 'Could not save the destination';
+  const label = DESTINATION_FIELD_LABELS[first.path] ?? 'Destination';
+  const more = issues.length > 1 ? ` (and ${issues.length - 1} more)` : '';
+  return `${label}: ${first.message}${more}`;
+}
+
+/** Wires an input to its hint and error text; `aria-invalid` only while an error shows. */
+function fieldA11y(
+  id: string,
+  error: string | undefined,
+  hasHint = false,
+): { 'aria-invalid'?: true; 'aria-describedby'?: string } {
+  const describedBy = [hasHint ? `${id}-hint` : null, error !== undefined ? `${id}-error` : null]
+    .filter((part) => part !== null)
+    .join(' ');
+  return {
+    ...(error !== undefined ? { 'aria-invalid': true } : {}),
+    ...(describedBy !== '' ? { 'aria-describedby': describedBy } : {}),
+  };
+}
+
+function FieldHint({ id, children }: { readonly id: string; readonly children: ReactNode }) {
+  return (
+    <p id={`${id}-hint`} className="text-caption text-text-muted">
+      {children}
+    </p>
+  );
+}
+
+function FieldError({ id, error }: { readonly id: string; readonly error: string | undefined }) {
+  if (error === undefined) return null;
+  return (
+    <p id={`${id}-error`} role="alert" className="text-caption text-status-critical-fg">
+      {error}
+    </p>
+  );
 }
 
 function seedForm(status: BackupDestinationStatus): DestinationForm {
@@ -105,6 +213,7 @@ export function RemoteDestinationCard() {
   const [form, setForm] = useState<DestinationForm | null>(null);
   const [secretInput, setSecretInput] = useState('');
   const [revealedSecret, setRevealedSecret] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
 
   const status = destinationQuery.data;
   // Seed the form when the status first loads. After a save, the mutation's
@@ -137,14 +246,37 @@ export function RemoteDestinationCard() {
         ? (status.ftp?.passwordSet ?? false)
         : false;
 
+  const clearFieldError = (key: string) => {
+    if (fieldErrors[key] === undefined) return;
+    const { [key]: _cleared, ...rest } = fieldErrors;
+    setFieldErrors(rest);
+  };
+  /** Edits one field and drops its error — the admin is fixing it. */
+  const setField = <K extends keyof DestinationForm>(key: K, value: DestinationForm[K]) => {
+    setForm({ ...form, [key]: value });
+    clearFieldError(key);
+  };
+  const showIssues = (issues: readonly FieldIssue[]) => {
+    setFieldErrors(fieldErrorsOf(issues));
+    toast.error(issuesToastMessage(issues));
+  };
+
   const onSaved = (next: BackupDestinationStatus, message: string) => {
     setForm(seedForm(next));
     setSecretInput('');
     setRevealedSecret(null);
+    setFieldErrors({});
     toast.success(message);
   };
-  const onSaveError = (error: unknown) =>
-    toast.error(errorMessageOf(error, 'Could not save the destination'));
+  const onSaveError = (error: unknown) => {
+    // A `ZodError` is the API wrapper's own parse of the update (see
+    // `updateBackupDestination`); it gets the same inline treatment as the
+    // server's VALIDATION_FAILED details.
+    const issues =
+      error instanceof ZodError ? schemaFieldIssuesOf(error) : serverFieldIssuesOf(error);
+    if (issues !== null) showIssues(issues);
+    else toast.error(errorMessageOf(error, 'Could not save the destination'));
+  };
 
   const save = () => {
     if (form.type === 'none') {
@@ -155,15 +287,10 @@ export function RemoteDestinationCard() {
       return;
     }
 
-    if (secretInput.length === 0 && !storedForCurrentType) {
-      toast.error(form.type === 's3' ? 'Enter the secret access key.' : 'Enter the password.');
-      return;
-    }
-
     // Empty means "keep the stored secret" — omitted rather than sent blank, so
     // the server keeps what it has.
     const secretField = secretInput.length > 0 ? secretInput : undefined;
-    const update =
+    const update: BackupDestinationUpdateInput =
       form.type === 's3'
         ? {
             type: 's3' as const,
@@ -183,6 +310,24 @@ export function RemoteDestinationCard() {
             secure: form.secure,
             ...(secretField !== undefined ? { password: secretField } : {}),
           };
+
+    // Checked here rather than left to the API wrapper's own parse, so the
+    // schema's per-field issues reach the form instead of a generic toast. The
+    // secret is optional to the schema (omitted = keep), so a missing one for
+    // a type with nothing stored is added here, all shown at once.
+    const checked = BackupDestinationUpdateSchema.safeParse(update);
+    const issues: FieldIssue[] = checked.success ? [] : schemaFieldIssuesOf(checked.error);
+    if (secretField === undefined && !storedForCurrentType) {
+      issues.push(
+        form.type === 's3'
+          ? { path: 'secretAccessKey', message: 'Enter the secret access key.' }
+          : { path: 'password', message: 'Enter the password.' },
+      );
+    }
+    if (issues.length > 0) {
+      showIssues(issues);
+      return;
+    }
 
     updateMutation.mutate(update, {
       onSuccess: (next) => onSaved(next, 'Remote destination saved'),
@@ -206,15 +351,15 @@ export function RemoteDestinationCard() {
 
   return (
     <Card>
-      <CardHeader className="flex flex-row items-center justify-between gap-3">
+      <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-x-3 gap-y-2">
         <CardTitle>Remote destination</CardTitle>
         {status.configured ? (
-          <StatusBadge status="healthy" label="Configured" />
+          <StatusBadge status="healthy" label="Configured" className="whitespace-nowrap" />
         ) : (
-          <StatusBadge status="unknown" label="Not configured" />
+          <StatusBadge status="unknown" label="Not configured" className="whitespace-nowrap" />
         )}
       </CardHeader>
-      <CardContent className="flex flex-col gap-4">
+      <CardContent className="@container flex flex-col gap-4">
         <p className="text-body-sm text-text-secondary">
           Where verified backups are uploaded. The VPS is only staging — once a backup is uploaded
           and verified on the remote, its local copy is reclaimed.
@@ -232,7 +377,12 @@ export function RemoteDestinationCard() {
                 ...form,
                 type: value === 's3' ? 's3' : value === 'ftp' ? 'ftp' : 'none',
               });
+              // The S3 secret and the FTP password share one input state: a
+              // value typed for the old type must never be saved as the new
+              // type's credential.
+              setSecretInput('');
               setRevealedSecret(null);
+              setFieldErrors({});
             }}
           >
             <option value="none">None — keep backups on the VPS only</option>
@@ -242,51 +392,82 @@ export function RemoteDestinationCard() {
         </div>
 
         {form.type === 's3' ? (
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div className={FIELD_GRID_CLASS}>
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="s3-endpoint">Endpoint</Label>
               <Input
                 id="s3-endpoint"
                 value={form.endpoint}
-                onChange={(event) => setForm({ ...form, endpoint: event.target.value })}
-                placeholder="https://s3.us-east-1.amazonaws.com"
+                onChange={(event) => setField('endpoint', event.target.value)}
+                placeholder="s3.us-east-1.amazonaws.com"
+                autoCapitalize="off"
+                spellCheck={false}
+                {...fieldA11y('s3-endpoint', fieldErrors['endpoint'], true)}
               />
+              <FieldHint id="s3-endpoint">
+                The provider&apos;s S3 host. https:// is added if you leave it out.
+              </FieldHint>
+              <FieldError id="s3-endpoint" error={fieldErrors['endpoint']} />
             </div>
             <div className="flex flex-col gap-1.5">
-              <Label htmlFor="s3-region">Region</Label>
+              <Label htmlFor="s3-region">Region (optional)</Label>
               <Input
                 id="s3-region"
                 value={form.region}
-                onChange={(event) => setForm({ ...form, region: event.target.value })}
+                onChange={(event) => setField('region', event.target.value)}
                 placeholder="us-east-1"
+                autoCapitalize="off"
+                spellCheck={false}
+                {...fieldA11y('s3-region', fieldErrors['region'], true)}
               />
+              <FieldHint id="s3-region">
+                A region code like us-east-1, not a display name. Leave blank if the provider has
+                none.
+              </FieldHint>
+              <FieldError id="s3-region" error={fieldErrors['region']} />
             </div>
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="s3-bucket">Bucket</Label>
               <Input
                 id="s3-bucket"
                 value={form.bucket}
-                onChange={(event) => setForm({ ...form, bucket: event.target.value })}
+                onChange={(event) => setField('bucket', event.target.value)}
                 placeholder="my-mail-backups"
+                autoCapitalize="off"
+                spellCheck={false}
+                {...fieldA11y('s3-bucket', fieldErrors['bucket'], true)}
               />
+              <FieldHint id="s3-bucket">
+                If the endpoint host starts with a bucket name (bucket.provider.net), that first
+                part is the bucket.
+              </FieldHint>
+              <FieldError id="s3-bucket" error={fieldErrors['bucket']} />
             </div>
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="s3-prefix">Prefix (optional)</Label>
               <Input
                 id="s3-prefix"
                 value={form.prefix}
-                onChange={(event) => setForm({ ...form, prefix: event.target.value })}
+                onChange={(event) => setField('prefix', event.target.value)}
                 placeholder="backups"
+                autoCapitalize="off"
+                spellCheck={false}
+                {...fieldA11y('s3-prefix', fieldErrors['prefix'])}
               />
+              <FieldError id="s3-prefix" error={fieldErrors['prefix']} />
             </div>
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="s3-access-key-id">Access key ID</Label>
               <Input
                 id="s3-access-key-id"
                 value={form.accessKeyId}
-                onChange={(event) => setForm({ ...form, accessKeyId: event.target.value })}
+                onChange={(event) => setField('accessKeyId', event.target.value)}
                 autoComplete="off"
+                autoCapitalize="off"
+                spellCheck={false}
+                {...fieldA11y('s3-access-key-id', fieldErrors['accessKeyId'])}
               />
+              <FieldError id="s3-access-key-id" error={fieldErrors['accessKeyId']} />
             </div>
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="s3-secret">Secret access key</Label>
@@ -294,14 +475,21 @@ export function RemoteDestinationCard() {
                 id="s3-secret"
                 type="password"
                 value={secretInput}
-                onChange={(event) => setSecretInput(event.target.value)}
+                onChange={(event) => {
+                  setSecretInput(event.target.value);
+                  clearFieldError('secretAccessKey');
+                }}
                 autoComplete="off"
                 placeholder={
                   storedForCurrentType ? 'Stored — leave blank to keep' : 'Secret access key'
                 }
+                {...fieldA11y('s3-secret', fieldErrors['secretAccessKey'])}
               />
+              <FieldError id="s3-secret" error={fieldErrors['secretAccessKey']} />
               {storedForCurrentType ? (
-                <div className="flex items-center gap-2">
+                // Wraps so a long revealed value drops under the button instead
+                // of being squeezed into a one-character column beside it.
+                <div className="flex flex-wrap items-center gap-2">
                   <Button
                     type="button"
                     variant="ghost"
@@ -312,7 +500,7 @@ export function RemoteDestinationCard() {
                     Reveal stored secret
                   </Button>
                   {revealedSecret !== null ? (
-                    <code className="font-mono-sm break-all text-text-secondary">
+                    <code className="min-w-0 font-mono-sm break-all text-text-secondary">
                       {revealedSecret === '' ? '(none)' : revealedSecret}
                     </code>
                   ) : null}
@@ -323,15 +511,19 @@ export function RemoteDestinationCard() {
         ) : null}
 
         {form.type === 'ftp' ? (
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div className={FIELD_GRID_CLASS}>
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="ftp-host">Host</Label>
               <Input
                 id="ftp-host"
                 value={form.host}
-                onChange={(event) => setForm({ ...form, host: event.target.value })}
+                onChange={(event) => setField('host', event.target.value)}
                 placeholder="ftp.example.com"
+                autoCapitalize="off"
+                spellCheck={false}
+                {...fieldA11y('ftp-host', fieldErrors['host'])}
               />
+              <FieldError id="ftp-host" error={fieldErrors['host']} />
             </div>
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="ftp-port">Port</Label>
@@ -342,27 +534,37 @@ export function RemoteDestinationCard() {
                 max={65535}
                 value={form.port}
                 onChange={(event) =>
-                  setForm({ ...form, port: Math.max(1, Number(event.target.value) || 21) })
+                  setField('port', Math.max(1, Number(event.target.value) || 21))
                 }
+                {...fieldA11y('ftp-port', fieldErrors['port'])}
               />
+              <FieldError id="ftp-port" error={fieldErrors['port']} />
             </div>
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="ftp-user">Username</Label>
               <Input
                 id="ftp-user"
                 value={form.user}
-                onChange={(event) => setForm({ ...form, user: event.target.value })}
+                onChange={(event) => setField('user', event.target.value)}
                 autoComplete="off"
+                autoCapitalize="off"
+                spellCheck={false}
+                {...fieldA11y('ftp-user', fieldErrors['user'])}
               />
+              <FieldError id="ftp-user" error={fieldErrors['user']} />
             </div>
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="ftp-path">Path (optional)</Label>
               <Input
                 id="ftp-path"
                 value={form.path}
-                onChange={(event) => setForm({ ...form, path: event.target.value })}
+                onChange={(event) => setField('path', event.target.value)}
                 placeholder="backups"
+                autoCapitalize="off"
+                spellCheck={false}
+                {...fieldA11y('ftp-path', fieldErrors['path'])}
               />
+              <FieldError id="ftp-path" error={fieldErrors['path']} />
             </div>
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="ftp-password">Password</Label>
@@ -370,12 +572,17 @@ export function RemoteDestinationCard() {
                 id="ftp-password"
                 type="password"
                 value={secretInput}
-                onChange={(event) => setSecretInput(event.target.value)}
+                onChange={(event) => {
+                  setSecretInput(event.target.value);
+                  clearFieldError('password');
+                }}
                 autoComplete="off"
                 placeholder={storedForCurrentType ? 'Stored — leave blank to keep' : 'Password'}
+                {...fieldA11y('ftp-password', fieldErrors['password'])}
               />
+              <FieldError id="ftp-password" error={fieldErrors['password']} />
               {storedForCurrentType ? (
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   <Button
                     type="button"
                     variant="ghost"
@@ -386,14 +593,14 @@ export function RemoteDestinationCard() {
                     Reveal stored password
                   </Button>
                   {revealedSecret !== null ? (
-                    <code className="font-mono-sm break-all text-text-secondary">
+                    <code className="min-w-0 font-mono-sm break-all text-text-secondary">
                       {revealedSecret === '' ? '(none)' : revealedSecret}
                     </code>
                   ) : null}
                 </div>
               ) : null}
             </div>
-            <label className="flex items-center gap-2 text-body-sm text-text-primary sm:col-span-2">
+            <label className="flex items-center gap-2 text-body-sm text-text-primary col-span-full">
               <Switch
                 checked={form.secure}
                 onCheckedChange={(checked) => setForm({ ...form, secure: checked })}
@@ -401,7 +608,7 @@ export function RemoteDestinationCard() {
               Use FTPS (explicit TLS)
             </label>
             {!form.secure ? (
-              <p className="text-body-sm text-status-warning-fg sm:col-span-2">
+              <p className="text-body-sm text-status-warning-fg col-span-full">
                 Plaintext FTP sends the password and backup data unencrypted. Enable FTPS unless the
                 server genuinely does not support it.
               </p>
@@ -496,11 +703,12 @@ export function BackupScheduleCard() {
 
   return (
     <Card>
-      <CardHeader className="flex flex-row items-center justify-between gap-3">
+      <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-x-3 gap-y-2">
         <CardTitle>Schedule</CardTitle>
         {schedule.enabled ? (
           <StatusBadge
             status="healthy"
+            className="whitespace-nowrap"
             label={
               schedule.nextRunAt === null
                 ? 'Enabled'
@@ -508,15 +716,15 @@ export function BackupScheduleCard() {
             }
           />
         ) : (
-          <StatusBadge status="unknown" label="Off" />
+          <StatusBadge status="unknown" label="Off" className="whitespace-nowrap" />
         )}
       </CardHeader>
-      <CardContent className="flex flex-col gap-4">
+      <CardContent className="@container flex flex-col gap-4">
         <p className="text-body-sm text-text-secondary">
           Automatic backups run in the background on the interval you choose, and survive a restart.
         </p>
 
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <div className={FIELD_GRID_CLASS}>
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="schedule-frequency">Frequency</Label>
             <select
@@ -669,22 +877,30 @@ export function RemoteBrowseDialog({
             No backups on the remote yet — nothing has been uploaded.
           </p>
         ) : (
-          <ul className="flex flex-col divide-y divide-border-subtle">
+          // `min-w-0` stops the list's min-content (the id) from widening the
+          // dialog's grid track; the id wraps rather than truncates because it
+          // is what the admin is choosing by.
+          <ul className="flex min-w-0 flex-col divide-y divide-border-subtle">
             {backups.map((backup) => (
               <li key={backup.key} className="flex items-center justify-between gap-3 py-2">
                 <div className="flex min-w-0 flex-col">
-                  <span className="font-mono-sm truncate text-text-primary">{backup.backupId}</span>
+                  <span className="font-mono-sm break-all text-text-primary">
+                    {backup.backupId}
+                  </span>
                   <span className="text-caption text-text-muted">
                     {formatBytes(backup.sizeBytes)} · {formatDateTime(backup.lastModified)}
                   </span>
                 </div>
                 {backup.alreadyLocal ? (
-                  <Badge variant="neutral">Already local</Badge>
+                  <Badge variant="neutral" className="shrink-0">
+                    Already local
+                  </Badge>
                 ) : (
                   <Button
                     type="button"
                     size="sm"
                     variant="secondary"
+                    className="shrink-0"
                     pending={importMutation.isPending}
                     onClick={() => startImport(backup.backupId)}
                   >

@@ -23,6 +23,7 @@ import { PageHeader } from '@/components/page-header';
 import { Skeleton } from '@/components/ui/skeleton';
 import { UnsupportedNotice } from '@/components/unsupported-notice';
 import { ApiClientError, ApiError } from '@/lib/api-client';
+import { AliasDestinationsList, AddressText } from './address-text';
 import {
   useAliasesQuery,
   useCreateAliasMutation,
@@ -31,6 +32,13 @@ import {
   useMailCapabilitiesQuery,
   useUpdateAliasMutation,
 } from './use-mail-queries';
+
+/**
+ * Columns shown only once the table's `@container` is at least 48rem wide;
+ * below that the Address cell carries their content instead. A static
+ * string so Tailwind's scanner sees the class names.
+ */
+const WIDE_TABLE_ONLY = 'hidden @3xl:table-cell';
 
 function typeBadgeVariant(type: AliasType): 'default' | 'outline' | 'neutral' {
   if (type === 'external') return 'outline';
@@ -248,27 +256,51 @@ export function AliasesPage() {
       id: 'address',
       header: 'Address',
       sortValue: (row) => row.address,
+      // AddressText + break-words wraps addresses at `@ . _ -`, so a column
+      // is only ever as wide as its longest label, never its longest address.
+      cellClassName: 'break-words',
       cell: (row) => (
-        <span className="font-medium text-text-primary">
-          {row.address}
-          {row.isCatchAll ? (
-            <Badge variant="outline" className="ml-2">
-              Catch-all
-            </Badge>
-          ) : null}
-        </span>
+        <div className="flex flex-col gap-1">
+          <span className="font-medium text-text-primary">
+            <AddressText text={row.address} />
+            {row.isCatchAll ? (
+              <Badge variant="outline" className="ml-2">
+                Catch-all
+              </Badge>
+            ) : null}
+          </span>
+          {/* Narrow table (phones, and tablets beside the sidebar): the
+              Destinations/Domain/Type columns are hidden, so their content
+              stacks under the address and Edit/Delete stay in view. The
+              domain is already the address's own suffix. */}
+          <div className="flex flex-col items-start gap-1 @3xl:hidden">
+            <AliasDestinationsList recipients={row.recipients} withArrows />
+            <Badge variant={typeBadgeVariant(row.type)}>{row.type}</Badge>
+          </div>
+        </div>
       ),
     },
     {
       id: 'recipients',
       header: 'Destinations',
-      cell: (row) => <span className="text-text-secondary">{row.recipients.join(', ')}</span>,
+      headerClassName: WIDE_TABLE_ONLY,
+      cellClassName: `${WIDE_TABLE_ONLY} break-words`,
+      cell: (row) => <AliasDestinationsList recipients={row.recipients} />,
     },
-    { id: 'domain', header: 'Domain', sortValue: (row) => row.domain, cell: (row) => row.domain },
+    {
+      id: 'domain',
+      header: 'Domain',
+      sortValue: (row) => row.domain,
+      headerClassName: WIDE_TABLE_ONLY,
+      cellClassName: `${WIDE_TABLE_ONLY} break-words`,
+      cell: (row) => <AddressText text={row.domain} />,
+    },
     {
       id: 'type',
       header: 'Type',
       sortValue: (row) => row.type,
+      headerClassName: WIDE_TABLE_ONLY,
+      cellClassName: WIDE_TABLE_ONLY,
       cell: (row) => <Badge variant={typeBadgeVariant(row.type)}>{row.type}</Badge>,
     },
   ];
@@ -327,7 +359,7 @@ export function AliasesPage() {
               value={domainFilter}
               onChange={(event) => setDomainFilter(event.target.value)}
               aria-label="Filter by domain"
-              className="h-9 rounded-sm border border-border-default bg-bg-surface px-3 text-body-sm text-text-primary"
+              className="h-9 max-w-full rounded-sm border border-border-default bg-bg-surface px-3 text-body-sm text-text-primary sm:max-w-xs"
             >
               <option value="">All domains</option>
               {(domainsQuery.data?.domains ?? []).map((d) => (
@@ -340,7 +372,7 @@ export function AliasesPage() {
               value={typeFilter}
               onChange={(event) => setTypeFilter(event.target.value as AliasType | '')}
               aria-label="Filter by type"
-              className="h-9 rounded-sm border border-border-default bg-bg-surface px-3 text-body-sm text-text-primary"
+              className="h-9 max-w-full rounded-sm border border-border-default bg-bg-surface px-3 text-body-sm text-text-primary"
             >
               <option value="">All types</option>
               <option value="internal">Internal</option>
@@ -349,51 +381,55 @@ export function AliasesPage() {
             </select>
           </div>
 
-          <DataTable
-            data={filtered}
-            columns={columns}
-            getRowId={(row) => row.id}
-            caption="Aliases"
-            initialSort={{ id: 'address', desc: false }}
-            rowActions={
-              canManage
-                ? (row) => (
-                    <div className="flex justify-end gap-1">
-                      <Button size="sm" variant="ghost" onClick={() => setEditTarget(row)}>
-                        Edit
-                      </Button>
-                      <Button size="sm" variant="ghost" onClick={() => setDeleteTarget(row)}>
-                        Delete
-                      </Button>
-                    </div>
-                  )
-                : undefined
-            }
-            emptyState={
-              activeFilters.length > 0 ? (
-                <EmptyState
-                  variant="filtered"
-                  activeFilters={activeFilters}
-                  onClearFilters={() => {
-                    setSearch('');
-                    setDomainFilter('');
-                    setTypeFilter('');
-                  }}
-                />
-              ) : (
-                <EmptyState
-                  variant="first-run"
-                  title="No aliases yet"
-                  description="Add an alias to forward mail from one address to one or more destinations."
-                  action={
-                    canManage
-                      ? { label: 'Add alias', onClick: () => setCreateOpen(true) }
-                      : undefined
-                  }
-                />
-              )
-            }
-          />
+          {/* `@container`: the columns hide by the table's own width, which
+              the sidebar narrows at md-lg, not by the viewport's. */}
+          <div className="@container">
+            <DataTable
+              data={filtered}
+              columns={columns}
+              getRowId={(row) => row.id}
+              caption="Aliases"
+              initialSort={{ id: 'address', desc: false }}
+              rowActions={
+                canManage
+                  ? (row) => (
+                      <div className="flex flex-col items-end gap-1 @3xl:flex-row @3xl:justify-end">
+                        <Button size="sm" variant="ghost" onClick={() => setEditTarget(row)}>
+                          Edit
+                        </Button>
+                        <Button size="sm" variant="ghost" onClick={() => setDeleteTarget(row)}>
+                          Delete
+                        </Button>
+                      </div>
+                    )
+                  : undefined
+              }
+              emptyState={
+                activeFilters.length > 0 ? (
+                  <EmptyState
+                    variant="filtered"
+                    activeFilters={activeFilters}
+                    onClearFilters={() => {
+                      setSearch('');
+                      setDomainFilter('');
+                      setTypeFilter('');
+                    }}
+                  />
+                ) : (
+                  <EmptyState
+                    variant="first-run"
+                    title="No aliases yet"
+                    description="Add an alias to forward mail from one address to one or more destinations."
+                    action={
+                      canManage
+                        ? { label: 'Add alias', onClick: () => setCreateOpen(true) }
+                        : undefined
+                    }
+                  />
+                )
+              }
+            />
+          </div>
         </div>
       )}
 

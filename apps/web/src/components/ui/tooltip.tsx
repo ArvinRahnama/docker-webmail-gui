@@ -10,11 +10,13 @@ export const TooltipTrigger = TooltipPrimitive.Trigger;
 export const TooltipContent = forwardRef<
   ElementRef<typeof TooltipPrimitive.Content>,
   ComponentPropsWithoutRef<typeof TooltipPrimitive.Content>
->(({ className, sideOffset = 6, ...props }, ref) => (
+>(({ className, sideOffset = 6, collisionPadding = 8, ...props }, ref) => (
   <TooltipPrimitive.Portal>
     <TooltipPrimitive.Content
       ref={ref}
       sideOffset={sideOffset}
+      // Keeps a collision-shifted tooltip off the very edge of a phone screen.
+      collisionPadding={collisionPadding}
       className={cn(
         'dwg-pop-content z-50 overflow-hidden rounded-sm border border-border-default bg-bg-raised px-2.5 py-1.5 text-caption text-text-primary shadow-md',
         className,

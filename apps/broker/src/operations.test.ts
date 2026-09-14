@@ -14,6 +14,7 @@ import type {
   RawContainerListItem,
   RawContainerRecreateSpec,
   RawImage,
+  RawImageConfig,
   RawNetwork,
   RawVolume,
 } from './docker-types.js';
@@ -157,6 +158,7 @@ function stubDocker(overrides: Partial<DockerApi> = {}): DockerApi {
     putContainerArchive: vi.fn(),
     pullImage: vi.fn(async () => undefined),
     inspectContainerForRecreate: vi.fn(),
+    inspectImageConfig: vi.fn(),
     createContainer: vi.fn(),
     removeContainer: vi.fn(async () => undefined),
     ...overrides,
@@ -384,9 +386,24 @@ const SELF_UPDATE_RECREATE_SPECS: Readonly<Record<string, RawContainerRecreateSp
   }),
 };
 
+/**
+ * `imageConfigs` (keyed by image id — a recreate spec's own `image`) is
+ * what `inspectImageConfig` answers with; `panel.selfUpdateCheck` reads
+ * the baked facts from there, not from the container's env (see that
+ * handler's doc comment). Omitted, each spec's image is modelled as a
+ * *clean* container's: image env identical to the container's env —
+ * exactly what `docker compose up` produces, and what every test below
+ * that is not specifically about the difference needs.
+ */
 function selfUpdateDocker(
   overrides: Partial<DockerApi> = {},
   recreateSpecs: Readonly<Record<string, RawContainerRecreateSpec>> = SELF_UPDATE_RECREATE_SPECS,
+  imageConfigs: Readonly<Record<string, RawImageConfig>> = Object.fromEntries(
+    Object.values(recreateSpecs).map((spec) => [
+      spec.image,
+      { id: spec.image, env: spec.env, labels: {}, cmd: null },
+    ]),
+  ),
 ): DockerApi {
   return stubDocker({
     listContainers: vi.fn(async () => SELF_UPDATE_CONTAINERS),
@@ -396,6 +413,11 @@ function selfUpdateDocker(
       if (spec === undefined)
         throw new Error(`selfUpdateDocker: no recreate spec fixture for ${id}`);
       return spec;
+    }),
+    inspectImageConfig: vi.fn(async (id: string) => {
+      const image = imageConfigs[id];
+      if (image === undefined) throw new Error(`selfUpdateDocker: no image fixture for ${id}`);
+      return image;
     }),
     ...overrides,
   });
@@ -485,6 +507,90 @@ describe('panel.selfUpdateCheck', () => {
     )) as { updatePossible: boolean; reason: string | null };
     expect(result.updatePossible).toBe(false);
     expect(result.reason).toMatch(/registry-image installs/i);
+  });
+
+  // The 1.0.0 -> 1.0.1 production bug: the pre-fix updater recreated each
+  // container with its merged inspect env, so a container running the
+  // 1.0.1 image carries the 1.0.0 image's DWG_VERSION as explicit
+  // container env. The 1.0.1 -> 1.0.2 update is run by the installed
+  // (buggy) 1.0.1 updater, which does it again — so the check has to be
+  // right on a polluted container, by reading the image.
+  it('reads the version from the IMAGE the container runs, not a stale DWG_VERSION a previous self-update pinned into the container env', async () => {
+    const pollutedEnv = ['DWG_VERSION=1.0.0', 'DWG_IMAGE_ORIGIN=registry', 'PORT=3000'];
+    const inspectImageConfig = vi.fn(async (id: string) => ({
+      id,
+      env: ['NODE_ENV=production', 'DWG_VERSION=1.0.1', 'DWG_IMAGE_ORIGIN=registry'],
+      labels: {},
+      cmd: null,
+    }));
+    const docker = selfUpdateDocker(
+      { inspectImageConfig },
+      {
+        'id-dwg-server': recreateSpec({
+          name: 'dwg-server',
+          image: 'sha256:server-1.0.1',
+          env: pollutedEnv,
+        }),
+        'id-dwg-broker': recreateSpec({
+          name: 'dwg-broker',
+          image: 'sha256:broker-1.0.1',
+          env: pollutedEnv,
+        }),
+      },
+    );
+
+    const result = await handleOperation({ operation: 'panel.selfUpdateCheck' }, deps(docker));
+
+    expect(result).toEqual({
+      serverVersion: '1.0.1',
+      brokerVersion: '1.0.1',
+      updatePossible: true,
+      reason: null,
+    });
+    // By the image id the container inspect reported — never a tag.
+    expect(inspectImageConfig).toHaveBeenCalledWith('sha256:server-1.0.1');
+    expect(inspectImageConfig).toHaveBeenCalledWith('sha256:broker-1.0.1');
+  });
+
+  it('takes the origin from the image too: a source-built image is refused even if the container env says registry', async () => {
+    const docker = selfUpdateDocker({
+      inspectImageConfig: vi.fn(async (id: string) => ({
+        id,
+        env: ['DWG_VERSION=0.3.0', 'DWG_IMAGE_ORIGIN=source'],
+        labels: {},
+        cmd: null,
+      })),
+    });
+    const result = (await handleOperation(
+      { operation: 'panel.selfUpdateCheck' },
+      deps(docker),
+    )) as {
+      updatePossible: boolean;
+      reason: string | null;
+    };
+    expect(result.updatePossible).toBe(false);
+    expect(result.reason).toMatch(/registry-image installs/i);
+  });
+
+  it("falls back to the container's own env (and logs it) when the image cannot be inspected", async () => {
+    const warn = vi.fn();
+    const docker = selfUpdateDocker({
+      inspectImageConfig: vi.fn(async () => {
+        throw new Error('no such image');
+      }),
+    });
+    const result = await handleOperation(
+      { operation: 'panel.selfUpdateCheck' },
+      { ...deps(docker), logger: { ...logger, warn } as unknown as Logger },
+    );
+    // SELF_UPDATE_RECREATE_SPECS' container env: DWG_VERSION=0.3.0, registry.
+    expect(result).toEqual({
+      serverVersion: '0.3.0',
+      brokerVersion: '0.3.0',
+      updatePossible: true,
+      reason: null,
+    });
+    expect(warn).toHaveBeenCalledTimes(2);
   });
 
   it('refuses when the panel identities do not each resolve to exactly one match', async () => {

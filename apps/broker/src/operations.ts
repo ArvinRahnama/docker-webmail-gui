@@ -75,6 +75,7 @@ import {
 } from './dms/handlers.js';
 import {
   extractBakedImageFacts,
+  type BakedImageFacts,
   panelImageReference,
   resolvePanelRepository,
   PANEL_BROKER_REPOSITORY,
@@ -600,6 +601,26 @@ function resolvePanelIdentities(
   return { server, broker };
 }
 
+/** One panel container's baked facts, read from the image it runs — see {@link handlePanelSelfUpdateCheck}'s doc comment for why the image, and when the container's own env is the fallback. */
+async function readBakedImageFacts(
+  deps: OperationDeps,
+  containerId: string,
+): Promise<BakedImageFacts> {
+  const spec = await callDocker(deps, 'panel.selfUpdateCheck', () =>
+    deps.docker.inspectContainerForRecreate(containerId),
+  );
+  try {
+    const image = await deps.docker.inspectImageConfig(spec.image);
+    return extractBakedImageFacts(image.env);
+  } catch (err) {
+    deps.logger.warn(
+      { err, action: 'panel.selfUpdateCheck', image: spec.image },
+      "Could not inspect a panel container's image; falling back to the container's own env",
+    );
+    return extractBakedImageFacts(spec.env);
+  }
+}
+
 /**
  * What the broker can honestly report from Docker state alone — see
  * `PanelSelfUpdateCheckResponseSchema`'s own doc comment (`@dwg/shared`)
@@ -607,8 +628,8 @@ function resolvePanelIdentities(
  * exists.
  *
  * `serverVersion`/`brokerVersion` and the `updatePossible` gate both come
- * from each container's own *baked* `DWG_VERSION`/`DWG_IMAGE_ORIGIN` env
- * entries (SU-E, docs/design/self-update.md §9.8) via
+ * from the *baked* `DWG_VERSION`/`DWG_IMAGE_ORIGIN` `ENV` entries of the
+ * image each container runs (SU-E, docs/design/self-update.md §9.8) via
  * `extractBakedImageFacts` — not from `listImages()`'s repo-tag join the
  * way this handler used to work. That join could not tell "this image
  * was pulled from the registry" from "this image was built locally from
@@ -618,12 +639,25 @@ function resolvePanelIdentities(
  * published release and an arbitrary local build respectively — pulling
  * a *newer* published tag onto a container that never came from the
  * registry to begin with is not a safe operation this panel can vouch
- * for. Each container's own env is inspected independently (never "ask
- * the broker about itself, ask Docker about the other one") via
- * `inspectContainerForRecreate` — already broker-internal, already used
- * by the self-update flow proper (`updater.ts`) to capture this exact
- * `env` field, so this is a lighter, read-only reuse of that same seam
- * rather than a new one.
+ * for. Both containers are inspected independently, the same uniform way
+ * (never "ask the broker about itself, ask Docker about the other one").
+ *
+ * **The facts are read from the IMAGE each container runs, not from the
+ * container's own env.** A container's `Config.Env` is Docker's merge of
+ * its image's `ENV` with container-level env, and the 1.0.0/1.0.1
+ * updaters recreated containers with that whole merged list as explicit
+ * container env — so a container running the 1.0.1 image still carries
+ * `DWG_VERSION=1.0.0`, and a check reading the container would offer the
+ * same update forever (`self-update/image-swap-spec.ts`'s header has the
+ * full account). The container inspect is still needed, for the image
+ * *id* it actually runs (`RawContainerRecreateSpec.image` — an id, not a
+ * tag that might since have moved); `inspectImageConfig` then reads that
+ * image's own baked `ENV`. Those containers stay polluted until the next
+ * update by a fixed updater — and that update is itself executed by the
+ * *installed* broker image's updater, so this check must be right on a
+ * polluted container, not only on a clean one. Falls back to the
+ * container's env only when the image cannot be inspected (logged): the
+ * pre-fix behaviour, correct on any container a fixed updater created.
  */
 async function handlePanelSelfUpdateCheck(
   deps: OperationDeps,
@@ -633,15 +667,8 @@ async function handlePanelSelfUpdateCheck(
   );
   const { server, broker } = resolvePanelIdentities(deps, all, 'panel.selfUpdateCheck');
 
-  const serverSpec = await callDocker(deps, 'panel.selfUpdateCheck', () =>
-    deps.docker.inspectContainerForRecreate(server.id),
-  );
-  const brokerSpec = await callDocker(deps, 'panel.selfUpdateCheck', () =>
-    deps.docker.inspectContainerForRecreate(broker.id),
-  );
-
-  const serverFacts = extractBakedImageFacts(serverSpec.env);
-  const brokerFacts = extractBakedImageFacts(brokerSpec.env);
+  const serverFacts = await readBakedImageFacts(deps, server.id);
+  const brokerFacts = await readBakedImageFacts(deps, broker.id);
   const { version: serverVersion } = serverFacts;
   const { version: brokerVersion } = brokerFacts;
 

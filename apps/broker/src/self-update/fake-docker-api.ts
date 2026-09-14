@@ -10,6 +10,16 @@
  * exactly why this exists as its own small, real in-memory model
  * instead.
  *
+ * Containers and images are modelled closely enough to reproduce the
+ * 1.0.0 -> 1.0.1 stale-version bug: an image carries its own baked
+ * `ENV`/`LABEL`/`CMD` ({@link FakeImageSeed}), and a container's
+ * inspected env/labels/cmd are Docker's *merge* of those with whatever
+ * the container itself was created with — container-level entries win
+ * per key, image-only entries are appended (moby's own create-time merge).
+ * That is what makes "recreate with the captured env" observably pin the
+ * old image's values in a test, and what lets a test seed an
+ * already-polluted container.
+ *
  * Every method not needed by the updater (`ping`, `statsContainer`,
  * `execContainer`, …) throws — this fake proves it is never called down
  * an unexpected path rather than silently returning a placeholder.
@@ -19,6 +29,7 @@ import type {
   RawContainerListItem,
   RawContainerRecreateSpec,
   RawImage,
+  RawImageConfig,
 } from '../docker-types.js';
 
 export interface FakeContainerSeed {
@@ -26,6 +37,39 @@ export interface FakeContainerSeed {
   readonly name: string;
   /** The image reference this container was "created" with — a container recreated with a different image is a genuinely different fake container, healthy/unhealthy independently (see `setHealthy`). */
   readonly image: string;
+  /** The container's *own* env, as if set by compose's `environment:` (or by a previous updater's recreate) — merged with the image's env on inspect, exactly like Docker. Defaults to none. */
+  readonly env?: readonly string[];
+  /** The container's own labels, merged with the image's the same way. Defaults to none. */
+  readonly labels?: Readonly<Record<string, string>>;
+}
+
+/** One image's own baked config. The fake uses the reference string as the image id throughout (see `listImages` below). An image that was never seeded makes `inspectImageConfig` reject — the lever for the "image cannot be inspected" fallback tests. */
+export interface FakeImageSeed {
+  readonly reference: string;
+  readonly env?: readonly string[];
+  readonly labels?: Readonly<Record<string, string>>;
+  readonly cmd?: readonly string[] | null;
+}
+
+interface FakeContainer {
+  name: string;
+  image: string;
+  /** Container-level config only — never the merged view, which is computed on every inspect. */
+  env: readonly string[];
+  labels: Readonly<Record<string, string>>;
+  cmd: readonly string[] | null;
+  running: boolean;
+}
+
+function envKey(entry: string): string {
+  const separatorIndex = entry.indexOf('=');
+  return separatorIndex === -1 ? entry : entry.slice(0, separatorIndex);
+}
+
+/** Docker's create-time merge: every container entry, then every image entry whose key the container did not set. */
+function mergeEnv(containerEnv: readonly string[], imageEnv: readonly string[]): string[] {
+  const containerKeys = new Set(containerEnv.map(envKey));
+  return [...containerEnv, ...imageEnv.filter((entry) => !containerKeys.has(envKey(entry)))];
 }
 
 function notUsedByThisFake(method: string): never {
@@ -36,20 +80,32 @@ export class FakeDockerApi implements DockerApi {
   /** Every mutating call, in order, as `"method:arg1:arg2"` — the exact sequence branch tests assert against. */
   readonly calls: string[] = [];
 
-  private readonly containers = new Map<
-    string,
-    { name: string; image: string; running: boolean }
-  >();
+  /** Every spec `createContainer` received, in order — what tests assert the new containers' env/labels/cmd against. */
+  readonly createdSpecs: RawContainerRecreateSpec[] = [];
+
+  private readonly containers = new Map<string, FakeContainer>();
+  private readonly images = new Map<string, RawImageConfig>();
   /** `${name}:${image}` -> whether a container created with that exact name+image reports healthy. Defaults to healthy when unset, so a test only ever states the *unhealthy* case explicitly. */
   private readonly healthByKey = new Map<string, boolean>();
   private readonly failingPulls = new Set<string>();
   private nextId = 1;
 
-  constructor(seed: readonly FakeContainerSeed[]) {
+  constructor(seed: readonly FakeContainerSeed[], images: readonly FakeImageSeed[] = []) {
+    for (const image of images) {
+      this.images.set(image.reference, {
+        id: image.reference,
+        env: image.env ?? [],
+        labels: image.labels ?? {},
+        cmd: image.cmd ?? null,
+      });
+    }
     for (const container of seed) {
       this.containers.set(container.id, {
         name: container.name,
         image: container.image,
+        env: container.env ?? [],
+        labels: container.labels ?? {},
+        cmd: null,
         running: true,
       });
     }
@@ -65,7 +121,7 @@ export class FakeDockerApi implements DockerApi {
     this.failingPulls.add(reference);
   }
 
-  private mustGet(id: string): { name: string; image: string; running: boolean } {
+  private mustGet(id: string): FakeContainer {
     const container = this.containers.get(id);
     if (container === undefined) throw new Error(`FakeDockerApi: no container with id ${id}`);
     return container;
@@ -117,25 +173,42 @@ export class FakeDockerApi implements DockerApi {
     };
   }
 
+  /** Like Docker: the container's own config merged with its image's (an unseeded image contributes nothing). */
   async inspectContainerForRecreate(id: string): Promise<RawContainerRecreateSpec> {
     this.calls.push(`inspectContainerForRecreate:${id}`);
     const container = this.mustGet(id);
+    const image = this.images.get(container.image);
     return {
       name: container.name,
       image: container.image,
-      env: [],
-      labels: {},
-      cmd: null,
+      env: mergeEnv(container.env, image?.env ?? []),
+      labels: { ...image?.labels, ...container.labels },
+      cmd: container.cmd ?? image?.cmd ?? null,
       hostConfig: {},
       networkingConfig: {},
     };
+  }
+
+  async inspectImageConfig(id: string): Promise<RawImageConfig> {
+    this.calls.push(`inspectImageConfig:${id}`);
+    const image = this.images.get(id);
+    if (image === undefined) throw new Error(`FakeDockerApi: no such image ${id}`);
+    return image;
   }
 
   async createContainer(spec: RawContainerRecreateSpec): Promise<{ readonly id: string }> {
     const id = `fake-container-${this.nextId}`;
     this.nextId += 1;
     this.calls.push(`createContainer:${spec.name}:${spec.image}`);
-    this.containers.set(id, { name: spec.name, image: spec.image, running: false });
+    this.createdSpecs.push(spec);
+    this.containers.set(id, {
+      name: spec.name,
+      image: spec.image,
+      env: spec.env,
+      labels: spec.labels,
+      cmd: spec.cmd,
+      running: false,
+    });
     return { id };
   }
 

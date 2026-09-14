@@ -263,13 +263,44 @@ export interface RawContainerRecreateSpec {
 }
 
 /**
+ * The three fields of an *image's* own `Config` (`GET /images/{id}/json`)
+ * panel self-update needs, and nothing else — read-only, internal to the
+ * broker, never surfaced through any `BrokerOperation` response.
+ *
+ * Exists because a container's `Config.Env`/`Config.Labels`/`Config.Cmd`
+ * (what {@link RawContainerRecreateSpec} captures) are **not** "what the
+ * operator configured": Docker merges the image's own baked `ENV`,
+ * `LABEL` and `CMD` into the container's config at create time, so
+ * inspecting a container can never tell an inherited image value apart
+ * from an explicit container-level one. Only comparing against the image
+ * itself can. Two consumers, both self-update:
+ *
+ *  - `operations.ts`'s `panel.selfUpdateCheck` reads the baked
+ *    `DWG_VERSION`/`DWG_IMAGE_ORIGIN` from here — the image the container
+ *    actually runs — instead of from the container's merged env, which a
+ *    previous (pre-1.0.2) self-update left pinned to the *old* image's
+ *    values.
+ *  - `updater.ts` subtracts these inherited entries before swapping a
+ *    container onto a new image (`self-update/image-swap-spec.ts`), so the
+ *    new image's own `ENV`/`LABEL`/`CMD` actually take effect.
+ */
+export interface RawImageConfig {
+  /** The image's own id as Docker reports it (`sha256:…`). */
+  readonly id: string;
+  readonly env: readonly string[];
+  readonly labels: Readonly<Record<string, string>>;
+  readonly cmd: readonly string[] | null;
+}
+
+/**
  * The broker's entire Docker vocabulary. Every method here is one Docker
  * Engine API call (docs/research/02-docker-api-security.md §A.1) — there
  * is no generic `call(method, path, body)` escape hatch, mirroring the
  * closed vocabulary one layer up in `@dwg/shared`'s `BrokerOperation`.
  *
- * The last four methods below (`pullImage`, `inspectContainerForRecreate`,
- * `createContainer`, `removeContainer`) are the one deliberate exception
+ * The last five methods below (`pullImage`, `inspectContainerForRecreate`,
+ * `inspectImageConfig`, `createContainer`, `removeContainer`) are the one
+ * deliberate exception
  * to "every method here backs a `BrokerOperation`": they exist solely for
  * panel self-update (docs/design/self-update.md §1-2) and are never
  * called from `operations.ts`'s request dispatch with anything a caller
@@ -378,12 +409,22 @@ export interface DockerApi {
   /** See {@link RawContainerRecreateSpec}'s own doc comment for why this is a separate, internal-only method rather than an extension of {@link DockerApi.inspectContainer}. */
   inspectContainerForRecreate(id: string): Promise<RawContainerRecreateSpec>;
   /**
+   * Read-only `docker image inspect` of one image, reduced to
+   * {@link RawImageConfig}. `id` is always a {@link RawContainerRecreateSpec}'s
+   * own `image` (the image id Docker itself reported for a container that
+   * is already running), never a caller-supplied string — see
+   * {@link RawImageConfig} for why self-update needs the image's own
+   * config separately from the container's merged one.
+   */
+  inspectImageConfig(id: string): Promise<RawImageConfig>;
+  /**
    * Creates (but does not start — call {@link DockerApi.startContainer}
    * next) one container from a spec that is always either a
    * {@link RawContainerRecreateSpec} captured by
    * {@link DockerApi.inspectContainerForRecreate} moments earlier (image
-   * swapped to the new target, everything else cloned verbatim) or that
-   * same captured spec used unmodified for a rollback. Never a spec
+   * swapped to the new target and entries inherited from the *old* image
+   * removed — `self-update/image-swap-spec.ts` — everything else cloned
+   * verbatim) or that same captured spec used unmodified for a rollback. Never a spec
    * constructed from scratch, and never one reachable from a
    * `BrokerRequest` — see this interface's own header.
    */

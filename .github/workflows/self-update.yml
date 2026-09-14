@@ -63,6 +63,38 @@
 # already said, regardless of which "version" the test images were built
 # as, and the swap verification could never pass honestly.
 #
+# --- The stale-version regression (1.0.0 -> 1.0.1 in production) ---
+#
+# A container's `Config.Env` is Docker's merge of its image's `ENV` with
+# the container's own env. The pre-fix updater recreated each container
+# with that whole merged list, pinning the OLD image's `DWG_VERSION` onto
+# the new container as explicit env, and `panel.selfUpdateCheck` (which
+# read the container env) then reported the old version forever. The
+# containers this job brings up are created exactly the way production's
+# are — `docker compose up` with the compose `environment:` — so the
+# merge happens here too, and a pre-fix updater would visibly pin
+# `DWG_VERSION=0.9.0` onto the v0.9.1 containers.
+#
+# Production is *already* polluted, though, and its next update is run by
+# the installed (pre-fix) updater, which pollutes again. So the CI
+# override below also pins a stale `DWG_VERSION=0.8.0` (`STALE_VERSION`)
+# into both v0.9.0 containers' own env — the state a pre-fix update leaves
+# behind — and the job asserts, against a real daemon:
+#
+#  1. before the update, `panel.selfUpdateCheck` reports 0.9.0 (the image),
+#     not 0.8.0 (the polluted container env);
+#  2. after the update, neither new container's `Config.Env` still carries
+#     a pinned old/stale `DWG_VERSION` (the updater no longer copies
+#     image-owned env, and heals what was pinned before);
+#  3. after the update, `panel.selfUpdateCheck` reports 0.9.1 for both —
+#     exactly what the panel's "update available" banner reads.
+#
+# What it cannot reproduce: the pre-fix updater itself. The "old" image is
+# built from this same checkout, so the updater that runs here is always
+# the fixed one; a buggy updater running against the fixed check is
+# covered by `apps/broker` unit tests (`operations.test.ts`,
+# `self-update/updater.test.ts`), not by this job.
+#
 # --- What this job does not attempt ---
 #
 # A forced-failure/rollback run (a target build with a genuinely broken
@@ -122,6 +154,9 @@ env:
   OWNER: arvinrahnama
   OLD_VERSION: 0.9.0
   NEW_VERSION: 0.9.1
+  # Never built — only ever pinned into the old containers' env to
+  # simulate a pre-fix self-update's pollution (see this file's header).
+  STALE_VERSION: 0.8.0
 
 jobs:
   real-daemon-self-update:
@@ -248,16 +283,25 @@ jobs:
       # pre-built, pre-pushed v0.9.0 — `docker compose up` never builds
       # or pulls anything itself here, since both already exist locally
       # under these exact tags.
+      #
+      # `DWG_VERSION: STALE_VERSION` on both services is NOT something a
+      # real install sets (`docker/compose.yaml` never does): it reproduces
+      # the explicit, stale container env a pre-fix self-update leaves on
+      # production containers — this file's header, "The stale-version
+      # regression".
       - name: Write the CI-only compose override
         run: |
           cat > ci-self-update.override.yml <<EOF
           services:
             server:
               image: ${REGISTRY}/${OWNER}/docker-webmail-gui-server:${OLD_VERSION}
+              environment:
+                DWG_VERSION: '${STALE_VERSION}'
             broker:
               image: ${REGISTRY}/${OWNER}/docker-webmail-gui-broker:${OLD_VERSION}
               environment:
                 DANGEROUSLY_OVERRIDE_SELF_UPDATE_REGISTRY: ${REGISTRY}/${OWNER}
+                DWG_VERSION: '${STALE_VERSION}'
           EOF
           cat ci-self-update.override.yml
 
@@ -309,9 +353,16 @@ jobs:
       # `fetch`, the same idiom both Dockerfiles' HEALTHCHECKs already
       # use. The broker already has its own `BROKER_SHARED_SECRET` in its
       # environment (compose sets it), so nothing needs passing in.
-      - name: 'panel.selfUpdateCheck: confirm both containers honestly report v0.9.0, registry-origin, possible'
+      - name: 'panel.selfUpdateCheck: confirm both containers honestly report v0.9.0 (from the image, not the stale container env), registry-origin, possible'
         run: |
           set -eu
+          # Precondition for this step meaning anything: the pollution is
+          # really there in the containers' merged env.
+          for c in dwg-server dwg-broker; do
+            docker inspect "${c}" --format '{{json .Config.Env}}' \
+              | jq -e --arg e "DWG_VERSION=${STALE_VERSION}" '(. // []) | any(.[]; . == $e)' >/dev/null \
+              || { echo "FAIL: ${c} does not carry the simulated stale DWG_VERSION=${STALE_VERSION}"; exit 1; }
+          done
           RESULT=$(docker exec dwg-broker node -e "
             fetch('http://127.0.0.1:4000/v1/ops', {
               method: 'POST',
@@ -416,6 +467,52 @@ jobs:
           set -eu
           curl -fsS http://127.0.0.1:3000/api/v1/health | tee /tmp/health-new.json
           jq -e --arg v "${NEW_VERSION}" '.version == $v' /tmp/health-new.json >/dev/null
+
+      # Regression guard for the updater half of the stale-version bug
+      # (this file's header). Checked on the containers' own `Config.Env`,
+      # not through `panel.selfUpdateCheck` — the check reads the image, so
+      # it would pass even if the updater still pinned old env.
+      - name: 'Regression guard: the new containers carry no DWG_VERSION pinned from the old image or the stale pollution'
+        run: |
+          set -eu
+          for c in dwg-server dwg-broker; do
+            ENV_JSON=$(docker inspect "${c}" --format '{{json .Config.Env}}')
+            echo "${c} Config.Env: ${ENV_JSON}"
+            if ! echo "${ENV_JSON}" | jq -e \
+                --arg new "DWG_VERSION=${NEW_VERSION}" \
+                --arg old "DWG_VERSION=${OLD_VERSION}" \
+                --arg stale "DWG_VERSION=${STALE_VERSION}" \
+                '(. // []) | any(.[]; . == $new) and (any(.[]; . == $old or . == $stale) | not)' >/dev/null; then
+              echo "FAIL: ${c}'s env still pins an old DWG_VERSION (or lacks DWG_VERSION=${NEW_VERSION}) — the updater copied image-owned env onto the new container"
+              exit 1
+            fi
+          done
+          echo "confirmed: both recreated containers take DWG_VERSION from the v${NEW_VERSION} image."
+
+      # The exact call the panel's "update available" banner depends on,
+      # re-run after the real update — the pre-update step above made the
+      # same call. Production's bug was this still answering the OLD version.
+      - name: 'Regression guard: panel.selfUpdateCheck reports v0.9.1 for both containers after the update'
+        run: |
+          set -eu
+          RESULT=$(docker exec dwg-broker node -e "
+            fetch('http://127.0.0.1:4000/v1/ops', {
+              method: 'POST',
+              headers: { 'content-type': 'application/json', 'x-broker-secret': process.env.BROKER_SHARED_SECRET },
+              body: JSON.stringify({ operation: 'panel.selfUpdateCheck' }),
+            }).then(async (r) => { console.log(await r.text()); process.exit(r.ok ? 0 : 1); });
+          ")
+          echo "${RESULT}"
+          if ! echo "${RESULT}" | jq -e \
+              --arg v "${NEW_VERSION}" --arg old "${OLD_VERSION}" --arg stale "${STALE_VERSION}" \
+              '.serverVersion == $v and .brokerVersion == $v
+               and .serverVersion != $old and .brokerVersion != $old
+               and .serverVersion != $stale and .brokerVersion != $stale
+               and .updatePossible == true' >/dev/null; then
+            echo "FAIL: after a successful update to v${NEW_VERSION}, panel.selfUpdateCheck does not report v${NEW_VERSION} for both containers — the panel would keep offering the update it just applied"
+            exit 1
+          fi
+          echo "confirmed: panel.selfUpdateCheck reports v${NEW_VERSION} for both containers after the update."
 
       # The status file lives on the server-data named volume, shared
       # between the (now-gone) updater container and the new dwg-server

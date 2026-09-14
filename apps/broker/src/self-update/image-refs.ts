@@ -12,8 +12,8 @@
  * {@link extractBakedImageFacts} is the SU-E addition (docs/design/
  * self-update.md §9.8): the panel's own version *and* whether it was
  * installed from a registry-pulled image or built locally from source,
- * read from a container's baked `DWG_VERSION`/`DWG_IMAGE_ORIGIN`
- * environment entries (`docker/server/Dockerfile`,
+ * read from the baked `DWG_VERSION`/`DWG_IMAGE_ORIGIN` environment
+ * entries of the image a panel container runs (`docker/server/Dockerfile`,
  * `docker/broker/Dockerfile` — build ARGs turned into image `ENV`, never
  * a compose-level override, so an operator cannot casually flip a local
  * build's reported origin by editing `.env`). This replaces the previous
@@ -114,14 +114,19 @@ const DWG_VERSION_ENV_KEY = 'DWG_VERSION';
 const DWG_IMAGE_ORIGIN_ENV_KEY = 'DWG_IMAGE_ORIGIN';
 
 /**
- * Reads a container's baked `DWG_VERSION`/`DWG_IMAGE_ORIGIN` straight out
- * of its own `env` (`RawContainerRecreateSpec.env` — Docker's own
- * `KEY=VALUE` convention, `docker inspect`'s `Config.Env`). Deliberately
- * takes the *whole* env array and scans it, rather than assuming a fixed
- * index: Docker itself is the one that merges an image's baked `ENV`
- * with any container-level override into this single final list, and
- * this function has no reason to re-implement that merge — it only ever
- * sees the result Docker already produced.
+ * Reads the baked `DWG_VERSION`/`DWG_IMAGE_ORIGIN` out of one env list in
+ * Docker's own `KEY=VALUE` convention. Deliberately takes the *whole* env
+ * array and scans it, rather than assuming a fixed index.
+ *
+ * Which env list matters, and the caller owns that choice:
+ * `operations.ts`'s `panel.selfUpdateCheck` passes the **image's** own
+ * `Config.Env` (`DockerApi.inspectImageConfig`), and only falls back to a
+ * container's `Config.Env` (`RawContainerRecreateSpec.env`) when the
+ * image cannot be inspected. A container's env is Docker's merge of its
+ * image's `ENV` with container-level env, and containers recreated by the
+ * 1.0.0/1.0.1 updaters carry the *previous* image's `DWG_VERSION` as
+ * explicit container env — reading the container there reports the
+ * version it was updated *from* (`image-swap-spec.ts`'s header).
  */
 export function extractBakedImageFacts(env: readonly string[]): BakedImageFacts {
   let version: string | null = null;

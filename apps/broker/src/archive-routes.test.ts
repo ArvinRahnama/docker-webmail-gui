@@ -63,6 +63,7 @@ function stubDocker(overrides: Partial<DockerApi> = {}): DockerApi {
     putContainerArchive: () => Promise.reject(new Error('not stubbed')),
     pullImage: () => Promise.reject(new Error('not stubbed')),
     inspectContainerForRecreate: () => Promise.reject(new Error('not stubbed')),
+    inspectImageConfig: () => Promise.reject(new Error('not stubbed')),
     createContainer: () => Promise.reject(new Error('not stubbed')),
     removeContainer: () => Promise.reject(new Error('not stubbed')),
     ...overrides,

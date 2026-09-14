@@ -18,6 +18,7 @@ import type {
   RawContainerStats,
   RawExecResult,
   RawImage,
+  RawImageConfig,
   RawImagePruneResult,
   RawLogsOptions,
   RawNetwork,
@@ -462,7 +463,7 @@ export function createRealDockerApi(socketPath: string): DockerApi {
 
     // ------------------------------------------------------------------
     // Panel self-update only (docs/design/self-update.md §1-2). See
-    // docker-types.ts's own header comment on why these four exist
+    // docker-types.ts's own header comment on why these five exist
     // outside the "every method backs a BrokerOperation" rule the rest of
     // this interface follows.
     // ------------------------------------------------------------------
@@ -485,6 +486,20 @@ export function createRealDockerApi(socketPath: string): DockerApi {
     async inspectContainerForRecreate(id): Promise<RawContainerRecreateSpec> {
       const raw = await docker.getContainer(id).inspect();
       return toContainerRecreateSpec(raw);
+    },
+
+    async inspectImageConfig(id): Promise<RawImageConfig> {
+      const raw = await docker.getImage(id).inspect();
+      // `@types/dockerode` types all three as always present, but the
+      // Engine API reports `null` for an image built without any `ENV`,
+      // `LABEL` or `CMD` — normalised to the same empty/`null` shape
+      // `toContainerRecreateSpec` uses, so the two compare like-for-like.
+      return {
+        id: raw.Id,
+        env: raw.Config?.Env ?? [],
+        labels: raw.Config?.Labels ?? {},
+        cmd: raw.Config?.Cmd ?? null,
+      };
     },
 
     async createContainer(spec): Promise<{ readonly id: string }> {

@@ -22,7 +22,12 @@
  *     up front, before either is touched. This ordering is deliberate:
  *     capturing lazily (only when about to replace a given container)
  *     would leave no rollback plan for a container already replaced by
- *     the time a *later* step fails.
+ *     the time a *later* step fails. Both containers' *current images*
+ *     are inspected here too, so the new containers can be created
+ *     without the env/labels/cmd they merely inherited from those old
+ *     images (`image-swap-spec.ts` — the 1.0.0 -> 1.0.1 "panel still
+ *     reports the old version" bug). Rollback always uses the captured
+ *     spec itself, never the filtered one.
  *  3. Recreate `dwg-server`, poll its health, bounded. A failure rolls
  *     `dwg-server` back to its captured spec/image and stops here —
  *     `dwg-broker` was never touched, so there is nothing to unwind on
@@ -35,7 +40,8 @@
  *     applied here at runtime, not just at build time).
  *  5. Both healthy -> success.
  */
-import type { DockerApi, RawContainerRecreateSpec } from '../docker-types.js';
+import type { DockerApi, RawContainerRecreateSpec, RawImageConfig } from '../docker-types.js';
+import { buildImageSwapSpec } from './image-swap-spec.js';
 import {
   PANEL_SERVER_REPOSITORY,
   extractPanelVersion,
@@ -133,6 +139,26 @@ async function resolveFromVersion(docker: DockerApi, serverImage: string): Promi
   return extractPanelVersion(match.repoTags, PANEL_SERVER_REPOSITORY);
 }
 
+/**
+ * Best-effort: the old image's own config, for {@link buildImageSwapSpec}
+ * to subtract from the captured container spec. `null` (never a throw)
+ * when the inspect fails — the image cannot normally be gone, since a
+ * container still uses it, but a failure here must not turn an update
+ * that can otherwise proceed into an aborted one; `buildImageSwapSpec`'s
+ * own `null` handling still drops the provenance entries that caused the
+ * stale-version bug.
+ */
+async function inspectOldImageConfig(
+  docker: DockerApi,
+  imageId: string,
+): Promise<RawImageConfig | null> {
+  try {
+    return await docker.inspectImageConfig(imageId);
+  } catch {
+    return null;
+  }
+}
+
 async function resolveIdByName(docker: DockerApi, name: string): Promise<string | null> {
   const all = await docker.listContainers({ all: true });
   return all.find((container) => container.names.includes(name))?.id ?? null;
@@ -215,6 +241,8 @@ export async function runSelfUpdate(deps: UpdaterDeps): Promise<UpdaterOutcome> 
   // later step with no plan to roll back to.
   const serverPlan = await docker.inspectContainerForRecreate(serverId);
   const brokerPlan = await docker.inspectContainerForRecreate(brokerId);
+  const serverOldImage = await inspectOldImageConfig(docker, serverPlan.image);
+  const brokerOldImage = await inspectOldImageConfig(docker, brokerPlan.image);
   const fromVersion = await resolveFromVersion(docker, serverPlan.image);
 
   // Written before any teardown (docs/design/self-update.md §9.7) — a
@@ -225,11 +253,17 @@ export async function runSelfUpdate(deps: UpdaterDeps): Promise<UpdaterOutcome> 
     rollbackPlan: { server: serverPlan, broker: brokerPlan },
   });
 
-  const serverResult = await recreateAndWaitHealthy(deps, serverId, {
-    ...serverPlan,
-    image: target.serverImageRef,
-  });
+  // Never `{ ...serverPlan, image }`: the captured env/labels/cmd include
+  // everything Docker merged in from the OLD image, and passing those on
+  // would pin them over the new image's own (`image-swap-spec.ts`).
+  const serverResult = await recreateAndWaitHealthy(
+    deps,
+    serverId,
+    buildImageSwapSpec(serverPlan, serverOldImage, target.serverImageRef),
+  );
   if (!serverResult.healthy) {
+    // The captured spec, unfiltered — full original env included — so the
+    // rollback is the container that existed before, not a variant of it.
     await stopAndRemove(docker, serverResult.newId);
     await createAndStart(docker, serverPlan);
     const reason = 'The recreated server container did not become healthy in time.';
@@ -244,10 +278,11 @@ export async function runSelfUpdate(deps: UpdaterDeps): Promise<UpdaterOutcome> 
     return { outcome: 'rolled-back', reason };
   }
 
-  const brokerResult = await recreateAndWaitHealthy(deps, brokerId, {
-    ...brokerPlan,
-    image: target.brokerImageRef,
-  });
+  const brokerResult = await recreateAndWaitHealthy(
+    deps,
+    brokerId,
+    buildImageSwapSpec(brokerPlan, brokerOldImage, target.brokerImageRef),
+  );
   if (!brokerResult.healthy) {
     // Roll back BOTH — the server is already on the new version at this
     // point, and this project never leaves the two on different versions

@@ -133,9 +133,13 @@ ENV NODE_ENV=production
 # can honestly answer "what version am I, and was I actually published"
 # for the broker's `panel.selfUpdateCheck` to inspect later
 # (`apps/broker/src/self-update/image-refs.ts`'s `extractBakedImageFacts`
-# reads these straight out of `docker inspect`'s `Config.Env` — this
-# tier holds no Docker socket itself, so it cannot ask Docker "which
-# image am I" the way the broker can for the *other* container).
+# reads these out of this image's own `Config.Env`, via `docker image
+# inspect` of the image the container runs — never the container's merged
+# env, which a pre-1.0.2 self-update left pinned to the previous image's
+# values; `apps/broker/src/self-update/image-swap-spec.ts` has the full
+# account. This tier holds no Docker socket itself, so it cannot ask
+# Docker "which image am I" the way the broker can for the *other*
+# container).
 # `DWG_IMAGE_ORIGIN` defaults to `source`: a plain `docker build` or
 # `docker compose build` — including the installer's own
 # `DWG_IMAGE_MODE=build` path — never claims to be a registry-published

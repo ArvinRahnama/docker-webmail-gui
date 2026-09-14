@@ -9,6 +9,23 @@ As of `1.0.0`, this project follows Semantic Versioning: incompatible changes
 to the public API, configuration format, or database schema bump the major
 version and are called out explicitly here.
 
+## [Unreleased]
+
+### Fixed
+
+- **Self-update left the panel reporting the previous version.** After a
+  successful in-panel update the new code ran, but the panel kept showing
+  the old version and offering the same update again. The updater copied
+  each container's full environment — including values baked into the
+  *old* image, such as its version marker — onto the new container, where
+  they overrode the new image's own. The update check now reads the version
+  from the image each container actually runs, so installs already affected
+  by this report correctly as soon as this release is running, and the
+  updater no longer carries image-owned environment, labels or command
+  across an image swap (operator settings from `.env`/compose are kept, and
+  a rollback still restores the original container exactly). The next
+  update also cleans out the stale values earlier updates left behind.
+
 ## [1.0.1] - 2026-09-14
 
 ### Fixed

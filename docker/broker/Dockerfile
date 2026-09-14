@@ -82,12 +82,12 @@ ENV NODE_ENV=production
 # it holds the Docker socket and could in principle just read its own
 # `process.env`: `operations.ts`'s `handlePanelSelfUpdateCheck`
 # deliberately inspects *both* panel containers the same uniform way
-# (`inspectContainerForRecreate` -> `docker inspect`'s own `Config.Env`,
-# via `extractBakedImageFacts`) rather than special-casing "read my own
+# (`inspectContainerForRecreate` for the image id each runs, then
+# `inspectImageConfig` -> that image's own `Config.Env`, via
+# `extractBakedImageFacts`) rather than special-casing "read my own
 # env directly, ask Docker about the other one" — one code path, and this
-# is what makes that container's own `docker inspect` report these two
-# values honestly when the broker inspects itself the same way it
-# inspects `dwg-server`.
+# is what makes the broker's own image report these two values honestly
+# when the broker inspects itself the same way it inspects `dwg-server`.
 ARG DWG_VERSION=0.1.0
 ARG DWG_IMAGE_ORIGIN=source
 ENV DWG_VERSION=${DWG_VERSION}

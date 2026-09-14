@@ -196,6 +196,7 @@ function createStubDocker(overrides: Partial<DockerApi> = {}): DockerApi {
     // self-update's own operation logic (operations.test.ts).
     pullImage: () => Promise.reject(new Error('not stubbed')),
     inspectContainerForRecreate: () => Promise.reject(new Error('not stubbed')),
+    inspectImageConfig: () => Promise.reject(new Error('not stubbed')),
     createContainer: () => Promise.reject(new Error('not stubbed')),
     removeContainer: () => Promise.reject(new Error('not stubbed')),
     ...overrides,

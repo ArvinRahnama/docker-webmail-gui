@@ -65,6 +65,18 @@ export const ConfigSettingSchema = z.object({
   /** `true` when a secret's real value is currently masked in this response — always `false` for a non-secret setting. */
   masked: z.boolean(),
   value: z.string().nullable(),
+  /**
+   * The saved-but-not-yet-active value from the settings-editor's own
+   * store, when it differs from `value` (the currently running one) —
+   * `modules/config/config.service.ts`'s `apply()` persists a change
+   * durably, but this process only reads its config once at process
+   * start, so "saved" and "running" can legitimately disagree until the
+   * next restart. `null` whenever there is nothing pending, the saved
+   * value has already caught up with the running one, or (same rule as
+   * `value`) the setting is a masked secret — a persisted override is
+   * never echoed back in plaintext outside the audited reveal flow.
+   */
+  pendingValue: z.string().nullable(),
   /** `'boolean'` iff this key's valid domain is exactly `{"true","false"}` — see {@link ConfigSettingValueType}. A boolean setting is also never `secret` in practice, but the two are independent facts. */
   valueType: ConfigSettingValueTypeSchema,
 });

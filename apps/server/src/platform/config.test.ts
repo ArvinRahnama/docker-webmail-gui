@@ -221,6 +221,44 @@ describe('loadConfig — general validation aggregation', () => {
   });
 });
 
+describe('loadConfig — overrides (settings editor values winning over the environment)', () => {
+  it('an override beats the environment value for the same key', () => {
+    const config = loadConfig({ ENABLE_EXEC_CONSOLE: 'false' }, { ENABLE_EXEC_CONSOLE: 'true' });
+    expect(config.enableExecConsole).toBe(true);
+  });
+
+  it('is a no-op when no overrides are given, matching the previous single-argument behaviour', () => {
+    const config = loadConfig({ LOG_LEVEL: 'debug' });
+    expect(config.logLevel).toBe('debug');
+  });
+
+  it('falls back to the environment value and warns, rather than throwing, when an override fails validation', () => {
+    const config = loadConfig({ LOG_LEVEL: 'info' }, { LOG_LEVEL: 'shout' });
+    expect(config.logLevel).toBe('info');
+    expect(config.warnings.some((w) => w.includes('LOG_LEVEL'))).toBe(true);
+  });
+
+  it('drops only the bad override and keeps a good one from the same change set', () => {
+    const config = loadConfig(
+      { LOG_LEVEL: 'info', ENABLE_HSTS: 'false' },
+      { LOG_LEVEL: 'not-a-real-level', ENABLE_HSTS: 'true' },
+    );
+    expect(config.logLevel).toBe('info'); // bad override dropped, environment value kept
+    expect(config.enableHsts).toBe(true); // good override applied
+  });
+
+  it('drops an override that fails a cross-field (production secret length) rule without bricking startup', () => {
+    const config = loadConfig(validProductionEnv(), { COOKIE_SECRET: SHORT_SECRET });
+    expect(config.cookieSecret).toBe('a'.repeat(32)); // the valid environment value, not the short override
+    expect(config.warnings.some((w) => w.includes('COOKIE_SECRET'))).toBe(true);
+    expect(config.warnings.every((w) => !w.includes(SHORT_SECRET))).toBe(true);
+  });
+
+  it('still throws when the base environment itself is invalid, independent of any override', () => {
+    expect(() => loadConfig({ LOG_LEVEL: 'shout' }, { ENABLE_HSTS: 'true' })).toThrow(ConfigError);
+  });
+});
+
 describe('loadConfig — STATIC_DIR (M13: serving the built SPA)', () => {
   it('is null when unset — the local-dev default (Vite dev server serves the SPA instead)', () => {
     expect(loadConfig({}).staticDir).toBeNull();

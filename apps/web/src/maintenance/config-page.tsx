@@ -170,10 +170,13 @@ export function ConfigPage() {
     for (const setting of settings) {
       const edited = edits[setting.key];
       if (edited === undefined) continue;
-      // An edit typed and then reverted to the current value is not a
-      // change; sending it would produce a no-op diff row and a
-      // misleading audit entry.
-      const baseline = revealed[setting.key] ?? setting.value ?? '';
+      // An edit typed and then reverted to what would otherwise be
+      // applied is not a change; sending it would produce a no-op diff
+      // row and a misleading audit entry. That baseline is the saved
+      // (pending) value when one is waiting on a restart, not the
+      // currently running value — re-typing the value already saved is
+      // still a no-op even though it differs from what is running.
+      const baseline = revealed[setting.key] ?? setting.pendingValue ?? setting.value ?? '';
       if (edited === baseline) continue;
       result[setting.key] = edited;
     }
@@ -321,8 +324,17 @@ export function ConfigPage() {
             const editable = setting.classification !== 'read-only';
             const inputId = `config-${setting.key}`;
             const revealedValue = revealed[setting.key];
+            // A saved-but-not-yet-active value (`pendingValue`) is what
+            // this field will actually be once the panel restarts, so it
+            // is what the field displays — showing the still-running
+            // value here is exactly the "apply looks like it did
+            // nothing" bug this shape exists to fix.
             const fieldValue =
-              edits[setting.key] ?? revealedValue ?? (setting.masked ? '' : (setting.value ?? ''));
+              edits[setting.key] ??
+              revealedValue ??
+              (setting.masked ? '' : (setting.pendingValue ?? setting.value ?? ''));
+            const hasPendingChange =
+              setting.pendingValue !== null && setting.pendingValue !== setting.value;
 
             return (
               <Card key={setting.key}>
@@ -405,7 +417,12 @@ export function ConfigPage() {
                     </div>
                   )}
 
-                  <p className="text-text-secondary">{IMPACT_SENTENCES[setting.classification]}</p>
+                  <p className="text-text-secondary">
+                    {IMPACT_SENTENCES[setting.classification]}
+                    {hasPendingChange
+                      ? ` Currently running: ${setting.value === null ? 'not set' : setting.value}.`
+                      : null}
+                  </p>
                 </CardContent>
               </Card>
             );

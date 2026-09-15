@@ -178,14 +178,69 @@ export function findSettingDefinition(key: string): SettingDefinition | null {
   return SETTINGS_ALLOWLIST.find((setting) => setting.key === key) ?? null;
 }
 
-/** Builds the client-facing `ConfigSetting` for one definition, masking a secret's value unless `reveal` is true — the same mask/reveal split `config.service.ts`'s `describe`/`reveal` methods are named after. */
+/**
+ * Filters persisted settings-table overrides (`ConfigRepository.getAllOverrides`)
+ * down to the keys process startup may honour: allowlisted **and** not
+ * `read-only`. This is the safety boundary `index.ts` relies on before
+ * folding saved overrides into `loadConfig` (`platform/config.ts`'s
+ * `overrides` parameter):
+ *
+ *  - An unknown key (never in {@link SETTINGS_ALLOWLIST}, e.g. stale data
+ *    from a removed setting) is dropped — the same "unknown key is
+ *    rejected" rule `apply()` already enforces on the way in.
+ *  - A `read-only` key is dropped even if present, because `read-only`
+ *    here specifically means "this side of the config is not the
+ *    authority" — `DMS_CONTAINER_NAME` and `BROKER_SHARED_SECRET` are
+ *    each read from *this* process's own environment for display, but
+ *    the broker (a separate process/container, its own `.env`) resolves
+ *    its own copy of the same name independently and never reads this
+ *    panel's `settings` table. Applying a locally-saved override to
+ *    either would desynchronise the two processes — silently breaking
+ *    server -> broker auth for `BROKER_SHARED_SECRET`, or repointing
+ *    only one side of the pair at a different container for
+ *    `DMS_CONTAINER_NAME` — without ever getting the chance to actually
+ *    rotate/repoint the other side. `apply()`/`validate()` already
+ *    refuse to ever *write* an override for a read-only key
+ *    (`ConfigService.validate`); this is the read-side mirror of that
+ *    same refusal, defensive against a stale row rather than a code path
+ *    that should currently be reachable.
+ */
+export function filterStartupOverrides(
+  overrides: ReadonlyMap<string, string>,
+): Readonly<Record<string, string>> {
+  const result: Record<string, string> = {};
+  for (const [key, value] of overrides) {
+    const definition = findSettingDefinition(key);
+    if (definition !== null && definition.classification !== 'read-only') {
+      result[key] = value;
+    }
+  }
+  return result;
+}
+
+/**
+ * Builds the client-facing `ConfigSetting` for one definition, masking a
+ * secret's value unless `reveal` is true — the same mask/reveal split
+ * `config.service.ts`'s `describe`/`reveal` methods are named after.
+ *
+ * `overrideValue` is whatever `ConfigRepository.getOverride` currently
+ * holds for this key (`null` if the admin has never changed it away
+ * from its environment default) — the caller passes it in rather than
+ * this function reaching for a repository itself, keeping this a pure
+ * function of its arguments. See `ConfigSettingSchema`'s `pendingValue`
+ * doc comment (`@dwg/shared`) for why "saved" and "running" can
+ * legitimately disagree.
+ */
 export function describeSetting(
   definition: SettingDefinition,
   config: AppConfig,
   reveal: boolean,
+  overrideValue: string | null,
 ): ConfigSetting {
   const rawValue = definition.getValue(config);
   const masked = definition.secret && !reveal;
+  const pendingValue =
+    masked || overrideValue === null || overrideValue === rawValue ? null : overrideValue;
   return {
     key: definition.key,
     label: definition.label,
@@ -194,6 +249,7 @@ export function describeSetting(
     secret: definition.secret,
     masked,
     value: masked ? null : rawValue,
+    pendingValue,
     valueType: definition.valueType ?? 'string',
   };
 }

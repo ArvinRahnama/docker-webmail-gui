@@ -33,6 +33,7 @@ function makeSetting(overrides: Partial<ConfigSetting> = {}): ConfigSetting {
     secret: false,
     masked: false,
     value: 'info',
+    pendingValue: null,
     valueType: 'string',
     ...overrides,
   };
@@ -416,5 +417,79 @@ describe('ConfigPage — apply', () => {
     await waitFor(() => {
       expect(vi.mocked(applyConfig)).toHaveBeenCalledWith({ ENABLE_HSTS: 'false' });
     });
+  });
+});
+
+describe('ConfigPage — pending value after apply (server has not restarted yet)', () => {
+  it('shows the saved value, not the still-running one, and explains that a restart is pending', async () => {
+    vi.mocked(fetchConfigSettings).mockResolvedValue([
+      makeSetting({ value: 'info', pendingValue: 'debug' }),
+    ]);
+    vi.mocked(fetchConfigSnapshots).mockResolvedValue([]);
+
+    renderPage();
+
+    // The field shows the saved (pending) value, never the value that
+    // snaps back to "info" — that snap-back is exactly the bug this
+    // field exists to fix.
+    const field = await screen.findByLabelText('Log level');
+    expect(field).toHaveValue('debug');
+
+    // And it says so in prose, naming the value still actually running.
+    expect(await screen.findByText(/Currently running: info\./)).toBeInTheDocument();
+  });
+
+  it('does not treat re-typing the already-saved pending value as a new change', async () => {
+    const user = userEvent.setup();
+    vi.mocked(fetchConfigSettings).mockResolvedValue([
+      makeSetting({ value: 'info', pendingValue: 'debug' }),
+    ]);
+    vi.mocked(fetchConfigSnapshots).mockResolvedValue([]);
+
+    renderPage();
+
+    const field = await screen.findByLabelText('Log level');
+    expect(screen.getByRole('button', { name: /Review/ })).toBeDisabled();
+
+    // Editing away from the pending value is a real change...
+    await user.clear(field);
+    await user.type(field, 'trace');
+    expect(screen.getByRole('button', { name: /1 change/ })).toBeEnabled();
+
+    // ...and back to the pending value is a no-op again, not "1 change"
+    // relative to the (different) running value.
+    await user.clear(field);
+    await user.type(field, 'debug');
+    expect(screen.getByRole('button', { name: /Review/ })).toBeDisabled();
+  });
+
+  it('shows a boolean toggle in its pending state, not its running one', async () => {
+    vi.mocked(fetchConfigSettings).mockResolvedValue([
+      makeSetting({
+        key: 'ENABLE_HSTS',
+        label: 'HTTP Strict Transport Security',
+        valueType: 'boolean',
+        value: 'true',
+        pendingValue: 'false',
+      }),
+    ]);
+    vi.mocked(fetchConfigSnapshots).mockResolvedValue([]);
+
+    renderPage();
+
+    const toggle = await screen.findByRole('switch', { name: 'HTTP Strict Transport Security' });
+    expect(toggle).not.toBeChecked();
+  });
+
+  it('shows no pending note and the plain classification sentence when nothing is pending', async () => {
+    vi.mocked(fetchConfigSettings).mockResolvedValue([
+      makeSetting({ value: 'info', pendingValue: null }),
+    ]);
+    vi.mocked(fetchConfigSnapshots).mockResolvedValue([]);
+
+    renderPage();
+
+    await screen.findByLabelText('Log level');
+    expect(screen.queryByText(/Currently running:/)).not.toBeInTheDocument();
   });
 });

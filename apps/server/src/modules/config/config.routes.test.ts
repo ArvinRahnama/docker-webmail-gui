@@ -1,4 +1,7 @@
 import { describe, expect, it } from 'vitest';
+import { loadConfig } from '../../platform/config.js';
+import { ConfigRepository } from './config.repository.js';
+import { filterStartupOverrides } from './settings-allowlist.js';
 import { authedInject, loginAs, setUpConfigApp } from './config-test-harness.js';
 
 describe('/api/v1/config', () => {
@@ -265,6 +268,72 @@ describe('/api/v1/config', () => {
       });
       expect(response.statusCode).toBe(404);
       await app.close();
+    });
+  });
+
+  // Regression coverage for the bug this milestone fixes: applying a
+  // change persisted it, but nothing ever read it back at process start,
+  // so a restart silently reverted to the environment/compose default.
+  describe('overrides actually take effect on the next process start', () => {
+    it('a value applied through /apply is what index.ts-style startup (loadConfig + filterStartupOverrides) would load', async () => {
+      const { app, db } = await setUpConfigApp();
+      const auth = await loginAs(app);
+
+      const applyResponse = await authedInject(app, auth, {
+        method: 'POST',
+        url: '/api/v1/config/apply',
+        payload: { changes: { ENABLE_EXEC_CONSOLE: 'true' }, confirm: true },
+      });
+      expect(applyResponse.statusCode).toBe(200);
+
+      // Mirrors index.ts's own two-pass load: filter the persisted
+      // overrides down to what startup may honour, then fold them onto
+      // a fresh environment the same way a real restart would.
+      const overrides = filterStartupOverrides(new ConfigRepository(db).getAllOverrides());
+      const reloaded = loadConfig({}, overrides);
+      expect(reloaded.enableExecConsole).toBe(true);
+
+      await app.close();
+    });
+
+    it('/settings shows the saved value as pendingValue while the value still running is the old one', async () => {
+      const { app } = await setUpConfigApp();
+      const auth = await loginAs(app);
+
+      await authedInject(app, auth, {
+        method: 'POST',
+        url: '/api/v1/config/apply',
+        payload: { changes: { ENABLE_EXEC_CONSOLE: 'true' }, confirm: true },
+      });
+
+      const response = await authedInject(app, auth, {
+        method: 'GET',
+        url: '/api/v1/config/settings',
+      });
+      expect(response.statusCode).toBe(200);
+      const body = response.json() as {
+        settings: { key: string; value: string | null; pendingValue: string | null }[];
+      };
+      const setting = body.settings.find((s) => s.key === 'ENABLE_EXEC_CONSOLE');
+      // This test harness's server process was never restarted, so the
+      // *running* AppConfig still reflects the environment default —
+      // only the saved/pending value should show the applied change.
+      expect(setting?.value).toBe('false');
+      expect(setting?.pendingValue).toBe('true');
+
+      await app.close();
+    });
+
+    it('an override for a read-only key is never honoured at startup, even if one were somehow persisted', async () => {
+      const { db } = await setUpConfigApp();
+      const now = new Date().toISOString();
+      new ConfigRepository(db).setOverride('DMS_CONTAINER_NAME', 'a-different-container', now);
+
+      const overrides = filterStartupOverrides(new ConfigRepository(db).getAllOverrides());
+      expect(overrides).not.toHaveProperty('DMS_CONTAINER_NAME');
+
+      const reloaded = loadConfig({}, overrides);
+      expect(reloaded.dms.containerName).toBe('mailserver');
     });
   });
 });

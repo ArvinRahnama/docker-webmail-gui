@@ -9,6 +9,31 @@ As of `1.0.0`, this project follows Semantic Versioning: incompatible changes
 to the public API, configuration format, or database schema bump the major
 version and are called out explicitly here.
 
+## [Unreleased]
+
+### Fixed
+
+- **Saved settings never took effect, even after a restart.** Applying a
+  change on the Configuration page persisted it and said a restart was
+  required, but nothing ever read that saved value back at startup — the
+  panel always loaded straight from the environment/compose defaults, so
+  the setting silently reverted every time (most visibly with the
+  restricted command console toggle, but every setting on that page was
+  affected, including the Rspamd controller password). The panel now
+  loads its saved settings-editor values on top of the environment at
+  startup, so an explicit change made in the panel wins over the
+  `.env`/compose default it started from and actually takes effect on the
+  next restart. Two settings that are resolved independently by the
+  broker process (the managed container name and the broker shared
+  secret) were already read-only in the editor for exactly this reason
+  and are correctly still never applied this way. A saved value that
+  fails validation (for example after the underlying environment changed)
+  is logged as a warning and skipped rather than blocking startup. The
+  Configuration page itself no longer looks like it "reverted": right
+  after applying, it now shows the saved value and, when it differs from
+  what is still actually running, says so plainly until the next restart
+  catches up.
+
 ## [1.0.2] - 2026-09-14
 
 ### Fixed

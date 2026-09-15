@@ -365,18 +365,95 @@ function generateEphemeralSecret(): string {
 }
 
 /**
- * Loads and validates configuration from `env` (defaults to
- * `process.env`). Throws a single {@link ConfigError} listing every
- * problem at once. Returns a frozen, fully-typed config object.
+ * Folds `overrides` on top of `env`, one key at a time, dropping any
+ * override that would make the *combined* environment fail validation
+ * rather than letting it take the whole process down — a saved settings
+ * editor value must never brick startup (`loadConfig`'s own doc
+ * comment). The caller (`index.ts`) is responsible for restricting
+ * `overrides` to keys this function should trust in the first place —
+ * see `modules/config/settings-allowlist.ts`'s `filterStartupOverrides`
+ * for why not every allowlisted key qualifies.
+ *
+ * Runs `rawEnvSchema.safeParse` up to once per override key: after each
+ * failure, it blames one still-active override that the failing issues
+ * point at and reverts *only that key* to its plain `env` value, then
+ * retries. A failure that cannot be pinned on any remaining override
+ * (i.e. `env` alone is already invalid) is left for the caller's own
+ * `safeParse` to report normally — this function does not swallow that
+ * case, only override-caused failures.
  */
-export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
-  const result = rawEnvSchema.safeParse(env);
+function resolveEffectiveEnv(
+  env: NodeJS.ProcessEnv,
+  overrides: Readonly<Record<string, string>>,
+): { readonly merged: NodeJS.ProcessEnv; readonly warnings: readonly string[] } {
+  const merged: NodeJS.ProcessEnv = { ...env };
+  const active = new Set(Object.keys(overrides));
+  for (const key of active) {
+    merged[key] = overrides[key];
+  }
+
+  const warnings: string[] = [];
+  // Bounded by the *initial* number of overrides, captured once:
+  // `active` shrinks by one on every non-breaking iteration (a revert),
+  // so bounding against `active.size` directly would under-count and
+  // stop early with more than one bad override still in `merged`.
+  const maxAttempts = active.size;
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    const result = rawEnvSchema.safeParse(merged);
+    if (result.success) break;
+
+    const badKey = result.error.issues
+      .map((issue) => issue.path[0])
+      .find(
+        (key): key is string =>
+          typeof key === 'string' && active.has(key) && merged[key] === overrides[key],
+      );
+    if (badKey === undefined) {
+      // Nothing left to blame on an override — env alone is invalid;
+      // let the safeParse below report it the normal way.
+      break;
+    }
+
+    const issue = result.error.issues.find((candidate) => candidate.path[0] === badKey);
+    warnings.push(
+      `Ignoring the saved override for ${badKey} (${issue?.message ?? 'invalid value'}); ` +
+        'using the environment value instead. Fix and re-save it in the settings editor.',
+    );
+    merged[badKey] = env[badKey];
+    active.delete(badKey);
+  }
+
+  return { merged, warnings };
+}
+
+/**
+ * Loads and validates configuration from `env` (defaults to
+ * `process.env`), with `overrides` folded on top of it first — saved
+ * settings-editor values (`modules/config/config.service.ts`'s
+ * `apply()`) winning over the environment/compose default they started
+ * from, so an admin's later, explicit choice actually takes effect on
+ * the next restart instead of being silently shadowed by it forever.
+ * `overrides` defaults to empty, so every existing call site (tests
+ * included) that only ever cared about `env` is unaffected.
+ *
+ * An override that fails validation is dropped with a warning rather
+ * than thrown — see {@link resolveEffectiveEnv}. Throws a single
+ * {@link ConfigError} listing every *remaining* problem at once (i.e.
+ * ones not caused by a droppable override). Returns a frozen,
+ * fully-typed config object.
+ */
+export function loadConfig(
+  env: NodeJS.ProcessEnv = process.env,
+  overrides: Readonly<Record<string, string>> = {},
+): AppConfig {
+  const { merged, warnings: overrideWarnings } = resolveEffectiveEnv(env, overrides);
+  const result = rawEnvSchema.safeParse(merged);
   if (!result.success) {
     throw new ConfigError(formatZodIssues(result.error.issues));
   }
 
   const data: RawEnv = result.data;
-  const warnings: string[] = [];
+  const warnings: string[] = [...overrideWarnings];
 
   let cookieSecret = data.COOKIE_SECRET;
   let cookieSecretIsEphemeral = false;

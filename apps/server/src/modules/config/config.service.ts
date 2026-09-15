@@ -61,11 +61,23 @@ export class ConfigService {
     private readonly config: AppConfig,
   ) {}
 
-  /** Every allowlisted setting's *currently running* value — secrets masked. */
+  /**
+   * Every allowlisted setting's *currently running* value — secrets
+   * masked — plus, per key, whatever saved-but-not-yet-active value is
+   * sitting in the `settings` table (`ConfigSetting.pendingValue`; see
+   * that schema's doc comment). Without this, the editor has no way to
+   * distinguish "the admin's apply did nothing" from "it worked, but
+   * this process has not restarted yet".
+   */
   describe(): ConfigSettingsResponse {
     return {
       settings: SETTINGS_ALLOWLIST.map((definition) =>
-        describeSetting(definition, this.config, false),
+        describeSetting(
+          definition,
+          this.config,
+          false,
+          this.repository.getOverride(definition.key),
+        ),
       ),
     };
   }
@@ -82,7 +94,12 @@ export class ConfigService {
         `${key} is not a secret; its value is already visible.`,
       );
     }
-    const described = describeSetting(definition, this.config, true);
+    const described = describeSetting(
+      definition,
+      this.config,
+      true,
+      this.repository.getOverride(key),
+    );
     return { key, value: described.value };
   }
 

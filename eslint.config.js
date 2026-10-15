@@ -202,6 +202,7 @@ export default [
     files: [
       'apps/server/**/*.{ts,tsx}',
       'apps/broker/**/*.{ts,tsx}',
+      'apps/mcp/**/*.{ts,tsx}',
       'packages/*/**/*.{ts,tsx}',
       'e2e/**/*.{ts,tsx,mjs}',
     ],
@@ -230,6 +231,41 @@ export default [
       'no-restricted-imports': [
         'error',
         { paths: [...shellExecRestrictedImportPaths, ...dockerClientRestrictedImportPaths] },
+      ],
+    },
+  },
+
+  // apps/mcp is the optional, internet-facing MCP integration
+  // (docs/mcp-integration.md), embedded in the server process. It uses no
+  // Docker client and runs no processes at all: it reaches mail only over
+  // IMAP/SMTP with each mailbox's own credential. Banning Docker clients and
+  // child_process outright makes either change a deliberate, reviewed edit
+  // to this file rather than one import line.
+  // Test files are exempt: the integration suite drives the test mail
+  // server with `docker exec` and is never part of the image.
+  {
+    files: ['apps/mcp/**/*.{ts,tsx}'],
+    ignores: ['apps/mcp/**/*.test.ts'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          paths: [
+            ...dockerClientRestrictedImportPaths.map((entry) => ({
+              ...entry,
+              message:
+                'apps/mcp holds no Docker socket (docs/mcp-integration.md). It reaches mail over IMAP/SMTP only.',
+            })),
+            {
+              name: 'child_process',
+              message: 'apps/mcp runs no subprocesses (docs/mcp-integration.md).',
+            },
+            {
+              name: 'node:child_process',
+              message: 'apps/mcp runs no subprocesses (docs/mcp-integration.md).',
+            },
+          ],
+        },
       ],
     },
   },

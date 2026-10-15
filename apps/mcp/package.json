@@ -1,0 +1,41 @@
+{
+  "name": "@dwg/mcp",
+  "version": "0.1.0",
+  "private": true,
+  "license": "Apache-2.0",
+  "type": "module",
+  "description": "Optional MCP integration, embedded in the panel's server process: postmaster-issued, per-mailbox MCP connections with an OAuth 2.1 authorization server, over IMAP/SMTP. No Docker access and no broker access — see docs/mcp-integration.md.",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc --build",
+    "test": "vitest run",
+    "test:integration": "vitest run --config vitest.integration.config.ts"
+  },
+  "dependencies": {
+    "@dwg/shared": "^0.1.0",
+    "@fastify/cookie": "^11.0.1",
+    "@fastify/rate-limit": "^11.2.0",
+    "@modelcontextprotocol/server": "^2.3.1",
+    "@node-rs/argon2": "^2.0.2",
+    "fastify": "^5.2.0",
+    "imapflow": "^2.4.3",
+    "nodemailer": "^10.1.1",
+    "pino": "^10.3.1",
+    "postal-mime": "^4.0.7",
+    "undici": "^7.2.0",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/client": "^2.3.1"
+  }
+}

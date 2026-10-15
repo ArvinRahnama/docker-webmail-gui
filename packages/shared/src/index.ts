@@ -29,3 +29,4 @@ export * from './dashboard.js';
 export * from './notifications.js';
 export * from './csp.js';
 export * from './self-update.js';
+export * from './mcp.js';

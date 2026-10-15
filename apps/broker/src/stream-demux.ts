@@ -87,6 +87,19 @@ export function decodeTtyBuffer(buffer: Buffer): DemuxedFrame[] {
   return buffer.length === 0 ? [] : [{ stream: 'stdout', data: buffer }];
 }
 
+/**
+ * One stream's complete output as text: its frames' bytes joined first and
+ * decoded once. Decoding frame by frame would turn a multi-byte UTF-8
+ * character split across two frames into two U+FFFD replacement
+ * characters — and a writer's frame boundaries fall wherever its buffer
+ * filled (every 8 KiB for doveadm), not on character boundaries.
+ */
+export function joinStreamText(frames: readonly DemuxedFrame[], kind: DockerStreamKind): string {
+  return Buffer.concat(
+    frames.filter((frame) => frame.stream === kind).map((frame) => frame.data),
+  ).toString('utf8');
+}
+
 /** Picks the TTY/non-TTY branch per `Config.Tty` from a prior inspect — the same fact Docker itself uses to decide `Content-Type` (§A.2). */
 export function demuxDockerStream(
   buffer: Buffer,

@@ -69,6 +69,12 @@ version and are called out explicitly here.
   `doveadm sieve get` prints is now dropped when a script is read, so the
   editor shows only the stored script and saving it unchanged writes back
   a valid script; the autoresponder status, read the same way, is fixed too.
+- **Command output could garble non-ASCII text at 8 KiB boundaries.** The
+  broker decoded each Docker output frame on its own, so a multi-byte
+  character split across two frames (doveadm writes in 8 KiB blocks) came
+  back as two replacement characters — in a large Sieve script, for
+  example, which saving would then have written back. Each stream's output
+  is now decoded once, whole.
 - **Saved settings never took effect, even after a restart.** Applying a
   change on the Configuration page persisted it and said a restart was
   required, but nothing ever read that saved value back at startup — the

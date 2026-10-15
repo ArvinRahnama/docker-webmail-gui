@@ -27,7 +27,7 @@ import type {
   RawVersion,
   RawVolume,
 } from './docker-types.js';
-import { DockerStreamDemuxer, type DemuxedFrame } from './stream-demux.js';
+import { DockerStreamDemuxer, joinStreamText, type DemuxedFrame } from './stream-demux.js';
 
 /** Docker prefixes container names with `/` (`GET /containers/json`'s `Names`, inspect's `Name`). Strip it so this app's own vocabulary deals in plain names throughout. */
 export function stripLeadingSlash(name: string): string {
@@ -255,13 +255,6 @@ function collectExecFrames(stream: NodeJS.ReadableStream): Promise<DemuxedFrame[
   });
 }
 
-function joinFrames(frames: readonly DemuxedFrame[], kind: DemuxedFrame['stream']): string {
-  return frames
-    .filter((frame) => frame.stream === kind)
-    .map((frame) => frame.data.toString('utf8'))
-    .join('');
-}
-
 /** Builds a {@link DockerApi} backed by a real `dockerode` client against `socketPath`. Connecting is lazy — `dockerode` does not touch the socket until the first call, so constructing this is safe even in a process where the Docker socket may not (yet) exist. */
 export function createRealDockerApi(socketPath: string): DockerApi {
   const docker = new Dockerode({ socketPath });
@@ -450,8 +443,8 @@ export function createRealDockerApi(socketPath: string): DockerApi {
       const frames = await collectExecFrames(stream);
       const inspection = await exec.inspect();
       return {
-        stdout: joinFrames(frames, 'stdout'),
-        stderr: joinFrames(frames, 'stderr'),
+        stdout: joinStreamText(frames, 'stdout'),
+        stderr: joinStreamText(frames, 'stderr'),
         // `ExitCode` is `null` while the exec is still running; the
         // stream has already ended (its `end` event fired) by the time
         // we reach this inspect call, so a real `null` here would mean

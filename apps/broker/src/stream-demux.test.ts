@@ -4,6 +4,7 @@ import {
   demuxDockerStream,
   demuxNonTtyBuffer,
   DockerStreamDemuxer,
+  joinStreamText,
 } from './stream-demux.js';
 
 const STDOUT = 1;
@@ -164,5 +165,40 @@ describe('demuxDockerStream — branches on tty', () => {
     const raw = buildFrame(STDERR, 'x'); // would decode as a stderr frame under non-TTY
     const frames = demuxDockerStream(raw, { tty: true });
     expect(frames).toEqual([{ stream: 'stdout', data: raw }]);
+  });
+});
+
+describe('joinStreamText', () => {
+  /** Builds a raw frame from bytes, so a test can split a character mid-sequence. */
+  function rawFrame(streamType: number, data: Buffer): Buffer {
+    const header = Buffer.alloc(HEADER_LENGTH_FOR_TEST);
+    header.writeUInt8(streamType, 0);
+    header.writeUInt32BE(data.length, 4);
+    return Buffer.concat([header, data]);
+  }
+
+  it('keeps a multi-byte character that a frame boundary splits in two', () => {
+    const text = Buffer.from('# café\nkeep;\n', 'utf8');
+    const split = text.indexOf(0xc3) + 1; // between the two bytes of "é"
+    const frames = demuxNonTtyBuffer(
+      Buffer.concat([
+        rawFrame(STDOUT, text.subarray(0, split)),
+        rawFrame(STDOUT, text.subarray(split)),
+      ]),
+    );
+    expect(frames).toHaveLength(2);
+    expect(joinStreamText(frames, 'stdout')).toBe('# café\nkeep;\n');
+  });
+
+  it('joins only the requested stream, in order', () => {
+    const frames = demuxNonTtyBuffer(
+      Buffer.concat([buildFrame(STDOUT, 'a'), buildFrame(STDERR, 'err'), buildFrame(STDOUT, 'b')]),
+    );
+    expect(joinStreamText(frames, 'stdout')).toBe('ab');
+    expect(joinStreamText(frames, 'stderr')).toBe('err');
+  });
+
+  it('returns an empty string when the stream produced nothing', () => {
+    expect(joinStreamText(demuxNonTtyBuffer(buildFrame(STDERR, 'x')), 'stdout')).toBe('');
   });
 });

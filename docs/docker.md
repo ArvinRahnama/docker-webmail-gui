@@ -93,10 +93,9 @@ less install.sh                  # actually read it — it's short
 sh install.sh
 ```
 
-This project does not yet publish signed release artifacts at a stable URL
-(no image registry push, no release process — `docker.yml`'s own header:
-"It never pushes an image... this is a build-only smoke test, not a release
-pipeline"), so today the only real install path is a git checkout, as
+This project does not yet publish the installer as a signed release
+artifact at a stable URL (`release.yml` publishes the two images to GHCR,
+nothing else), so today the only installer path is a git checkout, as
 above. The two-step pattern above is documented now so the eventual release
 process has a settled answer rather than reaching for `curl | sh` by
 default later — see SECURITY.md §4.4.
@@ -268,9 +267,9 @@ against anything real rather than simulated:
   container CI stands up for this purpose, and never touches its volumes.
 - The best-effort DMS-network auto-join in `install.sh` runs against a
   real (if minimal) named container on every cycle, not as dead code.
-- Both image builds also self-check (`.github/workflows/docker.yml` builds
-  them on every push touching `docker/`): each Dockerfile fails the build
-  if the other tier's dependencies leaked into it — see §4.
+- Both image builds also self-check (the install cycles above build them
+  from source): each Dockerfile fails the build if the other tier's
+  dependencies leaked into it — see §4.
 
 **Panel self-update, asserted in CI separately
 (`.github/workflows/self-update.yml`), also against a real Docker daemon**

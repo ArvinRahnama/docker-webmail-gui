@@ -8,7 +8,6 @@ A self-hosted web admin panel for [`docker-mailserver`](https://github.com/docke
 
 [![CI](https://github.com/ArvinRahnama/docker-webmail-gui/actions/workflows/ci.yml/badge.svg)](https://github.com/ArvinRahnama/docker-webmail-gui/actions/workflows/ci.yml)
 [![Security](https://github.com/ArvinRahnama/docker-webmail-gui/actions/workflows/security.yml/badge.svg)](https://github.com/ArvinRahnama/docker-webmail-gui/actions/workflows/security.yml)
-[![Docker](https://github.com/ArvinRahnama/docker-webmail-gui/actions/workflows/docker.yml/badge.svg)](https://github.com/ArvinRahnama/docker-webmail-gui/actions/workflows/docker.yml)
 [![Installer](https://github.com/ArvinRahnama/docker-webmail-gui/actions/workflows/installer.yml/badge.svg)](https://github.com/ArvinRahnama/docker-webmail-gui/actions/workflows/installer.yml)
 [![License](https://img.shields.io/badge/licence-Apache--2.0-blue.svg)](LICENSE)
 

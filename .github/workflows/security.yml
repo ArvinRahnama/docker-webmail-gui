@@ -1,14 +1,36 @@
 name: Security
 
+# Every job here reads only the dependency manifests (plus the license
+# gate's own script), so a change that touches none of them cannot change a
+# result; the weekly schedule covers advisories published in between.
 on:
+  workflow_dispatch: {}
   push:
     branches:
       - main
+    paths:
+      - 'package.json'
+      - 'package-lock.json'
+      - 'apps/*/package.json'
+      - 'packages/*/package.json'
+      - 'scripts/check-licenses.mjs'
+      - '.github/workflows/security.yml'
   pull_request:
+    paths:
+      - 'package.json'
+      - 'package-lock.json'
+      - 'apps/*/package.json'
+      - 'packages/*/package.json'
+      - 'scripts/check-licenses.mjs'
+      - '.github/workflows/security.yml'
   schedule:
     # Catches newly disclosed advisories against an otherwise-unchanged
     # lockfile, not just at push/PR time.
     - cron: '0 6 * * 1'
+
+concurrency:
+  group: security-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read

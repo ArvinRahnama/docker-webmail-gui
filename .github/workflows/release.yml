@@ -1,16 +1,13 @@
 # Publishes the two images to GHCR when a version tag is pushed. The optional
 # MCP integration (docs/mcp-integration.md) ships inside the server image.
 #
-# Deliberately a separate workflow from `docker.yml`, for two reasons.
-#
-# `docker.yml` filters on `paths: docker/**`, and a `paths` filter applies
-# to the whole `push` event — tags included. A release tag usually points
-# at a commit that changed nothing under `docker/`, so a publish job living
-# there would silently never run. That is the worst possible failure mode
-# for a release: no error, no images, and a tag that looks published.
-#
-# And `docker.yml`'s own header describes it as "a fast build-only smoke
-# test, not a release pipeline". Keeping that true is worth one more file.
+# Deliberately its own workflow, triggered by tags alone. The workflows
+# that build these images for verification (`installer.yml`) filter on
+# `paths`, and a `paths` filter applies to the whole `push` event — tags
+# included. A release tag usually points at a commit that changed none of
+# those paths, so a publish job living there would silently never run. That
+# is the worst possible failure mode for a release: no error, no images,
+# and a tag that looks published.
 #
 # The token is the built-in `GITHUB_TOKEN` (`github.token`), scoped to
 # `packages: write` for this workflow only. No personal access token is

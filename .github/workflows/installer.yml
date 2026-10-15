@@ -45,6 +45,10 @@ on:
       - 'package.json'
       - 'package-lock.json'
       - '.github/workflows/installer.yml'
+      # Unit tests and docs never reach an image; CI covers them.
+      - '!**/*.test.ts'
+      - '!**/*.test.tsx'
+      - '!**/*.md'
   pull_request:
     paths:
       - 'docker/**'
@@ -54,6 +58,9 @@ on:
       - 'package.json'
       - 'package-lock.json'
       - '.github/workflows/installer.yml'
+      - '!**/*.test.ts'
+      - '!**/*.test.tsx'
+      - '!**/*.md'
 
 permissions:
   contents: read

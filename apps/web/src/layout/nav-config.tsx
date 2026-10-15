@@ -4,6 +4,7 @@ import {
   Archive,
   BadgeCheck,
   Ban,
+  Bot,
   Box,
   Bug,
   Container,
@@ -75,6 +76,7 @@ export const NAV_GROUPS: readonly NavGroup[] = [
       { to: '/mail/aliases', label: 'Aliases', icon: Forward },
       { to: '/mail/storage', label: 'Storage', icon: HardDrive },
       { to: '/mail/queue', label: 'Queue', icon: ListOrdered },
+      { to: '/mail/mcp', label: 'MCP Connections', icon: Bot },
     ],
   },
   {

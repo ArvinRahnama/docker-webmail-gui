@@ -16,6 +16,8 @@ import { MailboxDetailPage } from '@/mail/mailbox-detail-page';
 import { AliasesPage } from '@/mail/aliases-page';
 import { StoragePage } from '@/mail/storage-page';
 import { QueuePage } from '@/mail/queue-page';
+import { McpConnectionsPage } from '@/mail/mcp/mcp-connections-page';
+import { McpConnectionDetailPage } from '@/mail/mcp/mcp-connection-detail-page';
 import { EmailAuthListPage } from '@/security/email-auth-list-page';
 import { EmailAuthDetailPage } from '@/security/email-auth-detail-page';
 import { TlsPage } from '@/security/tls-page';
@@ -75,6 +77,8 @@ export default function App() {
                 <Route path="/mail/aliases" element={<AliasesPage />} />
                 <Route path="/mail/storage" element={<StoragePage />} />
                 <Route path="/mail/queue" element={<QueuePage />} />
+                <Route path="/mail/mcp" element={<McpConnectionsPage />} />
+                <Route path="/mail/mcp/:id" element={<McpConnectionDetailPage />} />
                 <Route path="/security/email-auth" element={<EmailAuthListPage />} />
                 <Route path="/security/email-auth/:domain" element={<EmailAuthDetailPage />} />
                 <Route path="/security/tls" element={<TlsPage />} />

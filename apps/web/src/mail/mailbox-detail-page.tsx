@@ -28,6 +28,7 @@ import { UnsupportedNotice } from '@/components/unsupported-notice';
 import { ApiClientError, ApiError } from '@/lib/api-client';
 import { formatBytes, formatPercent, formatQuota } from '@/lib/format';
 import { AddressText } from './address-text';
+import { MailboxMcpSection } from './mcp/mailbox-mcp-section';
 import {
   useChangeMailboxPasswordMutation,
   useClearMailboxQuotaMutation,
@@ -260,6 +261,8 @@ export function MailboxDetailPage() {
           )}
         </CardContent>
       </Card>
+
+      <MailboxMcpSection mailbox={mailbox.email} />
 
       {/* Change password */}
       <Dialog

@@ -64,6 +64,11 @@ version and are called out explicitly here.
 
 ### Fixed
 
+- **Sieve filters showed a stray `sieve script:` first line on
+  docker-mailserver 16 (Dovecot 2.4)** (#40). The header line Dovecot 2.4's
+  `doveadm sieve get` prints is now dropped when a script is read, so the
+  editor shows only the stored script and saving it unchanged writes back
+  a valid script; the autoresponder status, read the same way, is fixed too.
 - **Saved settings never took effect, even after a restart.** Applying a
   change on the Configuration page persisted it and said a restart was
   required, but nothing ever read that saved value back at startup — the

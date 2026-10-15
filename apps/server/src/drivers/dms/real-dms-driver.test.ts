@@ -1,6 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
 import { RealDmsDriver } from './real-dms-driver.js';
 import { DmsCommandExecutionError, DmsCommandValidationError } from './errors.js';
+import {
+  AUTORESPONDER_SCRIPT_NAME,
+  generateAutoresponderSieve,
+  parseAutoresponderSieve,
+} from './autoresponder-sieve.js';
 import type { DmsConfigFileKey, DmsExecResponse } from '@dwg/shared';
 import type { DmsCommandRequest, DmsExecPort } from './exec-port.js';
 
@@ -192,6 +197,38 @@ describe('RealDmsDriver — reads parse files via the exec port, never invoke se
     const driver = new RealDmsDriver(port);
 
     await expect(driver.getMailQueue()).rejects.toBeInstanceOf(DmsCommandExecutionError);
+  });
+
+  it('sieveGet strips the Dovecot 2.4 "sieve script:" header and returns only the stored body', async () => {
+    const port = new RecordingExecPort();
+    port.nextExecResult = { stdout: 'sieve script:\nkeep;\n', stderr: '', exitCode: 0 };
+    const driver = new RealDmsDriver(port);
+
+    expect(await driver.sieveGet('user@example.com', 'Default')).toBe('keep;\n');
+    expect(port.execCalls[0]).toEqual({
+      operation: 'dms.sieve.get',
+      user: 'user@example.com',
+      script: 'Default',
+    });
+  });
+
+  it('sieveGet returns Dovecot 2.3 output (no header) unchanged', async () => {
+    const port = new RecordingExecPort();
+    port.nextExecResult = { stdout: 'keep;\n', stderr: '', exitCode: 0 };
+    const driver = new RealDmsDriver(port);
+
+    expect(await driver.sieveGet('user@example.com', 'Default')).toBe('keep;\n');
+  });
+
+  it('sieveGet under Dovecot 2.4 still yields an autoresponder script the template parser recognises', async () => {
+    const script = generateAutoresponderSieve({ subject: 'Away', message: 'Back soon.' });
+    const port = new RecordingExecPort();
+    port.nextExecResult = { stdout: `sieve script:\n${script}`, stderr: '', exitCode: 0 };
+    const driver = new RealDmsDriver(port);
+
+    const content = await driver.sieveGet('user@example.com', AUTORESPONDER_SCRIPT_NAME);
+    expect(content).toBe(script);
+    expect(parseAutoresponderSieve(content)).not.toBeNull();
   });
 });
 

@@ -46,6 +46,7 @@ import { deriveDomains, type DerivedDomain } from './domains.js';
 import { parseDkimZoneFile } from './dkim-record.js';
 import { parseFail2banList, type Fail2banListResult } from './fail2ban-parser.js';
 import { parseSieveList, type SieveScriptSummary } from './sieve-list-parser.js';
+import { parseSieveGet } from './sieve-get-parser.js';
 import { DmsCommandExecutionError } from './errors.js';
 import type { DmsCommandRequest, DmsExecPort } from './exec-port.js';
 import type { ParseResult } from './parsers/parse-result.js';
@@ -275,7 +276,8 @@ export class RealDmsDriver implements DmsDriver {
   }
 
   async sieveGet(user: string, name: string): Promise<string> {
-    return this.runRead({ operation: 'dms.sieve.get', user, script: name });
+    const stdout = await this.runRead({ operation: 'dms.sieve.get', user, script: name });
+    return parseSieveGet(stdout);
   }
 
   async sievePut(params: SievePutParams): Promise<void> {

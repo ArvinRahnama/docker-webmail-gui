@@ -16,7 +16,7 @@
     "dev": "npm run build --workspace packages/shared && (npm run dev --workspace apps/broker & npm run dev --workspace apps/server & npm run dev --workspace apps/web & wait)",
     "build": "npm run build --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
-    "pretest:e2e": "npm run build --workspace packages/shared && npm run build --workspace apps/server && npm run build --workspace apps/web",
+    "pretest:e2e": "npm run build --workspace packages/shared && npm run build --workspace apps/mcp && npm run build --workspace apps/server && npm run build --workspace apps/web",
     "test:e2e": "playwright test",
     "lint": "eslint .",
     "format": "prettier --write .",

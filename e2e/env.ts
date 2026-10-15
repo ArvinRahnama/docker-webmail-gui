@@ -114,3 +114,20 @@ export const AUTH_STATE_PATH = fileURLToPath(new URL('./.auth/admin-state.json',
  * the harness provides for free.
  */
 export const E2E_MAIL_DOMAIN = 'dwg-e2e.test';
+
+/**
+ * The optional MCP integration (docs/mcp-integration.md) runs inside the
+ * server process, as in production: with MCP_ENABLED=true each server
+ * instance also opens its own MCP listener (OAuth + MCP) on the port below.
+ * It uses the in-memory fake mail backend (development mode only), so no
+ * mail server is needed; the real IMAP/SMTP path is covered by
+ * .github/workflows/mcp-integration.yml instead. Development mode also
+ * allows the plain-http loopback public URL the browser can reach here —
+ * production refuses anything but https.
+ */
+export const MCP_PUBLIC_PORT = 3920;
+export const MCP_PUBLIC_ORIGIN = `http://127.0.0.1:${MCP_PUBLIC_PORT}`;
+/** The security project's server instance gets its own MCP listener. */
+export const SECURITY_MCP_PUBLIC_PORT = 3930;
+/** Test-only 32-byte vault key (hex). */
+export const MCP_VAULT_KEY = '0f1e2d3c4b5a69788796a5b4c3d2e1f00f1e2d3c4b5a69788796a5b4c3d2e1f0';

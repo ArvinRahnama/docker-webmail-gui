@@ -171,6 +171,9 @@ import { defineConfig, devices } from '@playwright/test';
 import {
   BOOTSTRAP_ADMIN_EMAIL,
   BOOTSTRAP_ADMIN_PASSWORD,
+  MCP_PUBLIC_PORT,
+  MCP_VAULT_KEY,
+  SECURITY_MCP_PUBLIC_PORT,
   SECURITY_SERVER_ORIGIN,
   SECURITY_SERVER_PORT,
   SECURITY_WEB_ORIGIN,
@@ -184,6 +187,21 @@ const ROOT_DIR = fileURLToPath(new URL('.', import.meta.url));
 
 const DATA_DIR = mkdtempSync(join(tmpdir(), 'dwg-e2e-data-'));
 const SECURITY_DATA_DIR = mkdtempSync(join(tmpdir(), 'dwg-e2e-security-data-'));
+
+/**
+ * The optional MCP integration, embedded in each server process (see
+ * `MCP_PUBLIC_PORT`'s doc comment in e2e/env.ts). Its database lands in each
+ * server's own DATA_DIR (`<DATA_DIR>/mcp`).
+ */
+function mcpEnv(port: number): Record<string, string> {
+  return {
+    MCP_ENABLED: 'true',
+    MCP_PUBLIC_HOST: '127.0.0.1',
+    MCP_PUBLIC_PORT: String(port),
+    MCP_VAULT_KEY,
+    MCP_MAIL_BACKEND: 'fake',
+  };
+}
 
 export default defineConfig({
   testDir: './e2e',
@@ -272,6 +290,7 @@ export default defineConfig({
         COOKIE_SECURE: 'false',
         BOOTSTRAP_ADMIN_EMAIL,
         BOOTSTRAP_ADMIN_PASSWORD,
+        ...mcpEnv(MCP_PUBLIC_PORT),
       },
     },
     {
@@ -312,6 +331,7 @@ export default defineConfig({
         COOKIE_SECURE: 'false',
         BOOTSTRAP_ADMIN_EMAIL,
         BOOTSTRAP_ADMIN_PASSWORD,
+        ...mcpEnv(SECURITY_MCP_PUBLIC_PORT),
       },
     },
   ],

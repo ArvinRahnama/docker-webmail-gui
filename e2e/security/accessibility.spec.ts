@@ -39,6 +39,7 @@ const AUTHENTICATED_ROUTES = [
   '/mail/aliases',
   '/mail/storage',
   '/mail/queue',
+  '/mail/mcp',
   '/security/email-auth',
   '/security/tls',
   '/security/rspamd',

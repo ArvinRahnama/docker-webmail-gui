@@ -130,7 +130,7 @@ async function ensureManagedContainerStopped(page: Page): Promise<void> {
 test.describe.serial('backup and restore', () => {
   test('creates a warm backup that survives a reload', async ({ page }) => {
     await page.goto('/maintenance/backups');
-    await expect(page.getByRole('heading', { name: 'Backups' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Backups', exact: true })).toBeVisible();
 
     // Wait for the list query to settle before touching anything.
     //

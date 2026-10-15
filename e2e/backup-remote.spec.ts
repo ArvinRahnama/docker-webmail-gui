@@ -69,7 +69,7 @@ async function waitForJobDismiss(page: Page): Promise<void> {
 test.describe.serial('scheduled backups and remote destinations', () => {
   test('configures a scheduled backup and the next run survives a reload', async ({ page }) => {
     await page.goto('/maintenance/backups');
-    await expect(page.getByRole('heading', { name: 'Backups' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Backups', exact: true })).toBeVisible();
 
     await page.getByLabel('Frequency').selectOption('daily');
     await page.getByRole('button', { name: 'Save schedule' }).click();

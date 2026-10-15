@@ -78,10 +78,23 @@ jobs:
             -days 2 -extfile ext.cnf -out mail.crt
           chmod 644 ./*
 
+      # Seeded before the container starts, in the format `setup email add`
+      # writes, so the mail server boots with both accounts: no race against
+      # its start-up (`setup` refuses to run until DMS has loaded its
+      # settings) and no wait for its change detector before the first login.
+      - name: Create the two test accounts
+        run: |
+          set -eu
+          {
+            printf 'sales@example.test|{SHA512-CRYPT}%s\n' "$(openssl passwd -6 "${SALES_PASSWORD}")"
+            printf 'support@example.test|{SHA512-CRYPT}%s\n' "$(openssl passwd -6 "${SUPPORT_PASSWORD}")"
+          } > "${RUNNER_TEMP}/dms/config/postfix-accounts.cf"
+
       - name: Start docker-mailserver
         run: |
           set -eu
           docker run -d --name "${DMS_CONTAINER}" --hostname mail.example.test \
+            -e ACCOUNT_PROVISIONER=FILE \
             -e SSL_TYPE=manual -e SSL_CERT_PATH=/certs/mail.crt -e SSL_KEY_PATH=/certs/mail.key \
             -e ENABLE_RSPAMD=0 -e ENABLE_CLAMAV=0 -e ENABLE_FAIL2BAN=0 -e ENABLE_AMAVIS=0 \
             -e ENABLE_SPAMASSASSIN=0 -e ENABLE_POSTGREY=0 -e ENABLE_OPENDKIM=0 \
@@ -91,21 +104,7 @@ jobs:
             -p 127.0.0.1:19993:993 -p 127.0.0.1:19465:465 -p 127.0.0.1:19587:587 \
             "${DMS_IMAGE}"
 
-      - name: Create the two test accounts
-        run: |
-          set -eu
-          # DMS refuses to finish starting without at least one account, and
-          # `setup email add` itself waits for the container to be ready.
-          for attempt in $(seq 1 30); do
-            if docker exec "${DMS_CONTAINER}" setup email add sales@example.test "${SALES_PASSWORD}"; then
-              break
-            fi
-            sleep 4
-          done
-          docker exec "${DMS_CONTAINER}" setup email list | grep -q sales@example.test
-          docker exec "${DMS_CONTAINER}" setup email add support@example.test "${SUPPORT_PASSWORD}"
-
-      - name: Wait for IMAP and SMTP to accept TLS connections with the new accounts
+      - name: Wait for IMAP and SMTP to accept TLS connections
         run: |
           set -eu
           node --input-type=module -e "
@@ -122,9 +121,6 @@ jobs:
             }
             console.error('mail server did not become ready'); process.exit(1);
           "
-          # Account changes reach Dovecot through DMS's change detector;
-          # give it a moment so the first login does not race it.
-          sleep 10
 
       - name: Run the integration suite
         env:

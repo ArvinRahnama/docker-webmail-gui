@@ -18,10 +18,10 @@
 # first-login flow) already rotated away.
 #
 # The optional MCP integration (docs/mcp-integration.md) runs inside the
-# server container and is off unless MCP_ENABLED=true. Its vault key file is
-# generated on every install (once — never regenerated), because the compose
-# file mounts it into the server either way; when MCP is on, this script also
-# waits for the MCP listener to answer inside the server container.
+# server container and is off unless MCP_ENABLED=true. Only then does this
+# script add the docker/compose.mcp.yaml overlay, generate the vault key file
+# (once — never regenerated) and wait for the MCP listener to answer inside
+# the server container. With it off, the install needs nothing MCP-related.
 #
 # Where each setting comes from, in precedence order — this is the part
 # that makes a re-run safe to do on a system an operator has since tuned
@@ -54,6 +54,7 @@ set -eu
 SCRIPT_DIR=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 REPO_ROOT=$(CDPATH='' cd -- "${SCRIPT_DIR}/.." && pwd)
 COMPOSE_FILE="${REPO_ROOT}/docker/compose.yaml"
+MCP_COMPOSE_FILE="${REPO_ROOT}/docker/compose.mcp.yaml"
 ENV_FILE="${REPO_ROOT}/.env"
 
 log() { printf '%s\n' "$*"; }
@@ -61,6 +62,17 @@ warn() { printf 'warning: %s\n' "$*" >&2; }
 die() {
   printf 'error: %s\n' "$*" >&2
   exit 1
+}
+
+# Every `docker compose` call goes through this, so the MCP overlay is either
+# on all of them or on none (MCP_ENABLED is resolved in step 6, before the
+# first call).
+dc() {
+  if [ "${MCP_ENABLED}" = "true" ]; then
+    docker compose -f "${COMPOSE_FILE}" -f "${MCP_COMPOSE_FILE}" --env-file "${ENV_FILE}" "$@"
+  else
+    docker compose -f "${COMPOSE_FILE}" --env-file "${ENV_FILE}" "$@"
+  fi
 }
 
 # ---------------------------------------------------------------------------
@@ -221,7 +233,8 @@ ENABLE_EXEC_CONSOLE=$(resolve ENABLE_EXEC_CONSOLE 'false')
 ENABLE_HSTS=$(resolve ENABLE_HSTS 'true')
 
 # Optional MCP integration (docs/mcp-integration.md) — off by default. It
-# runs inside the server container; these only configure it.
+# runs inside the server container; MCP_ENABLED selects the
+# docker/compose.mcp.yaml overlay (see dc() above), the rest configure it.
 MCP_ENABLED=$(resolve MCP_ENABLED 'false')
 case "${MCP_ENABLED}" in
   true | false) ;;
@@ -279,9 +292,10 @@ fi
 #    leaves a truncated, half-written .env behind for the next run (or
 #    `docker compose`) to read.
 #
-#    Every key `docker/compose.yaml` interpolates appears below, so a
-#    re-run round-trips the whole of what Compose actually reads rather
-#    than silently resetting the subset this script happened to list.
+#    Every key `docker/compose.yaml` and `docker/compose.mcp.yaml`
+#    interpolate appears below, so a re-run round-trips the whole of what
+#    Compose actually reads rather than silently resetting the subset this
+#    script happened to list.
 #    Anything *else* an operator has added to .env is appended verbatim
 #    at the end, under its own heading — a setting this script does not
 #    know about is still theirs, and losing it on an upgrade would be
@@ -364,29 +378,32 @@ log "Wrote ${ENV_FILE}."
 
 # ---------------------------------------------------------------------------
 # 8b. MCP vault key — the key that seals every stored mailbox credential.
-#     Generated once into secrets/ (git-ignored), never regenerated:
-#     replacing it would make every sealed credential unreadable. It lives
-#     outside the dwg-server-data volume on purpose, so a copy of that
-#     volume alone cannot unseal anything. Created on every install, MCP on
-#     or off, because docker/compose.yaml mounts it into the server either
-#     way (an unused key protects nothing and costs nothing). The directory
-#     is 0700 (only this user can traverse it on the host); the file is 0444
-#     because the container runs as an unprivileged UID (10001) that must be
-#     able to read the bind-mounted file.
+#     Only when MCP_ENABLED=true: docker/compose.mcp.yaml is what mounts it,
+#     and without that overlay nothing reads it. Generated once into
+#     secrets/ (git-ignored), never regenerated: replacing it would make
+#     every sealed credential unreadable. An existing key is kept whatever
+#     MCP_ENABLED says, so turning the integration off and on again keeps
+#     every stored credential. It lives outside the dwg-server-data volume
+#     on purpose, so a copy of that volume alone cannot unseal anything.
+#     The directory is 0700 (only this user can traverse it on the host);
+#     the file is 0444 because the container runs as an unprivileged UID
+#     (10001) that must be able to read the bind-mounted file.
 # ---------------------------------------------------------------------------
 MCP_SECRETS_DIR="${REPO_ROOT}/secrets"
 MCP_VAULT_KEY_PATH="${MCP_SECRETS_DIR}/mcp_vault_key"
-mkdir -p "${MCP_SECRETS_DIR}"
-chmod 700 "${MCP_SECRETS_DIR}"
-if [ -f "${MCP_VAULT_KEY_PATH}" ]; then
-  [ -s "${MCP_VAULT_KEY_PATH}" ] || die "${MCP_VAULT_KEY_PATH} exists but is empty. Restore it from your backup (stored MCP mailbox credentials cannot be read without it), or delete it to start over and re-provision every MCP connection's mailbox credential."
-  log "MCP vault key present (${MCP_VAULT_KEY_PATH}) — kept as is."
-else
-  TMP_KEY=$(mktemp "${MCP_SECRETS_DIR}/.mcp_vault_key.XXXXXX")
-  gen_secret > "${TMP_KEY}"
-  chmod 444 "${TMP_KEY}"
-  mv "${TMP_KEY}" "${MCP_VAULT_KEY_PATH}"
-  log "Generated the MCP vault key at ${MCP_VAULT_KEY_PATH}."
+if [ "${MCP_ENABLED}" = "true" ]; then
+  mkdir -p "${MCP_SECRETS_DIR}"
+  chmod 700 "${MCP_SECRETS_DIR}"
+  if [ -f "${MCP_VAULT_KEY_PATH}" ]; then
+    [ -s "${MCP_VAULT_KEY_PATH}" ] || die "${MCP_VAULT_KEY_PATH} exists but is empty. Restore it from your backup (stored MCP mailbox credentials cannot be read without it), or delete it to start over and re-provision every MCP connection's mailbox credential."
+    log "MCP vault key present (${MCP_VAULT_KEY_PATH}) — kept as is."
+  else
+    TMP_KEY=$(mktemp "${MCP_SECRETS_DIR}/.mcp_vault_key.XXXXXX")
+    gen_secret > "${TMP_KEY}"
+    chmod 444 "${TMP_KEY}"
+    mv "${TMP_KEY}" "${MCP_VAULT_KEY_PATH}"
+    log "Generated the MCP vault key at ${MCP_VAULT_KEY_PATH}."
+  fi
 fi
 
 # ---------------------------------------------------------------------------
@@ -394,14 +411,14 @@ fi
 # ---------------------------------------------------------------------------
 if [ "${DWG_IMAGE_MODE}" = "pull" ]; then
   log "Pulling published images (DWG_IMAGE_MODE=pull, version ${DWG_VERSION})..."
-  docker compose -f "${COMPOSE_FILE}" --env-file "${ENV_FILE}" pull
+  dc pull
 else
   log "Building images from source (DWG_IMAGE_MODE=build)..."
-  docker compose -f "${COMPOSE_FILE}" --env-file "${ENV_FILE}" build
+  dc build
 fi
 
 log "Starting the stack..."
-docker compose -f "${COMPOSE_FILE}" --env-file "${ENV_FILE}" up -d --remove-orphans
+dc up -d --remove-orphans
 
 # ---------------------------------------------------------------------------
 # 10. Wait for real health — the same endpoint playwright.config.ts's
@@ -452,8 +469,8 @@ log "Healthy."
 #     socket on the wrong side of the boundary is worse than one that
 #     refused, because it looks finished.
 # ---------------------------------------------------------------------------
-SERVER_CID=$(docker compose -f "${COMPOSE_FILE}" --env-file "${ENV_FILE}" ps -q server)
-BROKER_CID=$(docker compose -f "${COMPOSE_FILE}" --env-file "${ENV_FILE}" ps -q broker)
+SERVER_CID=$(dc ps -q server)
+BROKER_CID=$(dc ps -q broker)
 [ -n "${SERVER_CID}" ] || die "could not find the running 'server' container after starting the stack."
 [ -n "${BROKER_CID}" ] || die "could not find the running 'broker' container after starting the stack."
 

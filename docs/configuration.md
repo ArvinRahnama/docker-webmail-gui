@@ -97,12 +97,13 @@ Without it, Rspamd features report `Unavailable` rather than guessing.
 ## The optional MCP integration
 
 `MCP_ENABLED=true ./installer/install.sh` turns on the MCP integration,
-which runs inside the server container. The vault key file
-`secrets/mcp_vault_key` is generated on every install (the compose file
-mounts it either way) and never regenerated. The settings that need a
-decision — `MCP_PUBLIC_URL` (a dedicated `https://` hostname),
-`MCP_BIND_ADDRESS` (keep `127.0.0.1` behind a proxy on the same host) and
-the reverse-proxy headers `MCP_TRUST_PROXY` depends on — are explained in
+which runs inside the server container: the installer adds the
+`docker/compose.mcp.yaml` overlay and generates the vault key file
+`secrets/mcp_vault_key` once (it is never regenerated). With MCP off,
+neither is used. The settings that need a decision — `MCP_PUBLIC_URL` (a
+dedicated `https://` hostname), `MCP_BIND_ADDRESS` (keep `127.0.0.1` behind
+a proxy on the same host) and the reverse-proxy headers `MCP_TRUST_PROXY`
+depends on — are explained in
 [`mcp-integration.md`](mcp-integration.md) §4–§5. Everything else is set in
 the panel under **Mail → MCP Connections → Service settings**.
 

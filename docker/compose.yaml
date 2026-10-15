@@ -17,10 +17,10 @@
 #     make it (ARCHITECTURE.md §6).
 #
 # The optional MCP integration (docs/mcp-integration.md) runs inside
-# `server` — there is no third container. With MCP_ENABLED=true the server
-# process also opens the MCP listener (port 3100, published on loopback by
-# default for an HTTPS reverse proxy) and reads the vault key from the
-# `mcp_vault_key` file secret below. With it off, nothing listens on 3100.
+# `server` — there is no third container — and lives entirely in the
+# compose.mcp.yaml overlay: its listener, its port and its vault key. This
+# file alone is a complete install with the integration off; the installer
+# adds the overlay when MCP_ENABLED=true.
 #
 # `server` holds no Docker socket — nothing in this file mounts
 # `/var/run/docker.sock` into it, only into `broker`
@@ -97,10 +97,6 @@ services:
     # back unchanged, so this survives a re-install.
     ports:
       - '${BIND_ADDRESS:-0.0.0.0}:${PORT:-3000}:3000'
-      # The optional MCP listener (MCP_ENABLED=true). Loopback by default:
-      # put an HTTPS reverse proxy for its own hostname in front of it.
-      # Nothing listens here while the integration is off.
-      - '${MCP_BIND_ADDRESS:-127.0.0.1}:${MCP_PORT:-3100}:3100'
     environment:
       APP_MODE: production
       PORT: '3000'
@@ -122,26 +118,11 @@ services:
       RSPAMD_PASSWORD: ${RSPAMD_PASSWORD:-}
       ENABLE_EXEC_CONSOLE: ${ENABLE_EXEC_CONSOLE:-false}
       ENABLE_HSTS: ${ENABLE_HSTS:-true}
-      # Optional MCP integration (docs/mcp-integration.md), in this process.
-      MCP_ENABLED: ${MCP_ENABLED:-false}
-      MCP_PUBLIC_HOST: 0.0.0.0
-      MCP_PUBLIC_PORT: '3100'
-      MCP_PUBLIC_URL: ${MCP_PUBLIC_URL:-}
-      # A file secret, never an environment variable, and never inside the
-      # data volume: a copy of the volume alone cannot unseal any stored
-      # mailbox credential. The MCP database itself lives in
-      # /app/data/mcp (the server-data volume).
-      MCP_VAULT_KEY_FILE: /run/secrets/mcp_vault_key
-      MCP_MAIL_HOST: ${MCP_MAIL_HOST:-mailserver}
-      MCP_TRUST_PROXY: ${MCP_TRUST_PROXY:-loopback,linklocal,uniquelocal}
-      MCP_REQUIRE_HTTPS: ${MCP_REQUIRE_HTTPS:-true}
       # STATIC_DIR is deliberately *not* set here: docker/server/
       # Dockerfile bakes it (`ENV STATIC_DIR=/app/apps/web/dist`), because
       # the built SPA's location is a property of the image, not of a
       # deployment. Setting it here as well would let a .env typo detach
       # the server from the SPA it ships with, for no gain.
-    secrets:
-      - mcp_vault_key
     volumes:
       - server-data:/app/data
       - server-backups:/app/backups
@@ -282,15 +263,3 @@ volumes:
     name: dwg-server-data
   server-backups:
     name: dwg-server-backups
-
-# The MCP integration's vault key. Generated once by installer/install.sh
-# (secrets/ is git-ignored and 0700) on every install, so this file always
-# exists, and never regenerated: losing or replacing it makes every stored
-# mailbox credential unreadable (the MCP integration then reports the vault
-# as unavailable and suspends connections rather than failing open). Manual
-# Compose users create it once with:
-#   mkdir -m 700 -p secrets && openssl rand -hex 32 > secrets/mcp_vault_key \
-#     && chmod 444 secrets/mcp_vault_key
-secrets:
-  mcp_vault_key:
-    file: ../secrets/mcp_vault_key

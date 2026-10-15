@@ -104,10 +104,12 @@ jobs:
           sudo apt-get install -y -qq shellcheck
           shellcheck --shell=sh installer/install.sh installer/uninstall.sh
 
-      - name: Validate docker/compose.yaml (static config check, no daemon needed)
+      - name: Validate docker/compose.yaml and the MCP overlay (static config check, no daemon needed)
         run: |
           COOKIE_SECRET=placeholder BROKER_SHARED_SECRET=placeholder DOCKER_GID=999 \
             docker compose -f docker/compose.yaml config >/dev/null
+          COOKIE_SECRET=placeholder BROKER_SHARED_SECRET=placeholder DOCKER_GID=999 \
+            docker compose -f docker/compose.yaml -f docker/compose.mcp.yaml config >/dev/null
 
       # The uninstaller has to work with no .env at all — that is the
       # state `--purge` itself leaves behind, and Compose interpolates
@@ -129,6 +131,19 @@ jobs:
 
       - name: 'Cycle 1: verify health'
         run: curl -fsS http://127.0.0.1:3000/api/v1/health | tee /dev/stderr | grep -q '"status":"ok"'
+
+      # MCP is off by default: the install must need no vault key and the
+      # server must publish nothing but the panel port.
+      - name: 'Cycle 1: MCP off needs no vault key and opens no MCP port'
+        run: |
+          set -eu
+          [ ! -e secrets/mcp_vault_key ] || { echo "FAIL: an MCP-off install created a vault key"; exit 1; }
+          SERVER_CID=$(${COMPOSE} ps -q server)
+          PORTS=$(docker inspect --format '{{json .NetworkSettings.Ports}}' "${SERVER_CID}")
+          echo "server ports: ${PORTS}"
+          # The image EXPOSEs 3100, so it is always listed; published means a binding list.
+          if echo "${PORTS}" | grep -q '"3100/tcp":\['; then echo "FAIL: port 3100 is published with MCP off"; exit 1; fi
+          if docker exec "${SERVER_CID}" test -e /run/secrets/mcp_vault_key; then echo "FAIL: the vault key is mounted with MCP off"; exit 1; fi
 
       - name: 'Cycle 1: verify the SPA is served from the same origin as the API'
         run: |
@@ -154,10 +169,11 @@ jobs:
           cat /tmp/api404.json
           [ "${CODE}" = "404" ] || { echo "FAIL: expected 404, got ${CODE}"; exit 1; }
           grep -q '"NOT_FOUND"' /tmp/api404.json
-          # `! grep -q`, never `grep -qv`: -v inverts the *line* match, so it
+          # `if grep -q`, never `grep -qv`: -v inverts the *line* match, so it
           # succeeds as soon as any single line differs, which is not the
-          # question being asked here.
-          ! grep -q '<div id="root">' /tmp/api404.json
+          # question being asked here. And never a bare `! grep -q`: `set -e`
+          # ignores a negated command, so it could never fail the step.
+          if grep -q '<div id="root">' /tmp/api404.json; then echo "FAIL: an API 404 returned the SPA shell"; exit 1; fi
           echo "confirmed: the SPA fallback does not swallow API 404s."
 
       - name: 'Cycle 1: verify the privilege boundary is real, not just described'
@@ -332,7 +348,7 @@ jobs:
           set -o pipefail
           ./installer/install.sh | tee /tmp/install3.log
           grep -q 'First-time login' /tmp/install3.log
-          ! grep -q 'Existing installation found' /tmp/install3.log
+          if grep -q 'Existing installation found' /tmp/install3.log; then echo "FAIL: the post-purge install ran as an upgrade"; exit 1; fi
           echo "confirmed: a post-purge install is a genuinely fresh one."
 
       - name: 'Cycle 3: verify health'
@@ -375,7 +391,7 @@ jobs:
 
           echo "--- the vault key is a mounted file, not an environment variable ---"
           docker exec "${SERVER_CID}" test -s /run/secrets/mcp_vault_key
-          ! docker exec "${SERVER_CID}" printenv MCP_VAULT_KEY
+          if docker exec "${SERVER_CID}" printenv MCP_VAULT_KEY >/dev/null; then echo "FAIL: the vault key is in the environment"; exit 1; fi
 
           echo "--- the MCP port is published on loopback only ---"
           PORTS=$(docker inspect --format '{{json .NetworkSettings.Ports}}' "${SERVER_CID}")
@@ -393,7 +409,7 @@ jobs:
           # The panel answers unknown paths with its SPA shell; what must not
           # appear there is the MCP sign-in form.
           curl -s http://127.0.0.1:3000/oauth/authorize -o /tmp/panel-oauth.html
-          ! grep -q 'MCP username' /tmp/panel-oauth.html || { echo "FAIL: the panel port serves the OAuth sign-in page"; exit 1; }
+          if grep -q 'MCP username' /tmp/panel-oauth.html; then echo "FAIL: the panel port serves the OAuth sign-in page"; exit 1; fi
 
           echo "--- the MCP database lives in the server's own data volume ---"
           docker exec "${SERVER_CID}" sh -c 'ls /app/data/mcp/mcp.db'
@@ -411,8 +427,10 @@ jobs:
         run: |
           set -eu
           MCP_ENABLED=false ./installer/install.sh
-          ! curl -fsS -m 2 http://127.0.0.1:3100/healthz
+          if curl -fsS -m 2 http://127.0.0.1:3100/healthz; then echo "FAIL: the MCP listener still answers with MCP off"; exit 1; fi
           SERVER_CID=$(${COMPOSE} ps -q server)
+          if docker inspect --format '{{json .NetworkSettings.Ports}}' "${SERVER_CID}" | grep -q '"3100/tcp":\['; then echo "FAIL: port 3100 is still published"; exit 1; fi
+          if docker exec "${SERVER_CID}" test -e /run/secrets/mcp_vault_key; then echo "FAIL: the vault key is still mounted"; exit 1; fi
           docker exec "${SERVER_CID}" sh -c 'ls /app/data/mcp/mcp.db'
           sha256sum -c /tmp/vault-key.sha256
           MCP_ENABLED=true ./installer/install.sh

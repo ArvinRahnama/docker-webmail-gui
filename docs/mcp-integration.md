@@ -65,7 +65,8 @@ Contents:
 ```
 
 - The MCP integration (`apps/mcp`) is a component of the **server** process.
-  With `MCP_ENABLED=true` the server also opens a second listener on port
+  With `MCP_ENABLED=true` (the `docker/compose.mcp.yaml` overlay) the server
+  also opens a second listener on port
   **3100**: the OAuth 2.1 authorization server and the MCP endpoints. It is
   a separate listener on purpose — its security headers, cookies and CSP
   never mix with the panel's, the panel's API is not served on it, and the
@@ -127,10 +128,10 @@ panel.) On top of the normal install this:
 
 1. writes `MCP_ENABLED=true` (and the other `MCP_*` settings) to `.env`;
 2. makes sure the **vault key** exists at `secrets/mcp_vault_key`
-   (directory `0700`, file `0444`) — the installer creates it on every
-   install, once, and never regenerates it, because the compose file mounts
-   it into the server either way;
-3. recreates the server container, which now also opens the MCP listener;
+   (directory `0700`, file `0444`) — created once and never regenerated;
+3. adds the `docker/compose.mcp.yaml` overlay to every `docker compose` call
+   and recreates the server container, which now also opens the MCP
+   listener, publishes its port and mounts the vault key;
 4. waits until the MCP listener answers inside the server container, and
    attaches the server to docker-mailserver's network (also needed for
    Rspamd) so it can reach IMAP/SMTP;
@@ -140,17 +141,20 @@ The usual boundary checks still run and still fail the install: the server
 has no Docker socket, the broker publishes nothing.
 
 To turn the feature off again: `MCP_ENABLED=false ./installer/install.sh`.
-The listener closes; the MCP database and the vault key are kept, so turning
-it back on restores every connection as it was.
+The server is recreated without the overlay, so the listener closes and the
+port is no longer published; the MCP database and the vault key are kept,
+so turning it back on restores every connection as it was.
 
 Uninstalling (`./installer/uninstall.sh`) keeps the `dwg-server-data` volume
 (which holds the MCP database) and the vault key. Only `--purge` (with its
 typed confirmation) deletes them.
 
-Manual Compose users: set the variables below in `.env`, create
-`secrets/mcp_vault_key` once (see [secrets](#secrets) — the compose file
-needs it even with MCP off), and run
-`docker compose -f docker/compose.yaml --env-file .env up -d`.
+Manual Compose users: set the variables below in `.env` (`MCP_ENABLED`
+itself is only read by the installer), create `secrets/mcp_vault_key` once
+(see [secrets](#secrets)), and add the overlay to every `docker compose`
+call:
+`docker compose -f docker/compose.yaml -f docker/compose.mcp.yaml --env-file .env up -d`.
+Without the overlay the integration is off and no key is needed.
 
 ## 4. Configuration reference
 
@@ -158,7 +162,7 @@ needs it even with MCP off), and run
 
 | Variable            | Default                          | Meaning                                                                                             |
 | ------------------- | -------------------------------- | --------------------------------------------------------------------------------------------------- |
-| `MCP_ENABLED`       | `false`                          | Opens the MCP listener in the server process.                                                       |
+| `MCP_ENABLED`       | `false`                          | Installer: adds the `compose.mcp.yaml` overlay, which opens the MCP listener in the server process. |
 | `MCP_PUBLIC_URL`    | empty                            | `https://` origin your proxy serves the MCP service on. Seeds the setting; editable in the panel.   |
 | `MCP_BIND_ADDRESS`  | `127.0.0.1`                      | Host address the public listener is published on. Keep loopback when the proxy is on the same host. |
 | `MCP_PORT`          | `3100`                           | Host port for the public listener.                                                                  |
@@ -169,13 +173,13 @@ needs it even with MCP off), and run
 The remaining variables the server reads for MCP (`MCP_VAULT_KEY_FILE`,
 `MCP_DATA_DIR`, the listener host/port inside the container,
 `MCP_MAIL_TLS_CA_FILE`, …) are documented one by one in
-[`.env.example`](../.env.example); the compose file sets them for you.
+[`.env.example`](../.env.example); the overlay sets them for you.
 
 ### Secrets
 
-| Secret    | Where                                      | Generate                                       | If lost                                                                                       |
-| --------- | ------------------------------------------ | ---------------------------------------------- | --------------------------------------------------------------------------------------------- |
-| Vault key | `secrets/mcp_vault_key` (file, not in env) | `openssl rand -hex 32 > secrets/mcp_vault_key` | Every stored mailbox credential becomes unreadable — see [recovery](#16-credential-recovery). |
+| Secret    | Where                                      | Generate                                                                                                     | If lost                                                                                       |
+| --------- | ------------------------------------------ | ------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------- |
+| Vault key | `secrets/mcp_vault_key` (file, not in env) | `mkdir -m 700 -p secrets && openssl rand -hex 32 > secrets/mcp_vault_key && chmod 444 secrets/mcp_vault_key` | Every stored mailbox credential becomes unreadable — see [recovery](#16-credential-recovery). |
 
 There is no MCP control secret to manage: the control API is only reachable
 in-process, and its per-process secret is generated at startup and never
@@ -267,8 +271,8 @@ No new networks. The MCP listener uses the server's existing ones:
 | `dwg-broker`   | yes      | server, broker        | panel → broker (the MCP code never calls it)                  |
 | DMS's network  | —        | mailserver, server    | IMAP/SMTP (MCP), Rspamd (panel)                               |
 
-The published ports are `3000` (panel, `BIND_ADDRESS`) and `3100` (MCP,
-`MCP_BIND_ADDRESS`, loopback by default). The installer attaches the server
+The published ports are `3000` (panel, `BIND_ADDRESS`) and, with the
+overlay, `3100` (MCP, `MCP_BIND_ADDRESS`, loopback by default). The installer attaches the server
 to docker-mailserver's network (it skips Docker's default `bridge`, where
 container names do not resolve; put DMS on a user-defined network). This is
 a runtime `docker network connect`: if you recreate the container by hand
@@ -292,9 +296,12 @@ The IMAP/SMTP host in the settings must match a name on that network
         - ./mail-ca.pem:/etc/dwg-mcp/mail-ca.pem:ro
   ```
 
-  and run `docker compose -f docker/compose.yaml -f docker/mcp.override.yaml
---env-file .env up -d server`, then re-run the installer to re-attach the
-  network.
+  and run it on top of the MCP overlay:
+  `docker compose -f docker/compose.yaml -f docker/compose.mcp.yaml -f docker/mcp.override.yaml --env-file .env up -d server`,
+  then re-attach the network with
+  `docker network connect <docker-mailserver's network> dwg-server`. The
+  installer does not know about your own override file: re-running it
+  recreates the server without it, so repeat both commands afterwards.
 
 ## 7. Turning the service on
 
@@ -541,7 +548,7 @@ moves to Trash.
 | Works, then ChatGPT asks to reconnect            | The grant was revoked (by you, by rotation, or by refresh-token replay). Reissue setup credentials.                  |
 | Send refused                                     | No `mail.send`, limits reached (per hour/day), too many recipients, or a From address that is not an approved alias. |
 
-Logs: `docker compose -f docker/compose.yaml --env-file .env logs server` (MCP
+Logs: `docker logs dwg-server` (MCP
 lines carry `"component":"mcp"`).
 They never contain message content or credentials, so they are safe to
 share for support.

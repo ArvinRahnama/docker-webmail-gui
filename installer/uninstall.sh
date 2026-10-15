@@ -12,7 +12,8 @@
 #                        audit log, and the optional MCP integration's
 #                        connections, grants and sealed mailbox
 #                        credentials), the MCP vault key
-#                        (secrets/mcp_vault_key), the built images, and
+#                        (secrets/mcp_vault_key, if MCP was ever
+#                        enabled), the built images, and
 #                        .env in place, so re-running install.sh recovers
 #                        the install exactly as it was.
 #   --purge              ALSO removes this project's own named volumes, the
@@ -238,7 +239,9 @@ log ""
 log "Uninstall complete. Still on this host:"
 if [ "${PURGED}" = "false" ]; then
   log "  - volumes dwg-server-data, dwg-server-backups (admins, sessions, audit log, MCP connections)"
-  log "  - ${MCP_VAULT_KEY_PATH} (decrypts stored MCP mailbox credentials — back it up with the volume)"
+  if [ -f "${MCP_VAULT_KEY_PATH}" ]; then
+    log "  - ${MCP_VAULT_KEY_PATH} (decrypts stored MCP mailbox credentials — back it up with the volume)"
+  fi
   log "  - ${ENV_FILE} (generated, contains secrets)"
   log "    remove all of these with: $0 --purge"
 fi

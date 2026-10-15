@@ -42,13 +42,16 @@ version and are called out explicitly here.
 
 ### Upgrade notes
 
-- `docker/compose.yaml` now mounts `secrets/mcp_vault_key` into the server
-  container on every install, MCP on or off. Re-running
-  `./installer/install.sh` creates it. If you run Compose by hand, create
-  it once before `docker compose up`:
-  `mkdir -m 700 -p secrets && openssl rand -hex 32 > secrets/mcp_vault_key && chmod 444 secrets/mcp_vault_key`.
-- The server additionally publishes `127.0.0.1:3100` (`MCP_BIND_ADDRESS`,
-  `MCP_PORT`); nothing listens there unless `MCP_ENABLED=true`.
+- Nothing changes for an install that leaves MCP off: `docker/compose.yaml`
+  needs no new file, variable or port.
+- Everything the MCP integration adds to the server container — its
+  listener on `127.0.0.1:3100` (`MCP_BIND_ADDRESS`, `MCP_PORT`), its
+  settings and the `secrets/mcp_vault_key` mount — is in the new
+  `docker/compose.mcp.yaml` overlay. `MCP_ENABLED=true ./installer/install.sh`
+  adds it and generates the key. If you run Compose by hand, create the key
+  once
+  (`mkdir -m 700 -p secrets && openssl rand -hex 32 > secrets/mcp_vault_key && chmod 444 secrets/mcp_vault_key`)
+  and pass `-f docker/compose.mcp.yaml` after `-f docker/compose.yaml`.
 
 ### Security
 

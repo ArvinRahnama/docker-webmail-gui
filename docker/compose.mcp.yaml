@@ -1,0 +1,48 @@
+# docker-webmail-gui — optional MCP integration overlay
+# (docs/mcp-integration.md). Layered on top of compose.yaml, never used on
+# its own:
+#
+#   docker compose -f docker/compose.yaml -f docker/compose.mcp.yaml \
+#     --env-file .env up -d
+#
+# installer/install.sh adds this file exactly when MCP_ENABLED=true. It
+# turns the integration on inside the existing `server` container — there
+# is no third container — publishes its listener (port 3100, loopback by
+# default, for an HTTPS reverse proxy with its own hostname) and mounts the
+# vault key. Without this file nothing listens on 3100 and no key is needed,
+# so a plain compose.yaml install needs nothing MCP-related at all.
+#
+# The vault key seals every stored mailbox credential. It is a file secret,
+# never an environment variable, and it lives outside the server-data
+# volume, so a copy of that volume alone cannot unseal anything. The
+# installer generates it once and never regenerates it: losing or replacing
+# it makes every stored credential unreadable (the integration then reports
+# the vault as unavailable and suspends connections rather than failing
+# open). Manual Compose users create it once, next to this checkout's
+# docker/ directory:
+#
+#   mkdir -m 700 -p secrets && openssl rand -hex 32 > secrets/mcp_vault_key \
+#     && chmod 444 secrets/mcp_vault_key
+#
+# 0444, not 0400: the server runs as an unprivileged UID that must be able
+# to read the bind-mounted file; the 0700 directory keeps other host users
+# out.
+services:
+  server:
+    ports:
+      - '${MCP_BIND_ADDRESS:-127.0.0.1}:${MCP_PORT:-3100}:3100'
+    environment:
+      MCP_ENABLED: 'true'
+      MCP_PUBLIC_HOST: 0.0.0.0
+      MCP_PUBLIC_PORT: '3100'
+      MCP_PUBLIC_URL: ${MCP_PUBLIC_URL:-}
+      MCP_VAULT_KEY_FILE: /run/secrets/mcp_vault_key
+      MCP_MAIL_HOST: ${MCP_MAIL_HOST:-mailserver}
+      MCP_TRUST_PROXY: ${MCP_TRUST_PROXY:-loopback,linklocal,uniquelocal}
+      MCP_REQUIRE_HTTPS: ${MCP_REQUIRE_HTTPS:-true}
+    secrets:
+      - mcp_vault_key
+
+secrets:
+  mcp_vault_key:
+    file: ../secrets/mcp_vault_key

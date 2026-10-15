@@ -56,6 +56,26 @@ Stated plainly, because overclaiming here would be its own security failure:
 
 **Residual:** a bug in the broker is a host compromise. This is why the broker is deliberately tiny, has no business logic, no database, no template engine, and changes rarely.
 
+### 2.2 The optional MCP integration (apps/mcp)
+
+An optional feature, off unless installed with `MCP_ENABLED=true`, lets a postmaster issue per-mailbox MCP connections to clients such as ChatGPT. It is **not a separate tier or container**: `apps/mcp` is a library that the server process starts when the flag is on, with its own listener on its own port.
+
+```
+  MCP client (ChatGPT) ── HTTPS via your proxy ──▶ server process, port 3100 (OAuth + MCP)
+                                                     │  in-process control API (no socket)
+  admin browser ─────────────────────────────────▶ server process, port 3000 (panel)
+                                                     │
+                                                     ├── IMAP/SMTP as the mailbox itself ──▶ docker-mailserver
+                                                     └── named operations ─────────────────▶ broker (unchanged)
+```
+
+- **Separate listener, separate state.** Port 3100 is a second Fastify instance with its own headers, cookies and CSP; the panel's API is not served on it and the OAuth pages are not served on the panel's port. The MCP component keeps its own SQLite database (`DATA_DIR/mcp`) and a vault key file outside the data volume; it never touches the panel's database.
+- **No Docker vocabulary.** `apps/mcp` has no Docker client and runs no subprocesses (lint-enforced); it reaches mail only over IMAP/SMTP, authenticating as the mailbox with that mailbox's own password, sealed with AES-256-GCM. No Dovecot master user. It never calls the broker.
+- **In-process control API.** The panel manages it through the same Zod-validated control API as before, called in-process; every call still carries a per-process secret, so nothing outside the process can reach it.
+- **Mailbox isolation is server-side.** Each connection's MCP URL and token audience bind it to one mailbox; tools take no mailbox argument; effective scopes are recomputed per call.
+
+**Consequence for §2.1.** The MCP listener is internet-facing code inside the web tier. A remote compromise of it is a web-tier compromise — the panel database and the broker's fixed allowlist — rather than something smaller. **B2 is unchanged** and still holds: the web tier has no socket and cannot express a container spec, so it still cannot reach the host. This placement was chosen over a separate container to keep the deployment at two containers; [`SECURITY.md`](SECURITY.md) §3.10a and [`docs/mcp-integration.md`](docs/mcp-integration.md) state the trade-off for operators.
+
 ---
 
 ## 3. Technology choices
@@ -103,7 +123,8 @@ docker-webmail-gui/
 │   │   ├── src/modules/     mail/ docker/ dns/ tls/ spam/ backup/ health/ …
 │   │   ├── src/platform/    db, migrations, audit, jobs, config, logging, errors
 │   │   └── src/drivers/     brokerClient, dmsDriver  (+ fakes)
-│   └── broker/              Privileged Docker broker — small, audited
+│   ├── broker/              Privileged Docker broker — small, audited
+│   └── mcp/                 Optional MCP + OAuth component, embedded in server (IMAP/SMTP; no Docker)
 ├── packages/
 │   └── shared/              Zod schemas, DTO types, constants, error codes
 ├── docker/                  Dockerfiles, compose files
@@ -247,6 +268,7 @@ Two containers plus two networks:
 - **server**: non-root, `read_only`, `cap_drop: ALL`, `no-new-privileges`, tmpfs for `/tmp`, named volume for SQLite. No socket.
 - **broker**: same hardening, plus the Docker socket. Minimal base image.
 - `privileged: true` is never used anywhere.
+- Optional: with `MCP_ENABLED=true`, **server** also publishes the MCP listener (port 3100, loopback by default) and mounts the MCP vault key as a file secret. Still two containers. See §2.2.
 
 Images are multi-stage, pinned by digest, with healthchecks and resource limits. Full deployment detail lives in `SECURITY.md` and `docs/docker.md`.
 

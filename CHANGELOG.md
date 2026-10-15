@@ -11,6 +11,49 @@ version and are called out explicitly here.
 
 ## [Unreleased]
 
+### Added
+
+- **Optional MCP integration: postmaster-issued mailbox connections for
+  ChatGPT and other MCP clients** ([`docs/mcp-integration.md`](docs/mcp-integration.md)).
+  Runs inside the existing server container — no extra container — and
+  only when installed with `MCP_ENABLED=true`; even then it refuses every
+  request until a postmaster enables it. Administrators (new `mcp:manage`
+  permission) issue one connection per mailbox from **Mail → MCP
+  Connections**: a unique MCP URL, a generated username and a one-time,
+  expiring setup password shown exactly once. The mailbox owner signs in
+  once through a hosted OAuth 2.1 page on the MCP listener's own port
+  (PKCE S256, client ID metadata documents as used by ChatGPT, dynamic
+  registration, RFC 8707 audience binding, rotating refresh tokens with
+  replay detection, RFC 7009 revocation, RFC 9207 `iss`; no password
+  grant). Tools: list folders, list/search/read messages, attachments,
+  send (explicit confirmation, idempotency, rate and recipient limits,
+  approved sender identities) and move to Trash/restore (never permanent
+  deletion). Mailbox isolation is enforced server-side; password changes
+  and deletions in the panel suspend or revoke access immediately and
+  out-of-band changes are caught by identity fingerprints; recreated
+  addresses never inherit grants. The MCP component has no Docker client,
+  never calls the broker and keeps its own database; mailbox credentials
+  are sealed with AES-256-GCM under a vault key kept in a separate file.
+  Live ChatGPT-account verification has not been performed; see the
+  document for plan limitations and the security trade-off of sharing the
+  server process.
+
+### Upgrade notes
+
+- `docker/compose.yaml` now mounts `secrets/mcp_vault_key` into the server
+  container on every install, MCP on or off. Re-running
+  `./installer/install.sh` creates it. If you run Compose by hand, create
+  it once before `docker compose up`:
+  `mkdir -m 700 -p secrets && openssl rand -hex 32 > secrets/mcp_vault_key && chmod 444 secrets/mcp_vault_key`.
+- The server additionally publishes `127.0.0.1:3100` (`MCP_BIND_ADDRESS`,
+  `MCP_PORT`); nothing listens there unless `MCP_ENABLED=true`.
+
+### Security
+
+- Updated `fastify` to 5.12.7, `fast-uri` and `ip-address` to patched
+  releases (lockfile only) to clear published advisories affecting every
+  Fastify-based tier, including the new internet-facing MCP listener.
+
 ### Fixed
 
 - **Saved settings never took effect, even after a restart.** Applying a

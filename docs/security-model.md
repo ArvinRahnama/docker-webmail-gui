@@ -32,6 +32,17 @@ Two containers, not one:
 The web tier cannot reach Docker. It can only send the broker a **named
 intent** — `container.restart`, `container.logs` — over that internal network.
 
+**Optionally, MCP inside `server`.** If you enable the MCP integration
+([`mcp-integration.md`](mcp-integration.md)), the server also opens a second
+port that gives postmaster-approved mailboxes to MCP clients such as
+ChatGPT. Unlike the panel, that port is _meant_ to be reachable from the
+internet. It has no Docker client of its own, keeps its own database, and
+logs in to mail as each mailbox with that mailbox's own password, stored
+encrypted under a key kept in a separate file. Because it shares the
+server's process, a successful attack on it would have the web tier's
+reach — the panel's data and the broker's allowlist — but, like any web-tier
+compromise, still not Docker or the host. Leave it off unless you use it.
+
 ## 2. What the boundary actually buys you
 
 The property worth stating precisely:
@@ -164,7 +175,12 @@ say so rather than implying otherwise.
 5. **Leave `ENABLE_EXEC_CONSOLE=false`** unless you specifically need the
    diagnostic console. It is off by default for a reason, even though
    what it can run is a fixed allowlist.
-6. **Store backups somewhere you would be comfortable storing mail**,
+6. **If you enable MCP**, give it its own hostname behind HTTPS, keep
+   `MCP_BIND_ADDRESS=127.0.0.1`, back up `secrets/mcp_vault_key` and the
+   `dwg-server-data` volume to _separate_ places, issue connections only with
+   the permissions each user needs, and revoke them when people leave. See
+   [`mcp-integration.md`](mcp-integration.md) §13.
+7. **Store backups somewhere you would be comfortable storing mail**,
    because that is what they are — including a configured S3/FTP remote:
    its credentials live only in this panel's database (never `.env`),
    masked on every read and revealed only through an audited action, but

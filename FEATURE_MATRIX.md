@@ -450,6 +450,27 @@ Mail volume, spam volume and error counts come from log parsing and our own samp
 
 ---
 
+## 35. MCP connections (optional) — **Constrained, opt-in, disabled by default**
+
+An optional feature, embedded in the server container (`apps/mcp`;
+listening only with `MCP_ENABLED=true`, and inert until a postmaster
+enables it), through which a postmaster issues isolated, per-mailbox
+connections to MCP clients such as ChatGPT. Full design: [`docs/mcp-integration.md`](docs/mcp-integration.md).
+
+| Capability                                     | Status           | Notes                                                                                                                                                       |
+| ---------------------------------------------- | ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Issue / disable / revoke / delete a connection | **Full**         | Administrators only (`mcp:manage`). One-time setup credential, shown once; reissue and rotate.                                                              |
+| OAuth 2.1 for MCP clients (PKCE, CIMD, DCR)    | **Full**         | Per the MCP 2026-07-28 authorization spec. No password grant. Verified with the official MCP SDK client and real browsers.                                  |
+| Read: folders, list, search, read, attachments | **Full**         | Never marks messages as seen. Verified against a real docker-mailserver over TLS.                                                                           |
+| Send                                           | **Constrained**  | Explicit confirmation, idempotency keys, per-hour/day and recipient limits, approved sender identities only.                                                |
+| Delete                                         | **Constrained**  | Move to Trash and restore only. Permanent deletion and emptying Trash are refused by design.                                                                |
+| Mark as read / flags / move between folders    | **Unsupported**  | Not offered (refused by us, to keep the write surface minimal).                                                                                             |
+| Password change / deletion / recreate handling | **Full**         | Panel changes suspend or revoke immediately; out-of-band changes caught at next login or within 5 minutes; recreated addresses get nothing.                 |
+| Live ChatGPT workspace                         | **Not verified** | Built to OpenAI's published requirements; not exercised against a real ChatGPT account. Write tools need a plan that allows them (Business/Enterprise/Edu). |
+| LDAP-provisioned mailboxes                     | **Unsupported**  | Identity fingerprints come from the file-based account list.                                                                                                |
+
+---
+
 ## Summary
 
 | Status          | Count                                    | Items                                                                                                                                                                                                                                                                                                                                                      |
@@ -458,6 +479,8 @@ Mail volume, spam volume and error counts come from log parsing and our own samp
 | **Partial**     | 8                                        | Dashboard, Domains, Mailboxes, TLS, ClamAV, Updates, SMTP/IMAP settings                                                                                                                                                                                                                                                                                    |
 | **Constrained** | 7                                        | Spam rules, Containers/lifecycle, Volumes, Config editor, Environment, Terminal/Exec, Rspamd (write)                                                                                                                                                                                                                                                       |
 | **Unsupported** | 0 whole features; **7 sub-capabilities** | Create/delete/disable domain · true mailbox disable (only send/receive restrict) · Let's Encrypt issuance · bulk mailbox delete (refused by us) · general Rspamd config editing (refused by us) · container recreate and update apply/rollback (refused by us — they need `container.create`, §22/§31) · image pull (no destination without recreate, §24) |
+
+The optional MCP integration (§35) is listed separately and not counted above: it is not part of a default install.
 
 Every unsupported sub-capability is stated here rather than quietly dropped. Most ship as a visible, disabled control with an explanation — never hidden, never faked. Container recreate, image pull and update rollback are the exception: they have no control anywhere, because the broker has no operation for a control to call. `POST /api/v1/updates/apply` is the one place a user can still ask for that path, and it answers with the reason, names the missing Docker operation, and audits the refusal (§22, §24, §31).
 

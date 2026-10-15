@@ -18,6 +18,15 @@ Two containers, two networks — `docker/compose.yaml`:
   `internal: true` — no route to or from the internet in either direction,
   and no route to `frontend` either.
 
+**Optional MCP integration, inside `server`** (`MCP_ENABLED=true
+./installer/install.sh`). No extra container: the server also opens the
+per-mailbox MCP + OAuth listener for clients such as ChatGPT on port 3100,
+published on `127.0.0.1` by default for your HTTPS reverse proxy. The
+compose file always mounts `secrets/mcp_vault_key` into the server (the
+installer creates it on every install), and the MCP database lives in the
+server's own volume. Everything about it — proxy setup, networking, backup,
+upgrades — is in [`mcp-integration.md`](mcp-integration.md).
+
 **`docker-mailserver` is not a service in this compose file.** This project
 does not deploy DMS — it manages an already-running one, resolved by name
 or label (`DMS_CONTAINER_NAME` / `DMS_CONTAINER_LABEL`, `.env.example`).
@@ -204,6 +213,10 @@ failing on secrets a teardown never needed.
 
 Every run ends by listing what it left on the host, so what survives an
 uninstall is a stated outcome rather than something to discover later.
+
+**The MCP vault key** (`secrets/mcp_vault_key`) is kept by the default
+uninstall, like the data volume that holds the MCP database, and removed by
+`--purge` together with it.
 
 ## 6. What is verified where
 

@@ -92,6 +92,13 @@ to your DMS container's network automatically. If it could not, connect
 it by hand — see [`docker.md`](docker.md) §3 — or set `RSPAMD_PASSWORD`
 if the controller requires one.
 
+## MCP connections
+
+Problems with the optional MCP integration — "not configured", the service
+unreachable, OAuth discovery failing behind a proxy, a connection showing
+**Suspended**, a mailbox password rejected right after it was changed —
+have their own table in [`mcp-integration.md`](mcp-integration.md) §17.
+
 ## Things that are refused, not broken
 
 Some controls answer with a reason instead of doing the thing. That is

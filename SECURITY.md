@@ -37,30 +37,33 @@ These are properties of the design, stated openly rather than hidden:
 
 1. **Mail data** — irreplaceable. Loss is unrecoverable and unacceptable.
 2. **The host** — compromise means everything else is moot.
-3. **Secrets** — DKIM private keys, TLS private keys, mail account credentials, the broker secret, admin password hashes.
+3. **Secrets** — DKIM private keys, TLS private keys, mail account credentials, the broker secret, admin password hashes; with the optional MCP integration, the MCP vault key, sealed mailbox credentials, and OAuth tokens.
 4. **Mail integrity** — the ability to send as a domain (spoofing, reputation damage, blocklisting).
 5. **Availability** — an outage is serious but recoverable.
 
 ### 2.2 Trust boundaries
 
-| Boundary | Between                | Control                                                                                               |
-| -------- | ---------------------- | ----------------------------------------------------------------------------------------------------- |
-| **B1**   | Internet → web tier    | Authentication, session management, rate limiting, CSRF, security headers                             |
-| **B2**   | Web tier → broker      | Internal-only network, shared secret, fixed operation vocabulary, Zod-validated per-operation schemas |
-| **B3**   | Broker → Docker daemon | Operation allowlist, server-side container allowlist, no client-supplied container specs              |
-| **B4**   | Broker → DMS container | Argv arrays only, allowlisted subcommands, allowlisted file paths                                     |
+| Boundary | Between                                             | Control                                                                                                                                                                  |
+| -------- | --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **B1**   | Internet → web tier                                 | Authentication, session management, rate limiting, CSRF, security headers                                                                                                |
+| **B2**   | Web tier → broker                                   | Internal-only network, shared secret, fixed operation vocabulary, Zod-validated per-operation schemas                                                                    |
+| **B3**   | Broker → Docker daemon                              | Operation allowlist, server-side container allowlist, no client-supplied container specs                                                                                 |
+| **B4**   | Broker → DMS container                              | Argv arrays only, allowlisted subcommands, allowlisted file paths                                                                                                        |
+| **B5**   | Internet → MCP listener (optional, in the web tier) | OAuth 2.1 + PKCE, one-time setup credentials, audience-bound opaque tokens, per-call scope and binding checks, rate limits, HTTPS only, separate listener from the panel |
 
 **B2 is the load-bearing boundary.** Everything above it is assumed breachable.
 
 ### 2.3 Adversaries
 
-| Adversary                                    | Capability                          | Primary defence                                                                                     |
-| -------------------------------------------- | ----------------------------------- | --------------------------------------------------------------------------------------------------- |
-| Unauthenticated internet attacker            | Reach the login endpoint            | Auth, rate limiting, lockout, no information disclosure                                             |
-| Credentialed attacker (stolen admin session) | Full panel authority                | Audit logging, re-auth for destructive actions, immediate session revocation, blast-radius bounding |
-| Attacker with RCE in the web tier            | Arbitrary code in the web container | **B2** — no socket, no Docker vocabulary, no way to express a container spec                        |
-| Malicious or compromised dependency          | Code execution at build or run time | Lockfiles, pinned digests, CI audit, SBOM, minimal dependency count                                 |
-| Curious/careless administrator               | Legitimate but dangerous actions    | Tiered confirmations, impact summaries, deletion blocks on mail volumes                             |
+| Adversary                                                             | Capability                                                     | Primary defence                                                                                                                              |
+| --------------------------------------------------------------------- | -------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| Unauthenticated internet attacker                                     | Reach the login endpoint                                       | Auth, rate limiting, lockout, no information disclosure                                                                                      |
+| Credentialed attacker (stolen admin session)                          | Full panel authority                                           | Audit logging, re-auth for destructive actions, immediate session revocation, blast-radius bounding                                          |
+| Attacker with RCE in the web tier                                     | Arbitrary code in the web container                            | **B2** — no socket, no Docker vocabulary, no way to express a container spec                                                                 |
+| Malicious or compromised dependency                                   | Code execution at build or run time                            | Lockfiles, pinned digests, CI audit, SBOM, minimal dependency count                                                                          |
+| Curious/careless administrator                                        | Legitimate but dangerous actions                               | Tiered confirmations, impact summaries, deletion blocks on mail volumes                                                                      |
+| Holder of one mailbox's MCP connection, or a malicious email it reads | That connection's tokens; prompt injection via message content | **B5** — server-side mailbox binding, no mailbox parameter in tools, per-call scope checks, Trash-only delete, confirmation + limits on send |
+| Attacker exploiting the MCP listener                                  | Code execution in the web tier                                 | **B2** — the same bound as any web-tier RCE: no socket, broker allowlist only                                                                |
 
 ---
 
@@ -159,6 +162,22 @@ A test asserts both, and states why, so that neither is "simplified" away later.
 
 **Honest exception:** backup archives contain DKIM and TLS private keys by necessity. Download is audited and gated.
 
+### 3.10a The optional MCP integration
+
+The MCP integration (`apps/mcp`, [`docs/mcp-integration.md`](docs/mcp-integration.md)) runs **inside the server process**, on its own listener (port 3100), when `MCP_ENABLED=true`. It is the one internet-facing surface besides the panel itself.
+
+**The trade-off, stated plainly.** Keeping the deployment at two containers means the MCP listener shares the web tier's process. A remotely exploitable bug in it is therefore a web-tier compromise — the panel database (admin hashes, sessions, audit log), the sealed mailbox credentials and the vault key, and the broker's fixed allowlist — not something narrower. What does **not** change is B2: the web tier still has no Docker socket and no way to express a container specification, so even then the host is out of reach. Operators who do not use MCP should leave it off (nothing listens on 3100 then); those who do should keep 3100 on loopback behind an HTTPS proxy with its own hostname.
+
+Controls on the MCP surface itself:
+
+- **No Docker vocabulary.** `apps/mcp` cannot import a Docker client or `child_process` (`eslint.config.js`); the server image build fails if a Docker client is present; `installer/install.sh` and `.github/workflows/installer.yml` still verify the server has no socket.
+- **Separation inside the process.** A separate Fastify instance with its own CSP, cookies (`__Host-` transaction cookie) and error handling; the panel's routes are not served on it and the OAuth pages are not served on the panel's port. Its own SQLite file; it never opens the panel's database. The control API is never bound to a socket and still authenticates every in-process call with a per-process secret.
+- **Credentials.** The mailbox password is verified against IMAP/SMTP before storage, sealed with AES-256-GCM (associated data binds it to its binding and mailbox), and the vault key lives in a file outside the data volume. Setup passwords (~139 bits) and tokens are stored only as Argon2id / SHA-256 hashes. Nothing is ever returned after the one-time display. No ROPC grant; no master user.
+- **Authorization.** OAuth 2.1 per the MCP 2026-07-28 spec: PKCE S256 only, exact redirect matching, RFC 8707 audience binding per connection, 60-second single-use codes with replay revocation, rotating refresh tokens with replay revocation, RFC 7009 revocation, RFC 9207 `iss`. Effective scopes are recomputed on every call from the postmaster's current settings.
+- **Isolation.** The mailbox is resolved from the connection's server-side binding; tools take no mailbox argument; message ids are only resolved inside the bound mailbox. Identity fingerprints from the panel detect password changes and delete/recreate; recreated addresses never inherit grants.
+- **SSRF.** Client ID Metadata Documents are fetched with a guarded resolver (public addresses only, checked at connect time), https/443, no redirects, size and time caps.
+- **Untrusted content.** Message bodies are returned as text labelled untrusted; authorization never depends on model output.
+
 ### 3.11 Log injection
 
 **Mitigations:** structured JSON logging (Pino) — user input is a field value, never part of a format string, so newline/CRLF forgery cannot fabricate log entries. On render, log content is escaped and control characters are stripped.
@@ -246,6 +265,8 @@ Controls are only real if tested. The security test suite is part of CI:
 | 8   | Log redaction                                               | `apps/server/src/platform/logger.test.ts` (mechanism, pre-existing) + `apps/server/src/security/log-redaction.security.test.ts` (end-to-end: the real app, a real login/change-password sequence, the raw captured log text) + `apps/server/src/security/backup-remote-redaction.security.test.ts` (M13 remote-backup feature: the S3 secret access key / FTP password never appear in logs, `job_logs`, any HTTP response body, a forced-failure error, or the pre-change config snapshot, for a real config-apply + upload against a fake S3/FTP server, with a positive control per destination type) |
 | 9   | Authorization enforced server-side, every mutating route    | `apps/server/src/security/route-authorization.security.test.ts` (enumerates the live app's own route table via `printRoutes`, fires every POST/PUT/PATCH/DELETE unauthenticated and CSRF-less)                                                                                                                                                                                                                                                                                                                                                                                                           |
 | 10  | `npm audit` + dependency review + SBOM license gate         | `.github/workflows/security.yml` (three jobs) + `npm run check:audit` (the same production-scoped audit, locally, part of `npm run check`) + `scripts/check-licenses.mjs`                                                                                                                                                                                                                                                                                                                                                                                                                                |
+
+**The optional MCP integration** adds its own checks, all run in CI: `apps/mcp/src/security.security.test.ts` (control API refuses missing/wrong secrets, public listener exposes no control route, no secret in any response, log or audit row across a full authorize → send cycle, grant-revocation IDOR, no Docker client or broker vocabulary in the source tree); `apps/server/src/modules/mcp/embedded.test.ts` (the real in-process wiring, and the panel and MCP ports kept apart); `apps/mcp/src/oauth/oauth-flow.test.ts` (connection A ↔ B isolation, revoked and expired tokens, refresh replay, expired/consumed setup passwords, redirect validation, mailbox deletion/recreation and password change); `apps/mcp/src/mcp/tools.test.ts` (mailbox smuggling through tool arguments, forged message ids, missing delete permission, prompt-injection content); the real-mail-server suite in `.github/workflows/mcp-integration.yml`; and the deployed container in `.github/workflows/installer.yml` (cycle 4). The panel's MCP routes are covered by check 9 like every other route.
 
 Accessibility (IMPLEMENTATION_PLAN.md §2.4, run alongside this table though not one of its ten numbered items): `e2e/security/accessibility.spec.ts` — axe-core against every nav-level route plus `/login`, zero critical/serious violations, and keyboard-only completion of login and in-app navigation. Found and fixed three real violations (a contrast pairing, an invalid ARIA pattern, and a dialog with no viewport-height limit) — see `apps/web/src/styles/tokens.css`, `apps/web/src/components/metric-tile.tsx`, `apps/web/src/components/ui/dialog.tsx`.
 

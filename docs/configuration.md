@@ -94,6 +94,18 @@ successful login — the installer's closing message says so too.
 `RSPAMD_PASSWORD` is the Rspamd controller password, if yours has one.
 Without it, Rspamd features report `Unavailable` rather than guessing.
 
+## The optional MCP integration
+
+`MCP_ENABLED=true ./installer/install.sh` turns on the MCP integration,
+which runs inside the server container. The vault key file
+`secrets/mcp_vault_key` is generated on every install (the compose file
+mounts it either way) and never regenerated. The settings that need a
+decision — `MCP_PUBLIC_URL` (a dedicated `https://` hostname),
+`MCP_BIND_ADDRESS` (keep `127.0.0.1` behind a proxy on the same host) and
+the reverse-proxy headers `MCP_TRUST_PROXY` depends on — are explained in
+[`mcp-integration.md`](mcp-integration.md) §4–§5. Everything else is set in
+the panel under **Mail → MCP Connections → Service settings**.
+
 ## A note on values containing `#`
 
 Compose's env-file parser treats `#` as starting a comment when preceded

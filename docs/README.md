@@ -28,6 +28,10 @@ Read in this order if you are installing for the first time:
 6. **[`troubleshooting.md`](troubleshooting.md)** — symptoms and causes,
    including how mail operations cross the privilege boundary and how to
    read `Unknown` correctly.
+7. **[`mcp-integration.md`](mcp-integration.md)** — only if you want it:
+   the optional MCP service that lets a postmaster give individual
+   mailboxes to ChatGPT or other MCP clients. Installation, HTTPS,
+   security model, lifecycle, backup, upgrades and ChatGPT plan limits.
 
 > **Start here if something is already wrong:**
 > [`troubleshooting.md`](troubleshooting.md).

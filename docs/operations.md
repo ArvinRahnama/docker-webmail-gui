@@ -65,6 +65,13 @@ row.
 - **Storage** — per-mailbox usage. Reports `Unknown` rather than a
   guessed number when the underlying output does not match the expected
   shape.
+- **MCP Connections** (only with the optional MCP service installed) —
+  issue, watch and revoke per-mailbox connections for MCP clients such as
+  ChatGPT: the service settings, a one-time setup credential per
+  connection, live authorizations, credential health, and each
+  connection's security events. Each mailbox's own page shows its
+  connections too. Changing or deleting a mailbox here suspends or revokes
+  its MCP access automatically. See [`mcp-integration.md`](mcp-integration.md).
 
 ## Security
 

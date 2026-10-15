@@ -12,6 +12,8 @@ export default defineConfig({
     // tests should not silently depend on build-order.
     alias: {
       '@dwg/shared': fileURLToPath(new URL('../../packages/shared/src/index.ts', import.meta.url)),
+      // Same reasoning for the embedded MCP integration's package.
+      '@dwg/mcp': fileURLToPath(new URL('../mcp/src/index.ts', import.meta.url)),
     },
   },
 });

@@ -38,6 +38,13 @@ export const SENSITIVE_KEYS = [
   'rspamdPassword',
   'privateKey',
   'dkimKey',
+  // MCP integration (docs/mcp-integration.md): the mailbox IMAP/SMTP
+  // password travels through this tier once on its way to apps/mcp's vault,
+  // and the one-time setup password is in create/reissue/rotate responses.
+  'mailboxPassword',
+  'setupPassword',
+  'mcpControlSecret',
+  'controlSecret',
 ] as const;
 
 // A deliberate limitation, recorded so it reads as a decision rather than an

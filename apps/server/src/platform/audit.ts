@@ -101,6 +101,22 @@ export const AUDIT_ACTIONS = [
   'update.self_update_succeeded',
   'update.self_update_rolled_back',
   'update.self_update_failed',
+  // Postmaster-controlled MCP integration (docs/mcp-integration.md). The
+  // admin-side record of every postmaster action; apps/mcp keeps its own
+  // trail of OAuth and tool activity.
+  'mcp.settings_update',
+  'mcp.discovery_check',
+  'mcp.connection_create',
+  'mcp.connection_update',
+  'mcp.connection_provision',
+  'mcp.connection_reissue',
+  'mcp.connection_rotate',
+  'mcp.connection_test',
+  'mcp.connection_disable',
+  'mcp.connection_enable',
+  'mcp.connection_revoke',
+  'mcp.connection_delete',
+  'mcp.grant_revoke',
 ] as const;
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];
 

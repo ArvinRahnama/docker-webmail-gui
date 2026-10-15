@@ -136,6 +136,7 @@ export const CONFIG_ENV_KEYS = [
   'RSPAMD_PASSWORD',
   'ENABLE_EXEC_CONSOLE',
   'ENABLE_HSTS',
+  'MCP_ENABLED',
 ] as const;
 
 const rawEnvSchema = z
@@ -213,6 +214,13 @@ const rawEnvSchema = z
 
     ENABLE_EXEC_CONSOLE: booleanVar(false),
     ENABLE_HSTS: booleanVar(true),
+
+    // Optional MCP integration (docs/mcp-integration.md), run inside this
+    // process when enabled. Off = no MCP listener at all, and the MCP page
+    // says the integration is not enabled. Its own settings (MCP_PUBLIC_*,
+    // MCP_VAULT_KEY_FILE, …) are read by @dwg/mcp's loadMcpConfig at
+    // startup, only when this is on.
+    MCP_ENABLED: booleanVar(false),
   })
   .superRefine((data, ctx) => {
     // BOOTSTRAP_ADMIN_EMAIL/PASSWORD must be set together, in every mode
@@ -329,6 +337,14 @@ export interface AppConfig {
 
   readonly enableExecConsole: boolean;
   readonly enableHsts: boolean;
+
+  /**
+   * The optional MCP integration (docs/mcp-integration.md), embedded in this
+   * process. `enabled: false` means no MCP listener is started.
+   */
+  readonly mcp: {
+    readonly enabled: boolean;
+  };
 
   /**
    * Non-secret, operator-facing messages worth logging once at startup
@@ -523,6 +539,9 @@ export function loadConfig(
     }),
     enableExecConsole: data.ENABLE_EXEC_CONSOLE,
     enableHsts: data.ENABLE_HSTS,
+    mcp: Object.freeze({
+      enabled: data.MCP_ENABLED,
+    }),
     warnings: Object.freeze(warnings),
   };
 

@@ -11,6 +11,8 @@ import { runMigrations, migrations, MigrationError } from './platform/migrations
 import { ConfigRepository } from './modules/config/config.repository.js';
 import { filterStartupOverrides } from './modules/config/settings-allowlist.js';
 import { buildApp } from './app.js';
+import { McpConfigError } from '@dwg/mcp';
+import { startMcpIntegration, type McpIntegration } from './modules/mcp/embedded.js';
 
 async function main(): Promise<void> {
   // First pass: environment only. Needed before anything else exists —
@@ -64,13 +66,36 @@ async function main(): Promise<void> {
     logger.warn(warning);
   }
 
-  const app = await buildApp({ config, logger, db });
+  // Optional MCP integration (docs/mcp-integration.md), in this process.
+  // Misconfiguration while enabled is fatal, like any other config error.
+  let mcpIntegration: McpIntegration | null;
+  try {
+    mcpIntegration = await startMcpIntegration(config, logger);
+  } catch (err) {
+    if (err instanceof McpConfigError) {
+      logger.fatal(err.message);
+    } else {
+      logger.fatal({ err }, 'Failed to start the MCP integration');
+    }
+    db.close();
+    process.exitCode = 1;
+    return;
+  }
+
+  const app = await buildApp({
+    config,
+    logger,
+    db,
+    ...(mcpIntegration !== null ? { mcpControlClient: mcpIntegration.client } : {}),
+  });
 
   try {
     const address = await app.listen({ port: config.port, host: config.host });
     logger.info({ address, appMode: config.appMode }, 'Server listening');
+    if (mcpIntegration !== null) await mcpIntegration.mcp.listen();
   } catch (err) {
     logger.fatal({ err }, 'Failed to start server');
+    await mcpIntegration?.mcp.close();
     db.close();
     process.exitCode = 1;
     return;
@@ -94,6 +119,7 @@ async function main(): Promise<void> {
 
     app
       .close() // stops accepting new connections, waits for in-flight ones
+      .then(() => mcpIntegration?.mcp.close())
       .catch((err: unknown) => {
         logger.error({ err }, 'Error while closing the server');
       })

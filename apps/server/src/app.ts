@@ -118,6 +118,12 @@ import { NotificationsRepository } from './modules/notifications/notifications.r
 import { NotificationsService } from './modules/notifications/notifications.service.js';
 import { registerNotificationsRoutes } from './modules/notifications/notifications.routes.js';
 import { startNotificationsEvaluator } from './modules/notifications/notifications-evaluator.js';
+import {
+  NotConfiguredMcpControlClient,
+  type McpControlClient,
+} from './drivers/mcp-control/index.js';
+import { McpService, startMcpReconciler } from './modules/mcp/mcp.service.js';
+import { registerMcpRoutes } from './modules/mcp/mcp.routes.js';
 
 export interface BuildAppOptions {
   readonly config: AppConfig;
@@ -185,6 +191,15 @@ export interface BuildAppOptions {
   readonly backupSchedulerIntervalMs?: number;
   /** Cadence for the background remote-reconcile sweep (M13). Same override rationale; a no-op unless a destination is configured and auto-upload is on. */
   readonly backupReconcileIntervalMs?: number;
+  /**
+   * Port to the embedded MCP integration's control API
+   * (docs/mcp-integration.md). index.ts passes the in-process client when
+   * MCP_ENABLED is on; route tests pass a `FakeMcpControlClient`; the
+   * default is the "not enabled" stub.
+   */
+  readonly mcpControlClient?: McpControlClient;
+  /** Cadence for MCP mailbox-identity reconciliation. Tests omit it (never fires in a test's lifetime). */
+  readonly mcpReconcileIntervalMs?: number;
 }
 
 const REQUEST_ID_HEADER = 'request-id';
@@ -365,6 +380,16 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   // service needs them — see `createDmsDriver`'s own doc comment for how
   // real vs fake is selected.
   const dmsDriver = options.dmsDriver ?? createDmsDriver(config, logger, brokerClient);
+
+  // Optional MCP integration (docs/mcp-integration.md). Built before the
+  // mailbox routes because mailbox password changes and deletions notify it.
+  const mcpControlClient = options.mcpControlClient ?? new NotConfiguredMcpControlClient();
+  const mcpService = new McpService(mcpControlClient, dmsDriver, logger);
+  const mcpReconciler = startMcpReconciler(mcpService, options.mcpReconcileIntervalMs);
+  app.addHook('onClose', () => {
+    mcpReconciler.stop();
+  });
+
   const domainsService = new DomainsService(dmsDriver);
   const mailboxesService = new MailboxesService(dmsDriver);
   const aliasesService = new AliasesService(dmsDriver);
@@ -558,7 +583,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   await registerAdminsRoutes(app, { db, admins, middleware });
   await registerMailCapabilitiesRoutes(app, { driver: dmsDriver, middleware });
   await registerDomainsRoutes(app, { domainsService, middleware });
-  await registerMailboxesRoutes(app, { db, mailboxesService, middleware });
+  await registerMailboxesRoutes(app, { db, mailboxesService, middleware, mcpService });
   await registerAliasesRoutes(app, { db, aliasesService, middleware });
   await registerQuotasRoutes(app, { quotasService, middleware });
   await registerQueueRoutes(app, { queueService, middleware });
@@ -594,6 +619,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   await registerUpdatesRoutes(app, { db, updatesService, panelSelfUpdateService, middleware });
   await registerDashboardRoutes(app, { dashboardService, middleware });
   await registerNotificationsRoutes(app, { notificationsService, middleware });
+  await registerMcpRoutes(app, { db, mcpService, control: mcpControlClient, middleware });
 
   // The one `setNotFoundHandler` call this instance is allowed — see
   // `buildNotFoundHandler`'s own doc comment for why static-SPA serving

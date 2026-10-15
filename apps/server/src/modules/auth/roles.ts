@@ -19,6 +19,14 @@ export const PERMISSIONS = [
   // whole maintenance surface, mirroring `docker:manage`'s own grouping
   // of several M9 modules under one gate.
   'maintenance:manage',
+  // Postmaster-controlled MCP integration (docs/mcp-integration.md):
+  // generating, inspecting and revoking per-mailbox MCP connections. A
+  // separate permission — not folded into `mail:manage` — because issuing
+  // AI-client access to a mailbox is a distinct, security-sensitive power,
+  // and because a future non-postmaster role must be able to manage
+  // mailboxes without it. Granted to administrators (the postmasters);
+  // never inferred from a mailbox address such as postmaster@….
+  'mcp:manage',
 ] as const;
 export type Permission = (typeof PERMISSIONS)[number];
 

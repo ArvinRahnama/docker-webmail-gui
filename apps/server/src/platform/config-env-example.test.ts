@@ -38,6 +38,16 @@ function brokerEnvKeys(): string[] {
   return [...keys].sort();
 }
 
+/** The variables apps/mcp's own config reads (its `MCP_CONFIG_ENV_KEYS` list, read as text so this test does not import across workspaces). */
+function mcpEnvKeys(): string[] {
+  const path = fileURLToPath(new URL('../../../mcp/src/config.ts', import.meta.url));
+  const text = readFileSync(path, 'utf8');
+  const block = /MCP_CONFIG_ENV_KEYS = \[([\s\S]*?)\] as const/.exec(text)?.[1] ?? '';
+  return [...block.matchAll(/'([A-Z][A-Z0-9_]*)'/g)]
+    .map((match) => match[1] ?? '')
+    .filter((key) => key.length > 0);
+}
+
 /** Every `KEY=` assignment in `.env.example`, commented lines excluded. */
 function envExampleKeys(): string[] {
   const path = fileURLToPath(new URL('../../../../.env.example', import.meta.url));
@@ -61,13 +71,20 @@ describe('.env.example matches the configuration schema', () => {
     // `.env.example` is the whole project's file: one `.env` configures
     // both containers, so the union is the right comparison. Splitting it
     // per tier would mean two files an operator has to keep consistent.
-    const known = new Set<string>([...CONFIG_ENV_KEYS, ...brokerEnvKeys()]);
+    const known = new Set<string>([...CONFIG_ENV_KEYS, ...brokerEnvKeys(), ...mcpEnvKeys()]);
     const unknown = envExampleKeys().filter((key) => !known.has(key));
-    expect(unknown, 'variables in .env.example that neither tier reads').toEqual([]);
+    expect(unknown, 'variables in .env.example that no tier reads').toEqual([]);
+  });
+
+  it('documents every variable apps/mcp reads', () => {
+    const documented = new Set(envExampleKeys());
+    const undocumented = mcpEnvKeys().filter((key) => !documented.has(key));
+    expect(undocumented, 'apps/mcp variables missing from .env.example').toEqual([]);
   });
 
   it('sanity check: both extractions actually parsed something', () => {
     expect(envExampleKeys().length).toBeGreaterThan(10);
     expect(brokerEnvKeys().length).toBeGreaterThan(4);
+    expect(mcpEnvKeys().length).toBeGreaterThan(10);
   });
 });

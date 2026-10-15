@@ -33,11 +33,19 @@ import type { Database } from '../../platform/db.js';
 import { requireAuthContext, type AuthMiddleware } from '../auth/auth.middleware.js';
 import { parseBody } from '../auth/auth.routes.js';
 import type { MailboxesService } from './mailboxes.service.js';
+import type { McpService } from '../mcp/mcp.service.js';
 
 export interface MailboxesRoutesDeps {
   readonly db: Database;
   readonly mailboxesService: MailboxesService;
   readonly middleware: AuthMiddleware;
+  /**
+   * Optional MCP integration hook (docs/mcp-integration.md §Isolation): a
+   * password change or deletion through the panel immediately invalidates
+   * (or revokes) that mailbox's MCP connections. Never blocks or fails the
+   * mailbox operation itself.
+   */
+  readonly mcpService?: McpService;
 }
 
 const MailboxListQuerySchema = z.object({
@@ -66,7 +74,7 @@ export async function registerMailboxesRoutes(
   app: FastifyInstance,
   deps: MailboxesRoutesDeps,
 ): Promise<void> {
-  const { db, mailboxesService, middleware } = deps;
+  const { db, mailboxesService, middleware, mcpService } = deps;
   const { requireSession, requireCsrf, requirePermission } = middleware;
 
   await app.register(
@@ -129,6 +137,11 @@ export async function registerMailboxesRoutes(
             // refuse to write this row if one ever appeared here.
             details: { email: request.params.address },
           });
+          await mcpService?.notifyMailboxChange(
+            request.params.address,
+            'password_changed',
+            auth.admin.email,
+          );
 
           const response: ChangeMailboxPasswordResponse = { changed: true };
           void reply.send(ChangeMailboxPasswordResponseSchema.parse(response));
@@ -226,6 +239,7 @@ export async function registerMailboxesRoutes(
             dependentAliasCount: dependentAliases.length,
           },
         });
+        await mcpService?.notifyMailboxChange(mailbox.email, 'deleted', auth.admin.email);
 
         reply.status(204);
         void reply.send();

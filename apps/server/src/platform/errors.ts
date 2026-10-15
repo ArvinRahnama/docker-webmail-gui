@@ -13,6 +13,10 @@ import type { Logger } from 'pino';
 import { type ErrorCode, isErrorCode } from '@dwg/shared';
 import { DmsCommandExecutionError, DmsCommandValidationError } from '../drivers/dms/errors.js';
 import { BrokerRequestError } from '../drivers/broker/types.js';
+import {
+  McpControlRequestError,
+  McpControlUnavailableError,
+} from '../drivers/mcp-control/types.js';
 
 // ---------------------------------------------------------------------------
 // AppError
@@ -228,6 +232,28 @@ function mapBrokerClientError(err: unknown): AppError | null {
   return null;
 }
 
+/**
+ * apps/mcp's control API answers with the same error-code vocabulary and
+ * already user-safe messages, so its errors pass through with their own
+ * code; an unreachable or misconfigured MCP service is `UPSTREAM_UNAVAILABLE`
+ * (or `CAPABILITY_UNSUPPORTED` when the integration is simply not set up).
+ */
+function mapMcpControlError(err: unknown): AppError | null {
+  if (err instanceof McpControlRequestError) {
+    return new AppError(err.code, err.message, {
+      httpStatus: err.statusCode,
+      details: err.details,
+    });
+  }
+  if (err instanceof McpControlUnavailableError) {
+    return new AppError(
+      err.reason === 'not_configured' ? 'CAPABILITY_UNSUPPORTED' : 'UPSTREAM_UNAVAILABLE',
+      err.message,
+    );
+  }
+  return null;
+}
+
 export function createErrorHandler(logger: Logger) {
   return function errorHandler(
     errParam: unknown,
@@ -235,7 +261,11 @@ export function createErrorHandler(logger: Logger) {
     reply: FastifyReply,
   ): void {
     const errorId = generateErrorId();
-    const err = mapDmsDriverError(errParam) ?? mapBrokerClientError(errParam) ?? errParam;
+    const err =
+      mapDmsDriverError(errParam) ??
+      mapBrokerClientError(errParam) ??
+      mapMcpControlError(errParam) ??
+      errParam;
 
     if (err instanceof AppError) {
       const logMethod = err.httpStatus >= 500 ? 'error' : 'warn';

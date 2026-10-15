@@ -55,6 +55,9 @@ version and are called out explicitly here.
 - Updated `fastify` to 5.12.7, `fast-uri` and `ip-address` to patched
   releases (lockfile only) to clear published advisories affecting every
   Fastify-based tier, including the new internet-facing MCP listener.
+- Updated `undici` to 7.30.1 (server and MCP integration), `@grpc/grpc-js`
+  (pulled in by the broker's Docker client) to 1.14.6 and `brace-expansion`
+  to patched releases to clear high-severity advisories.
 
 ### Fixed
 

@@ -1,0 +1,143 @@
+# Runs apps/mcp's integration suite against a real docker-mailserver: real
+# Dovecot IMAP and Postfix submission over TLS, with the two test accounts
+# the suite expects (sales@example.test, support@example.test).
+#
+# Everything in the suite goes through the MCP service's public HTTP
+# surface — OAuth with a one-time setup credential, then MCP tool calls —
+# so a green run here means list/search/read/attachment/send/trash/restore
+# worked against a real mail server, not a fake. The TLS certificate is
+# issued by a throwaway CA created in this job and verified by the MCP
+# service exactly as a production deployment would (no `tlsVerify: false`).
+#
+# Not part of `npm test` (which uses the in-memory fake backend and needs
+# no Docker); `ci.yml` runs that.
+
+name: MCP integration
+
+on:
+  workflow_dispatch: {}
+  push:
+    branches:
+      - main
+    paths:
+      - 'apps/mcp/**'
+      - 'packages/shared/**'
+      - 'package-lock.json'
+      - '.github/workflows/mcp-integration.yml'
+  pull_request:
+    paths:
+      - 'apps/mcp/**'
+      - 'packages/shared/**'
+      - 'package-lock.json'
+      - '.github/workflows/mcp-integration.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mcp-integration-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Pinned major; DMS 15 is what the suite was developed against.
+  DMS_IMAGE: ghcr.io/docker-mailserver/docker-mailserver:15
+  DMS_CONTAINER: dwg-it-mailserver
+  # Throwaway credentials for throwaway accounts in a throwaway container.
+  SALES_PASSWORD: Sales-IMAP-pass-1
+  SUPPORT_PASSWORD: Support-IMAP-pass-1
+
+jobs:
+  imap-smtp:
+    name: Real IMAP/SMTP (docker-mailserver)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Create a throwaway CA and a certificate for mail.example.test
+        run: |
+          set -eu
+          mkdir -p "${RUNNER_TEMP}/dms/certs" "${RUNNER_TEMP}/dms/config"
+          cd "${RUNNER_TEMP}/dms/certs"
+          openssl req -x509 -newkey rsa:2048 -nodes -days 2 -subj '/CN=dwg-mcp-it-ca' \
+            -keyout ca.key -out ca.crt
+          openssl req -newkey rsa:2048 -nodes -subj '/CN=mail.example.test' \
+            -keyout mail.key -out mail.csr
+          printf 'subjectAltName=DNS:mail.example.test\nextendedKeyUsage=serverAuth\n' > ext.cnf
+          openssl x509 -req -in mail.csr -CA ca.crt -CAkey ca.key -CAcreateserial \
+            -days 2 -extfile ext.cnf -out mail.crt
+          chmod 644 ./*
+
+      - name: Start docker-mailserver
+        run: |
+          set -eu
+          docker run -d --name "${DMS_CONTAINER}" --hostname mail.example.test \
+            -e SSL_TYPE=manual -e SSL_CERT_PATH=/certs/mail.crt -e SSL_KEY_PATH=/certs/mail.key \
+            -e ENABLE_RSPAMD=0 -e ENABLE_CLAMAV=0 -e ENABLE_FAIL2BAN=0 -e ENABLE_AMAVIS=0 \
+            -e ENABLE_SPAMASSASSIN=0 -e ENABLE_POSTGREY=0 -e ENABLE_OPENDKIM=0 \
+            -e ENABLE_OPENDMARC=0 -e ENABLE_POLICYD_SPF=0 -e SPOOF_PROTECTION=1 -e LOG_LEVEL=warn \
+            -v "${RUNNER_TEMP}/dms/certs:/certs:ro" \
+            -v "${RUNNER_TEMP}/dms/config:/tmp/docker-mailserver" \
+            -p 127.0.0.1:19993:993 -p 127.0.0.1:19465:465 -p 127.0.0.1:19587:587 \
+            "${DMS_IMAGE}"
+
+      - name: Create the two test accounts
+        run: |
+          set -eu
+          # DMS refuses to finish starting without at least one account, and
+          # `setup email add` itself waits for the container to be ready.
+          for attempt in $(seq 1 30); do
+            if docker exec "${DMS_CONTAINER}" setup email add sales@example.test "${SALES_PASSWORD}"; then
+              break
+            fi
+            sleep 4
+          done
+          docker exec "${DMS_CONTAINER}" setup email list | grep -q sales@example.test
+          docker exec "${DMS_CONTAINER}" setup email add support@example.test "${SUPPORT_PASSWORD}"
+
+      - name: Wait for IMAP and SMTP to accept TLS connections with the new accounts
+        run: |
+          set -eu
+          node --input-type=module -e "
+            import tls from 'node:tls';
+            import { readFileSync } from 'node:fs';
+            const ca = readFileSync(process.env.RUNNER_TEMP + '/dms/certs/ca.crt');
+            const probe = (port) => new Promise((resolve) => {
+              const s = tls.connect({ host: '127.0.0.1', port, servername: 'mail.example.test', ca }, () => { s.end(); resolve(true); });
+              s.on('error', () => resolve(false));
+            });
+            for (let i = 0; i < 60; i++) {
+              if ((await probe(19993)) && (await probe(19465))) { console.log('IMAP and SMTP ready'); process.exit(0); }
+              await new Promise((r) => setTimeout(r, 3000));
+            }
+            console.error('mail server did not become ready'); process.exit(1);
+          "
+          # Account changes reach Dovecot through DMS's change detector;
+          # give it a moment so the first login does not race it.
+          sleep 10
+
+      - name: Run the integration suite
+        env:
+          MCP_IT_IMAP_HOST: 127.0.0.1
+          MCP_IT_IMAP_PORT: '19993'
+          MCP_IT_SMTP_HOST: 127.0.0.1
+          MCP_IT_SMTP_PORT: '19465'
+          MCP_IT_TLS_SERVERNAME: mail.example.test
+          MCP_IT_SALES_PASSWORD: ${{ env.SALES_PASSWORD }}
+          MCP_IT_SUPPORT_PASSWORD: ${{ env.SUPPORT_PASSWORD }}
+          MCP_IT_DMS_CONTAINER: ${{ env.DMS_CONTAINER }}
+        run: MCP_IT_CA_FILE="${RUNNER_TEMP}/dms/certs/ca.crt" npm run test:integration --workspace apps/mcp
+
+      - name: Dump mail server logs on failure
+        if: failure()
+        run: docker logs "${DMS_CONTAINER}" 2>&1 | tail -200 || true

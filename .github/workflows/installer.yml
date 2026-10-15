@@ -24,6 +24,11 @@
 #      to settings an operator changed by hand after installing, which is
 #      the failure mode a byte-comparison of an untouched `.env` would
 #      never notice.
+#   4. The optional MCP integration (cycle 4), which runs inside the
+#      server container, answers on its own listener only when enabled,
+#      publishes nothing but loopback by default, keeps the panel's API off
+#      its port, and its vault key survives re-installs and a default
+#      uninstall and goes only with --purge.
 
 name: Installer
 
@@ -337,6 +342,98 @@ jobs:
         env:
           DWG_CONFIRM_PURGE: 'yes'
         run: ./installer/uninstall.sh --purge
+
+      # -----------------------------------------------------------------
+      # Cycle 4 — the optional MCP integration (docs/mcp-integration.md),
+      # inside the server container. Off in cycles 1–3 (the default); here
+      # it is turned on, verified, turned off again, and purged.
+      # -----------------------------------------------------------------
+      - name: 'Cycle 4: install with MCP_ENABLED=true'
+        run: |
+          set -eu
+          set -o pipefail
+          docker network create dms-placeholder-net 2>/dev/null || true
+          docker run -d --name mailserver --network dms-placeholder-net alpine:3.20 sleep infinity
+          MCP_ENABLED=true ./installer/install.sh | tee /tmp/install4.log
+          grep -q 'MCP listener answering on port 3100' /tmp/install4.log
+          grep -qx 'MCP_ENABLED=true' .env
+          test "$(stat -c '%a' secrets)" = "700"
+          test "$(stat -c '%a' secrets/mcp_vault_key)" = "444"
+          sha256sum secrets/mcp_vault_key > /tmp/vault-key.sha256
+          [ "$(${COMPOSE} ps -q | wc -l)" = "2" ] || { echo "FAIL: expected exactly two containers (server, broker)"; ${COMPOSE} ps; exit 1; }
+
+      - name: 'Cycle 4: verify the embedded MCP listener'
+        run: |
+          set -eu
+          SERVER_CID=$(${COMPOSE} ps -q server)
+
+          echo "--- the server still has no Docker socket, with MCP on ---"
+          case "$(docker inspect --format '{{range .Mounts}}{{.Source}}:{{.Destination}} {{end}}' "${SERVER_CID}")" in
+            *docker.sock*) echo "FAIL: server has a Docker socket mounted"; exit 1 ;;
+          esac
+          docker exec "${SERVER_CID}" sh -c '! test -e node_modules/dockerode && ! test -e apps/mcp/node_modules/dockerode'
+
+          echo "--- the vault key is a mounted file, not an environment variable ---"
+          docker exec "${SERVER_CID}" test -s /run/secrets/mcp_vault_key
+          ! docker exec "${SERVER_CID}" printenv MCP_VAULT_KEY
+
+          echo "--- the MCP port is published on loopback only ---"
+          PORTS=$(docker inspect --format '{{json .NetworkSettings.Ports}}' "${SERVER_CID}")
+          echo "server ports: ${PORTS}"
+          echo "${PORTS}" | grep -q '"3100/tcp":\[{"HostIp":"127.0.0.1"'
+
+          echo "--- health over the published port; HTTPS enforced for everything else ---"
+          curl -fsS http://127.0.0.1:3100/healthz | grep -q '"status":"ok"'
+          CODE=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3100/.well-known/oauth-authorization-server)
+          [ "${CODE}" = "400" ] || { echo "FAIL: plain-HTTP metadata request returned ${CODE}"; exit 1; }
+
+          echo "--- the panel API is not served on the MCP port, and OAuth is not served on the panel's ---"
+          CODE=$(curl -s -o /dev/null -w '%{http_code}' -H 'X-Forwarded-Proto: https' http://127.0.0.1:3100/api/v1/health)
+          [ "${CODE}" = "404" ] || { echo "FAIL: /api/v1/health on the MCP port returned ${CODE}"; exit 1; }
+          # The panel answers unknown paths with its SPA shell; what must not
+          # appear there is the MCP sign-in form.
+          curl -s http://127.0.0.1:3000/oauth/authorize -o /tmp/panel-oauth.html
+          ! grep -q 'MCP username' /tmp/panel-oauth.html || { echo "FAIL: the panel port serves the OAuth sign-in page"; exit 1; }
+
+          echo "--- the MCP database lives in the server's own data volume ---"
+          docker exec "${SERVER_CID}" sh -c 'ls /app/data/mcp/mcp.db'
+          echo "All embedded MCP assertions passed."
+
+      - name: 'Cycle 4: re-install keeps the vault key'
+        run: |
+          set -eu
+          cp .env /tmp/env-before-mcp-reinstall
+          ./installer/install.sh
+          diff -q /tmp/env-before-mcp-reinstall .env
+          sha256sum -c /tmp/vault-key.sha256
+
+      - name: 'Cycle 4: MCP_ENABLED=false closes the listener but keeps its data'
+        run: |
+          set -eu
+          MCP_ENABLED=false ./installer/install.sh
+          ! curl -fsS -m 2 http://127.0.0.1:3100/healthz
+          SERVER_CID=$(${COMPOSE} ps -q server)
+          docker exec "${SERVER_CID}" sh -c 'ls /app/data/mcp/mcp.db'
+          sha256sum -c /tmp/vault-key.sha256
+          MCP_ENABLED=true ./installer/install.sh
+          curl -fsS http://127.0.0.1:3100/healthz | grep -q '"status":"ok"'
+
+      - name: 'Cycle 4: default uninstall keeps the vault key and data volume'
+        run: |
+          set -eu
+          ./installer/uninstall.sh
+          docker volume inspect dwg-server-data >/dev/null
+          sha256sum -c /tmp/vault-key.sha256
+
+      - name: 'Cycle 4: --purge removes the vault key with the data'
+        env:
+          DWG_CONFIRM_PURGE: 'yes'
+        run: |
+          set -eu
+          ./installer/uninstall.sh --purge
+          docker volume inspect dwg-server-data >/dev/null 2>&1 && { echo "FAIL: dwg-server-data survived --purge"; exit 1; }
+          [ ! -e secrets/mcp_vault_key ] || { echo "FAIL: the vault key survived --purge"; exit 1; }
+          docker rm -f mailserver >/dev/null
 
       - name: Dump container logs on failure
         if: failure()

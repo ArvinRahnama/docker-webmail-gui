@@ -17,6 +17,12 @@
 # an upgrade would print a password the admin has (per the mandatory
 # first-login flow) already rotated away.
 #
+# The optional MCP integration (docs/mcp-integration.md) runs inside the
+# server container and is off unless MCP_ENABLED=true. Its vault key file is
+# generated on every install (once — never regenerated), because the compose
+# file mounts it into the server either way; when MCP is on, this script also
+# waits for the MCP listener to answer inside the server container.
+#
 # Where each setting comes from, in precedence order — this is the part
 # that makes a re-run safe to do on a system an operator has since tuned
 # by hand:
@@ -214,6 +220,24 @@ RSPAMD_PASSWORD=$(resolve RSPAMD_PASSWORD '')
 ENABLE_EXEC_CONSOLE=$(resolve ENABLE_EXEC_CONSOLE 'false')
 ENABLE_HSTS=$(resolve ENABLE_HSTS 'true')
 
+# Optional MCP integration (docs/mcp-integration.md) — off by default. It
+# runs inside the server container; these only configure it.
+MCP_ENABLED=$(resolve MCP_ENABLED 'false')
+case "${MCP_ENABLED}" in
+  true | false) ;;
+  *) die "MCP_ENABLED must be 'true' or 'false', not '${MCP_ENABLED}'." ;;
+esac
+MCP_PUBLIC_URL=$(resolve MCP_PUBLIC_URL '')
+MCP_BIND_ADDRESS=$(resolve MCP_BIND_ADDRESS '127.0.0.1')
+MCP_PORT=$(resolve MCP_PORT '3100')
+MCP_MAIL_HOST=$(resolve MCP_MAIL_HOST "${DMS_CONTAINER_NAME}")
+MCP_TRUST_PROXY=$(resolve MCP_TRUST_PROXY 'loopback,linklocal,uniquelocal')
+MCP_REQUIRE_HTTPS=$(resolve MCP_REQUIRE_HTTPS 'true')
+case "${MCP_PUBLIC_URL}" in
+  '' | https://*) ;;
+  *) die "MCP_PUBLIC_URL must be an https:// URL (ChatGPT and the MCP authorization spec require HTTPS), not '${MCP_PUBLIC_URL}'." ;;
+esac
+
 # BOOTSTRAP_ADMIN_EMAIL/PASSWORD: only generated on a genuinely fresh
 # install (no admin can exist yet — bootstrapFirstAdmin, apps/server/src
 # /modules/auth/bootstrap.ts, only ever creates the *first* one). An
@@ -264,7 +288,7 @@ fi
 #    exactly the kind of quiet destruction the uninstaller is careful to
 #    avoid.
 # ---------------------------------------------------------------------------
-MANAGED_KEYS='APP_MODE BIND_ADDRESS PORT DWG_IMAGE_MODE DWG_VERSION LOG_LEVEL COOKIE_SECRET COOKIE_SECURE SESSION_ABSOLUTE_TTL_HOURS SESSION_IDLE_TTL_HOURS BOOTSTRAP_ADMIN_EMAIL BOOTSTRAP_ADMIN_PASSWORD BROKER_SHARED_SECRET DOCKER_GID DMS_CONTAINER_NAME DMS_CONTAINER_LABEL RSPAMD_URL RSPAMD_PASSWORD ENABLE_EXEC_CONSOLE ENABLE_HSTS'
+MANAGED_KEYS='APP_MODE BIND_ADDRESS PORT DWG_IMAGE_MODE DWG_VERSION LOG_LEVEL COOKIE_SECRET COOKIE_SECURE SESSION_ABSOLUTE_TTL_HOURS SESSION_IDLE_TTL_HOURS BOOTSTRAP_ADMIN_EMAIL BOOTSTRAP_ADMIN_PASSWORD BROKER_SHARED_SECRET DOCKER_GID DMS_CONTAINER_NAME DMS_CONTAINER_LABEL RSPAMD_URL RSPAMD_PASSWORD ENABLE_EXEC_CONSOLE ENABLE_HSTS MCP_ENABLED MCP_PUBLIC_URL MCP_BIND_ADDRESS MCP_PORT MCP_MAIL_HOST MCP_TRUST_PROXY MCP_REQUIRE_HTTPS'
 
 TMP_ENV=$(mktemp "${REPO_ROOT}/.env.XXXXXX")
 TMP_EXTRA=$(mktemp "${REPO_ROOT}/.env.extra.XXXXXX")
@@ -295,6 +319,14 @@ RSPAMD_URL=${RSPAMD_URL}
 RSPAMD_PASSWORD=${RSPAMD_PASSWORD}
 ENABLE_EXEC_CONSOLE=${ENABLE_EXEC_CONSOLE}
 ENABLE_HSTS=${ENABLE_HSTS}
+# Optional MCP integration — docs/mcp-integration.md.
+MCP_ENABLED=${MCP_ENABLED}
+MCP_PUBLIC_URL=${MCP_PUBLIC_URL}
+MCP_BIND_ADDRESS=${MCP_BIND_ADDRESS}
+MCP_PORT=${MCP_PORT}
+MCP_MAIL_HOST=${MCP_MAIL_HOST}
+MCP_TRUST_PROXY=${MCP_TRUST_PROXY}
+MCP_REQUIRE_HTTPS=${MCP_REQUIRE_HTTPS}
 EOF
 
 if [ -f "${ENV_FILE}" ]; then
@@ -329,6 +361,33 @@ mv "${TMP_ENV}" "${ENV_FILE}"
 rm -f "${TMP_EXTRA}"
 trap - EXIT
 log "Wrote ${ENV_FILE}."
+
+# ---------------------------------------------------------------------------
+# 8b. MCP vault key — the key that seals every stored mailbox credential.
+#     Generated once into secrets/ (git-ignored), never regenerated:
+#     replacing it would make every sealed credential unreadable. It lives
+#     outside the dwg-server-data volume on purpose, so a copy of that
+#     volume alone cannot unseal anything. Created on every install, MCP on
+#     or off, because docker/compose.yaml mounts it into the server either
+#     way (an unused key protects nothing and costs nothing). The directory
+#     is 0700 (only this user can traverse it on the host); the file is 0444
+#     because the container runs as an unprivileged UID (10001) that must be
+#     able to read the bind-mounted file.
+# ---------------------------------------------------------------------------
+MCP_SECRETS_DIR="${REPO_ROOT}/secrets"
+MCP_VAULT_KEY_PATH="${MCP_SECRETS_DIR}/mcp_vault_key"
+mkdir -p "${MCP_SECRETS_DIR}"
+chmod 700 "${MCP_SECRETS_DIR}"
+if [ -f "${MCP_VAULT_KEY_PATH}" ]; then
+  [ -s "${MCP_VAULT_KEY_PATH}" ] || die "${MCP_VAULT_KEY_PATH} exists but is empty. Restore it from your backup (stored MCP mailbox credentials cannot be read without it), or delete it to start over and re-provision every MCP connection's mailbox credential."
+  log "MCP vault key present (${MCP_VAULT_KEY_PATH}) — kept as is."
+else
+  TMP_KEY=$(mktemp "${MCP_SECRETS_DIR}/.mcp_vault_key.XXXXXX")
+  gen_secret > "${TMP_KEY}"
+  chmod 444 "${TMP_KEY}"
+  mv "${TMP_KEY}" "${MCP_VAULT_KEY_PATH}"
+  log "Generated the MCP vault key at ${MCP_VAULT_KEY_PATH}."
+fi
 
 # ---------------------------------------------------------------------------
 # 9. Build and start.
@@ -419,6 +478,23 @@ esac
 
 log "Privilege boundary verified: the socket is on the broker only, and the broker publishes nothing."
 
+# The optional MCP listener runs inside the server container. When it is
+# enabled, wait until it answers there — a misconfiguration (for example a
+# missing vault key) stops the server from starting at all, which the
+# health wait above already catches.
+if [ "${MCP_ENABLED}" = "true" ]; then
+  log "Waiting for the MCP listener to answer..."
+  ATTEMPT=0
+  until docker exec "${SERVER_CID}" node -e "fetch('http://127.0.0.1:3100/healthz').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))" >/dev/null 2>&1; do
+    ATTEMPT=$((ATTEMPT + 1))
+    if [ "${ATTEMPT}" -ge "${MAX_ATTEMPTS}" ]; then
+      die "the MCP listener did not answer. Check the logs: docker compose -f ${COMPOSE_FILE} --env-file ${ENV_FILE} logs server"
+    fi
+    sleep 2
+  done
+  log "MCP listener answering on port 3100 inside the server container."
+fi
+
 # ---------------------------------------------------------------------------
 # 12. Best-effort: attach the server to an already-running
 #     docker-mailserver's network, for apps/server's direct Rspamd HTTP
@@ -432,28 +508,45 @@ if [ -z "${DMS_CID}" ] && [ -n "${DMS_CONTAINER_LABEL}" ]; then
   DMS_CID=$(docker ps -q --filter "label=${DMS_CONTAINER_LABEL}" | head -n1)
 fi
 
-if [ -n "${DMS_CID}" ]; then
-  DMS_NETWORKS=$(docker inspect -f '{{range $net, $cfg := .NetworkSettings.Networks}}{{$net}} {{end}}' "${DMS_CID}")
-  SERVER_NETWORKS=$(docker inspect -f '{{range $net, $cfg := .NetworkSettings.Networks}}{{$net}} {{end}}' "${SERVER_CID}")
-  CONNECTED=false
+attach_to_dms_network() {
+  # $1 = container id, $2 = human name, $3 = why it needs the network
+  _attach_networks=$(docker inspect -f '{{range $net, $cfg := .NetworkSettings.Networks}}{{$net}} {{end}}' "$1")
+  _attach_connected=false
   for net in ${DMS_NETWORKS}; do
+    # Never use this loop to bridge onto this project's own internal
+    # networks, whatever network DMS happens to share.
+    # Docker's default `bridge` network has no embedded DNS, so the mail
+    # server's container name would not resolve there; `host` and `none`
+    # cannot be joined at all.
+    case "${net}" in
+      dwg-broker | bridge | host | none) continue ;;
+    esac
     # Already attached (a re-run against an unchanged stack) is success,
     # not a failure to report — this loop is idempotent by construction.
-    case " ${SERVER_NETWORKS} " in
+    case " ${_attach_networks} " in
       *" ${net} "*)
-        log "Already attached to docker-mailserver's network '${net}'."
-        CONNECTED=true
+        log "The $2 is already attached to docker-mailserver's network '${net}'."
+        _attach_connected=true
         break
         ;;
     esac
-    if docker network connect "${net}" "${SERVER_CID}" 2>/dev/null; then
-      log "Attached the server to docker-mailserver's network '${net}' (for Rspamd reachability)."
-      CONNECTED=true
+    if docker network connect "${net}" "$1" 2>/dev/null; then
+      log "Attached the $2 to docker-mailserver's network '${net}' ($3)."
+      _attach_connected=true
       break
     fi
   done
-  if [ "${CONNECTED}" = "false" ]; then
-    warn "found a running '${DMS_CONTAINER_NAME}' container but could not join any of its networks. Rspamd status may show Unavailable — see docs/docker.md §3."
+  if [ "${_attach_connected}" = "false" ]; then
+    warn "found a running '${DMS_CONTAINER_NAME}' container but could not attach the $2 to any of its networks ($3) — see docs/docker.md §3."
+  fi
+}
+
+if [ -n "${DMS_CID}" ]; then
+  DMS_NETWORKS=$(docker inspect -f '{{range $net, $cfg := .NetworkSettings.Networks}}{{$net}} {{end}}' "${DMS_CID}")
+  if [ "${MCP_ENABLED}" = "true" ]; then
+    attach_to_dms_network "${SERVER_CID}" "server" "for Rspamd, and IMAP/SMTP for MCP"
+  else
+    attach_to_dms_network "${SERVER_CID}" "server" "for Rspamd reachability"
   fi
 else
   warn "no running '${DMS_CONTAINER_NAME}' container found — mail-server-dependent features will report Unknown/Unavailable until one exists and this script is re-run."
@@ -478,6 +571,19 @@ if [ "${COOKIE_SECURE}" = "true" ]; then
   log "store a Secure cookie over plain http:// on anything but localhost, so if you reach"
   log "this panel over a LAN address or hostname you must either terminate TLS in front of"
   log "it, or set COOKIE_SECURE=false in ${ENV_FILE} and re-run this script."
+fi
+
+if [ "${MCP_ENABLED}" = "true" ]; then
+  log ""
+  log "MCP integration: listening on ${MCP_BIND_ADDRESS}:${MCP_PORT} (public MCP + OAuth endpoints)."
+  if [ -z "${MCP_PUBLIC_URL}" ]; then
+    log "  Next: put an HTTPS reverse proxy for a public hostname in front of it, set its"
+    log "  public URL in Mail > MCP Connections > Settings (or MCP_PUBLIC_URL here), then"
+    log "  enable the integration there. It stays disabled until you do."
+  else
+    log "  Public URL: ${MCP_PUBLIC_URL} — enable the integration in Mail > MCP Connections."
+  fi
+  log "  Back up ${MCP_VAULT_KEY_PATH} together with the dwg-server-data volume (stored apart)."
 fi
 
 if [ "${FRESH_INSTALL}" = "true" ]; then

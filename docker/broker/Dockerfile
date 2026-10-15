@@ -22,6 +22,7 @@ FROM base AS deps
 COPY package.json package-lock.json ./
 COPY apps/broker/package.json apps/broker/package.json
 COPY apps/server/package.json apps/server/package.json
+COPY apps/mcp/package.json apps/mcp/package.json
 COPY apps/web/package.json apps/web/package.json
 COPY packages/shared/package.json packages/shared/package.json
 RUN npm ci
@@ -33,19 +34,19 @@ COPY apps/broker apps/broker
 RUN npm run build --workspace packages/shared \
  && npm run build --workspace apps/broker
 
-# `apps/server` and `apps/web` are dropped from the workspace tree before
-# the prune, for the same reason (and with the same measurement behind it)
-# as docker/server/Dockerfile's mirror-image step — see that file's
-# comment on this stage. Both are still workspaces here only because their
+# `apps/server`, `apps/web` and `apps/mcp` are dropped from the workspace
+# tree before the prune, for the same reason (and with the same measurement
+# behind it) as docker/server/Dockerfile's mirror-image step — see that
+# file's comment on this stage. They are still workspaces here only because their
 # package.json files had to be copied into `deps` above for `npm ci` to
-# resolve the lockfile; neither one's *source* was ever copied. Without
+# resolve the lockfile; none of their *source* was ever copied. Without
 # this, `npm prune --omit=dev` would keep every production dependency of
 # the web tier and the SPA (React, @node-rs/argon2, tar, undici and their
 # transitive closure — 438 packages, measured with `npm prune --omit=dev
 # --dry-run` on this repository) inside the image whose whole design
 # principle is that it is small.
 FROM build AS prod-deps
-RUN rm -rf apps/server apps/web && npm prune --omit=dev
+RUN rm -rf apps/server apps/web apps/mcp && npm prune --omit=dev
 # See docker/server/Dockerfile's identical step: npm does not guarantee
 # hoisting, and a workspace-local node_modules the runtime stage never
 # copied would produce an image that starts and immediately dies.

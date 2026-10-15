@@ -9,11 +9,15 @@
 #                        this project's own two Docker networks. Leaves
 #                        the named volumes (dwg-server-data,
 #                        dwg-server-backups — admin accounts, sessions,
-#                        audit log), the built images, and .env in place,
-#                        so re-running install.sh recovers the install
-#                        exactly as it was.
-#   --purge              ALSO removes this project's own named volumes
-#                        *and* the generated .env. Requires typing the
+#                        audit log, and the optional MCP integration's
+#                        connections, grants and sealed mailbox
+#                        credentials), the MCP vault key
+#                        (secrets/mcp_vault_key), the built images, and
+#                        .env in place, so re-running install.sh recovers
+#                        the install exactly as it was.
+#   --purge              ALSO removes this project's own named volumes, the
+#                        MCP vault key, *and* the generated .env. Requires
+#                        typing the
 #                        exact confirmation phrase printed at the prompt
 #                        (or DWG_CONFIRM_PURGE=yes for non-interactive
 #                        use, e.g. CI) — this deletes admin accounts and
@@ -59,6 +63,7 @@ SCRIPT_DIR=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 REPO_ROOT=$(CDPATH='' cd -- "${SCRIPT_DIR}/.." && pwd)
 COMPOSE_FILE="${REPO_ROOT}/docker/compose.yaml"
 ENV_FILE="${REPO_ROOT}/.env"
+MCP_VAULT_KEY_PATH="${REPO_ROOT}/secrets/mcp_vault_key"
 
 log() { printf '%s\n' "$*"; }
 warn() { printf 'warning: %s\n' "$*" >&2; }
@@ -152,8 +157,9 @@ if [ "${PURGE}" = "true" ]; then
   CONFIRM_PHRASE="delete docker-webmail-gui data"
   if [ "${DWG_CONFIRM_PURGE:-}" != "yes" ]; then
     if [ -t 0 ]; then
-      printf 'This deletes admin accounts, sessions, the audit log and the generated .env\n'
-      printf '(with its secrets) — not mail data, but not recoverable either.\n'
+      printf 'This deletes admin accounts, sessions, the audit log, every MCP connection and\n'
+      printf 'its stored mailbox credential, the MCP vault key, and the generated .env (with\n'
+      printf 'its secrets) — not mail data, but not recoverable either.\n'
       printf 'Type "%s" to confirm: ' "${CONFIRM_PHRASE}"
       read -r REPLY
       [ "${REPLY}" = "${CONFIRM_PHRASE}" ] || die "confirmation did not match — nothing was deleted."
@@ -176,8 +182,13 @@ if [ "${PURGE}" = "true" ]; then
   else
     log "${ENV_FILE} does not exist — already removed."
   fi
+  if [ -f "${MCP_VAULT_KEY_PATH}" ]; then
+    rm -f "${MCP_VAULT_KEY_PATH}"
+    log "Removed ${MCP_VAULT_KEY_PATH}."
+  fi
+  rmdir "${REPO_ROOT}/secrets" 2>/dev/null || true
 else
-  log "Own data preserved (dwg-server-data, dwg-server-backups, .env) — pass --purge to remove it too."
+  log "Own data preserved (dwg-server-data, dwg-server-backups, the MCP vault key, .env) — pass --purge to remove it too."
 fi
 
 # ---------------------------------------------------------------------------
@@ -226,9 +237,10 @@ fi
 log ""
 log "Uninstall complete. Still on this host:"
 if [ "${PURGED}" = "false" ]; then
-  log "  - volumes dwg-server-data, dwg-server-backups (admins, sessions, audit log)"
+  log "  - volumes dwg-server-data, dwg-server-backups (admins, sessions, audit log, MCP connections)"
+  log "  - ${MCP_VAULT_KEY_PATH} (decrypts stored MCP mailbox credentials — back it up with the volume)"
   log "  - ${ENV_FILE} (generated, contains secrets)"
-  log "    remove both with: $0 --purge"
+  log "    remove all of these with: $0 --purge"
 fi
 if [ "${REMOVE_IMAGES}" = "false" ]; then
   log "  - the images built from this repository (docker-webmail-gui-server, docker-webmail-gui-broker)"

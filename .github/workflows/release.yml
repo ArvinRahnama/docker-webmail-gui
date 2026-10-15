@@ -1,4 +1,5 @@
-# Publishes the two images to GHCR when a version tag is pushed.
+# Publishes the two images to GHCR when a version tag is pushed. The optional
+# MCP integration (docs/mcp-integration.md) ships inside the server image.
 #
 # Deliberately a separate workflow from `docker.yml`, for two reasons.
 #

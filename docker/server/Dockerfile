@@ -9,8 +9,13 @@
 # (M12) pins the same invariant on the source tree; this file is the
 # other half, for the image actually shipped.
 #
+# It also carries the optional MCP integration (apps/mcp, docs/mcp-integration.md),
+# which runs inside this same process when MCP_ENABLED=true — there is no
+# separate MCP container. apps/mcp holds no Docker client either (lint-enforced),
+# and the assertions below cover its dependencies as well.
+#
 # Build from the repository root, not this directory — the build needs
-# packages/shared and apps/web too:
+# packages/shared, apps/mcp and apps/web too:
 #   docker build -f docker/server/Dockerfile -t dwg-server .
 #
 # Base image pinned by digest, not just a tag (ARCHITECTURE.md §10):
@@ -50,6 +55,7 @@ FROM base AS deps
 COPY package.json package-lock.json ./
 COPY apps/server/package.json apps/server/package.json
 COPY apps/broker/package.json apps/broker/package.json
+COPY apps/mcp/package.json apps/mcp/package.json
 COPY apps/web/package.json apps/web/package.json
 COPY packages/shared/package.json packages/shared/package.json
 RUN npm ci
@@ -57,14 +63,17 @@ RUN npm ci
 # ---------------------------------------------------------------------------
 # build — packages/shared first (apps/web and apps/server both depend on
 # its built dist/, the same order M12's `pretest:e2e` npm script uses),
-# then the SPA this image serves, then the server itself.
+# then the embedded MCP integration, the SPA this image serves, and the
+# server itself.
 # ---------------------------------------------------------------------------
 FROM deps AS build
 COPY tsconfig.base.json tsconfig.json ./
 COPY packages/shared packages/shared
+COPY apps/mcp apps/mcp
 COPY apps/web apps/web
 COPY apps/server apps/server
 RUN npm run build --workspace packages/shared \
+ && npm run build --workspace apps/mcp \
  && npm run build --workspace apps/web \
  && npm run build --workspace apps/server
 
@@ -99,7 +108,7 @@ RUN rm -rf apps/broker && npm prune --omit=dev
 # lockfile repair, and the first container run failed with
 # ERR_MODULE_NOT_FOUND. These directories are created unconditionally so the
 # COPY of each always has a source, whether npm hoisted everything or not.
-RUN mkdir -p apps/server/node_modules packages/shared/node_modules
+RUN mkdir -p apps/server/node_modules apps/mcp/node_modules packages/shared/node_modules
 
 # The compiled unit tests are dead weight in a runtime image: `tsc --build`
 # emits one `.test.js`/`.test.d.ts`/`.test.js.map` beside every module,
@@ -112,7 +121,7 @@ RUN mkdir -p apps/server/node_modules packages/shared/node_modules
 # (`<module>.test.ts` beside each module, §5); fixtures are *not* test
 # files here — the fake drivers consume them — and are deliberately left
 # alone.
-RUN find apps/server/dist packages/shared/dist \
+RUN find apps/server/dist apps/mcp/dist packages/shared/dist \
       \( -name '*.test.js' -o -name '*.test.d.ts' -o -name '*.test.js.map' \
          -o -name '*-test-harness.js' -o -name '*-test-harness.d.ts' -o -name '*-test-harness.js.map' \) \
       -delete
@@ -184,6 +193,9 @@ COPY --from=prod-deps --chown=dwg:dwg /app/packages/shared/dist ./packages/share
 COPY --from=prod-deps --chown=dwg:dwg /app/apps/server/package.json ./apps/server/package.json
 COPY --from=prod-deps --chown=dwg:dwg /app/apps/server/dist ./apps/server/dist
 COPY --from=prod-deps --chown=dwg:dwg /app/apps/server/node_modules ./apps/server/node_modules
+COPY --from=prod-deps --chown=dwg:dwg /app/apps/mcp/package.json ./apps/mcp/package.json
+COPY --from=prod-deps --chown=dwg:dwg /app/apps/mcp/dist ./apps/mcp/dist
+COPY --from=prod-deps --chown=dwg:dwg /app/apps/mcp/node_modules ./apps/mcp/node_modules
 COPY --from=prod-deps --chown=dwg:dwg /app/packages/shared/node_modules ./packages/shared/node_modules
 COPY --from=prod-deps --chown=dwg:dwg /app/apps/web/dist ./apps/web/dist
 
@@ -235,7 +247,9 @@ RUN for pkg in dockerode docker-modem; do \
 
 USER dwg
 ENV STATIC_DIR=/app/apps/web/dist
-EXPOSE 3000
+# 3000: the panel. 3100: the optional MCP listener (MCP_ENABLED=true), published
+# separately so a reverse proxy can give it its own hostname.
+EXPOSE 3000 3100
 
 # No curl/wget in this image on purpose (smaller image, smaller attack
 # surface) — Node itself, already required to run the server, can make

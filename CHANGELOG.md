@@ -11,6 +11,8 @@ version and are called out explicitly here.
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-10-15
+
 ### Added
 
 - **Optional MCP integration: postmaster-issued mailbox connections for

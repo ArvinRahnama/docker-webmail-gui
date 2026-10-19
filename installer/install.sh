@@ -218,7 +218,13 @@ case "${DWG_IMAGE_MODE}" in
   pull | build) ;;
   *) die "DWG_IMAGE_MODE must be 'pull' or 'build', not '${DWG_IMAGE_MODE}'." ;;
 esac
-DWG_VERSION=$(resolve DWG_VERSION '0.1.0')
+# Defaults to this checkout's own release (the root package.json's
+# "version"), so a fresh install from a `vX.Y.Z` checkout installs that
+# release — pulled or built. An existing install keeps the DWG_VERSION in
+# its .env (rule 2 above); pass DWG_VERSION to move it.
+CHECKOUT_VERSION=$(sed -n 's/^  "version": "\([^"]*\)",*$/\1/p' "${REPO_ROOT}/package.json" | head -n 1)
+[ -n "${CHECKOUT_VERSION}" ] || die "could not read the version from ${REPO_ROOT}/package.json."
+DWG_VERSION=$(resolve DWG_VERSION "${CHECKOUT_VERSION}")
 BIND_ADDRESS=$(resolve BIND_ADDRESS '0.0.0.0')
 PORT=$(resolve PORT '3000')
 LOG_LEVEL=$(resolve LOG_LEVEL 'info')

@@ -75,6 +75,12 @@ version and are called out explicitly here.
   back as two replacement characters — in a large Sieve script, for
   example, which saving would then have written back. Each stream's output
   is now decoded once, whole.
+- **A fresh install from a release checkout installed the 0.1.0 images.**
+  `installer/install.sh` defaulted `DWG_VERSION` to a hard-coded `0.1.0`, so
+  following the README (`git clone --branch v1.1.0 …`, then
+  `DWG_IMAGE_MODE=pull ./installer/install.sh`) pulled 0.1.0, and a source
+  build was tagged and reported as 0.1.0. It now defaults to the checkout's
+  own version; an existing install keeps the `DWG_VERSION` in its `.env`.
 - **Saved settings never took effect, even after a restart.** Applying a
   change on the Configuration page persisted it and said a restart was
   required, but nothing ever read that saved value back at startup — the

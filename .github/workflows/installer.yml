@@ -139,6 +139,10 @@ jobs:
       - name: 'Cycle 1: verify health'
         run: curl -fsS http://127.0.0.1:3000/api/v1/health | tee /dev/stderr | grep -q '"status":"ok"'
 
+      # A fresh install defaults to this checkout's own release.
+      - name: 'Cycle 1: verify DWG_VERSION defaults to the checkout version'
+        run: grep -qx "DWG_VERSION=$(node -p "require('./package.json').version")" .env
+
       # MCP is off by default: the install must need no vault key and the
       # server must publish nothing but the panel port.
       - name: 'Cycle 1: MCP off needs no vault key and opens no MCP port'

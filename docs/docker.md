@@ -94,9 +94,9 @@ sh install.sh
 ```
 
 This project does not yet publish the installer as a signed release
-artifact at a stable URL (`release.yml` publishes the two images to GHCR,
-nothing else), so today the only installer path is a git checkout, as
-above. The two-step pattern above is documented now so the eventual release
+artifact at a stable URL (`release.yml` publishes the two images to GHCR
+and a GitHub Release whose notes are the CHANGELOG section, with no files
+attached), so today the only installer path is a git checkout, as above. The two-step pattern above is documented now so the eventual release
 process has a settled answer rather than reaching for `curl | sh` by
 default later — see SECURITY.md §4.4.
 

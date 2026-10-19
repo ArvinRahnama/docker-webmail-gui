@@ -142,6 +142,29 @@ it isn't obvious from the diff.
    requested changes on anything touching the broker, auth, or a destructive
    operation — that scrutiny is deliberate, not personal.
 
+## Releasing
+
+A release is one commit on `main` that bumps the version, and the Release
+workflow (`.github/workflows/release.yml`) does the rest. The commit sets
+the new `x.y.z`:
+
+- in the root `package.json` (and `package-lock.json`, via
+  `npm version x.y.z --no-git-tag-version`) — what the images report;
+- in both `${DWG_VERSION:-x.y.z}` fallbacks in `docker/compose.yaml`;
+- in the README quick start's download URL and `.env`;
+- as a dated `## [x.y.z] - YYYY-MM-DD` heading in `CHANGELOG.md`, moved
+  from `[Unreleased]`, plus its link reference at the bottom — this section
+  becomes the GitHub Release notes.
+
+Once that commit is on `main` and CI has passed on it, the workflow checks
+the version agrees in `package.json`, the compose fallbacks and the
+CHANGELOG heading, then creates the annotated `vx.y.z` tag, publishes both
+images to GHCR and creates the GitHub Release — in that order, because the
+panel's self-update offers whatever the latest GitHub Release names. A run
+that stops part-way is finished by running the workflow again from the
+Actions tab (**Release → Run workflow** on `main`). Pushing a `vx.y.z` tag
+yourself still works and publishes that tag the same way.
+
 ## Testing expectations
 
 Per `IMPLEMENTATION_PLAN.md` §2.4:

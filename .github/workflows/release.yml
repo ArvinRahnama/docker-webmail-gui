@@ -1,34 +1,239 @@
-# Publishes the two images to GHCR when a version tag is pushed. The optional
-# MCP integration (docs/mcp-integration.md) ships inside the server image.
+# Cuts a release end to end, in one run and in this order:
 #
-# Deliberately its own workflow, triggered by tags alone. The workflows
-# that build these images for verification (`installer.yml`) filter on
-# `paths`, and a `paths` filter applies to the whole `push` event — tags
-# included. A release tag usually points at a commit that changed none of
-# those paths, so a publish job living there would silently never run. That
-# is the worst possible failure mode for a release: no error, no images,
-# and a tag that looks published.
+#   1. the annotated `v<version>` tag (created here when it does not exist),
+#   2. both images on GHCR (the optional MCP integration,
+#      docs/mcp-integration.md, ships inside the server image),
+#   3. the GitHub Release, its notes taken from CHANGELOG.md.
 #
-# The token is the built-in `GITHUB_TOKEN` (`github.token`), scoped to
-# `packages: write` for this workflow only. No personal access token is
-# used or needed: GHCR accepts the workflow token for packages owned by the
-# same account as the repository.
+# The order is load-bearing: the panel's self-update offers whatever
+# GitHub's `releases/latest` names (apps/server/src/drivers/self-update/
+# real-self-update-release-source.ts), so the Release must never exist
+# before the images it points at. A run that fails part-way leaves at most
+# a tag or tag-plus-images, never a Release with nothing behind it, and
+# re-running finishes the job.
+#
+# What starts a release:
+#
+#   - A version bump pushed to main: the root package.json's `version` names
+#     a release whose tag does not exist yet. Any other push to main that
+#     touches package.json finds the tag already there and does nothing.
+#   - A manual run on main (Actions -> Release -> Run workflow): the same,
+#     and when the tag already exists it re-publishes that tag — the way to
+#     retry a release that failed part-way.
+#   - A pushed `v*` tag, or a manual run on one: publishes that tag.
+#
+# Before any tag is created or anything is published, the commit must pass
+# two gates: its CI run on main succeeded (a release is never cut from a
+# red or untested commit), and the version is consistent everywhere a
+# release has to state it — package.json (what the images report as
+# APP_VERSION), the DWG_VERSION fallback in docker/compose.yaml (what a
+# plain `docker compose up` pulls) and a dated `## [x.y.z] - YYYY-MM-DD`
+# CHANGELOG heading (the Release notes). A bump that misses one fails here,
+# before anything is published.
+#
+# `latest` (image tag and GitHub's latest Release) and the `x.y` image tag
+# move only when this is the highest version released so far, so
+# re-publishing an older release never rolls either back.
+#
+# The token is the built-in `GITHUB_TOKEN`, scoped per job: `contents:
+# write` to push the tag and create the Release, `packages: write` to push
+# images, `actions: read` to read CI's result. No personal access token.
+# A tag pushed with it starts no further workflow runs (GitHub's rule for
+# GITHUB_TOKEN), so creating the tag here does not start this workflow a
+# second time. One limit of that token: GitHub will not let it create a
+# Release for a commit whose .github/workflows/ differs from main's head.
+# Releasing main's head, which every trigger above normally does, never
+# meets that; a release whose tag lags behind a workflow change on main
+# needs its Release created by hand.
 name: Release
 
 on:
   push:
+    branches:
+      - main
     tags:
       - 'v*'
-  # Lets a failed publish be retried against an existing tag without
-  # re-tagging. `ref` must be the tag.
+    # Applies to the branch pushes only; GitHub does not evaluate path
+    # filters for tag pushes, so every pushed v* tag still runs.
+    paths:
+      - 'package.json'
   workflow_dispatch: {}
 
 permissions:
   contents: read
 
+# One release at a time, and never cancelled half-way.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
 jobs:
+  prepare:
+    name: Prepare the release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: read
+    outputs:
+      release: ${{ steps.plan.outputs.release }}
+      version: ${{ steps.plan.outputs.version }}
+      tag: ${{ steps.plan.outputs.tag }}
+      sha: ${{ steps.plan.outputs.sha }}
+      minor: ${{ steps.plan.outputs.minor }}
+      latest: ${{ steps.plan.outputs.latest }}
+      latest_minor: ${{ steps.plan.outputs.latest_minor }}
+      owner: ${{ steps.plan.outputs.owner }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          # Every tag, to compare versions and to tag this commit.
+          fetch-depth: 0
+
+      - name: Decide what to release
+        id: plan
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --force --tags origin
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            tag="${GITHUB_REF_NAME}"
+            version="${tag#v}"
+            create_tag=false
+          else
+            if [ "${GITHUB_REF_NAME}" != "main" ]; then
+              echo "Refusing to release from branch '${GITHUB_REF_NAME}': releases come from main or a v* tag." >&2
+              exit 1
+            fi
+            version="$(node -p "require('./package.json').version")"
+            tag="v${version}"
+            if git rev-parse -q --verify "refs/tags/${tag}" >/dev/null; then
+              # A push whose tag already exists elsewhere is just another
+              # change to package.json. One whose tag is this very commit is
+              # a re-run of the run that created it, so it finishes the job.
+              if [ "${GITHUB_EVENT_NAME}" = "push" ] && [ "$(git rev-parse "${tag}^{commit}")" != "${GITHUB_SHA}" ]; then
+                echo "${tag} already exists: nothing to release."
+                echo "release=false" >> "$GITHUB_OUTPUT"
+                exit 0
+              fi
+              create_tag=false
+              echo "${tag} already exists: re-publishing it."
+            else
+              create_tag=true
+            fi
+          fi
+
+          if ! [[ "${version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Refusing to release: '${tag}' is not a vX.Y.Z version tag." >&2
+            exit 1
+          fi
+
+          if [ "${create_tag}" = "true" ]; then
+            sha="${GITHUB_SHA}"
+          else
+            sha="$(git rev-parse "${tag}^{commit}")"
+          fi
+
+          # The version must be stated consistently in the commit itself.
+          # (Each file is read whole before it is searched: `grep -q` at the
+          # end of a pipe exits on the first match, and under pipefail the
+          # writer's SIGPIPE would then read as "not found".)
+          pkg_version="$(git show "${sha}:package.json" | node -e 'let s="";process.stdin.on("data",(d)=>(s+=d)).on("end",()=>console.log(JSON.parse(s).version))')"
+          if [ "${pkg_version}" != "${version}" ]; then
+            echo "package.json says ${pkg_version}, but this release is ${version}." >&2
+            exit 1
+          fi
+          # shellcheck disable=SC2016 # a literal `${DWG_VERSION:-…}`, not an expansion
+          fallbacks="$(git show "${sha}:docker/compose.yaml" | grep -o '\${DWG_VERSION:-[^}]*}' | sort -u)"
+          if [ "${fallbacks}" != "\${DWG_VERSION:-${version}}" ]; then
+            echo "docker/compose.yaml's DWG_VERSION fallback is not ${version}: ${fallbacks}" >&2
+            exit 1
+          fi
+          changelog="$(git show "${sha}:CHANGELOG.md")"
+          if ! grep -Eq "^## \[${version//./\\.}\] - [0-9]{4}-[0-9]{2}-[0-9]{2}$" <<<"${changelog}"; then
+            echo "CHANGELOG.md has no dated '## [${version}] - YYYY-MM-DD' section." >&2
+            exit 1
+          fi
+
+          # `latest` and `x.y` move only for the highest version so far.
+          minor="${version%.*}"
+          released="$( (git tag -l 'v*'; printf '%s\n' "${tag}") | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -uV)"
+          latest=false
+          latest_minor=false
+          if [ "$(printf '%s\n' "${released}" | tail -n1)" = "${tag}" ]; then latest=true; fi
+          if [ "$(printf '%s\n' "${released}" | grep -F "v${minor}." | tail -n1)" = "${tag}" ]; then latest_minor=true; fi
+
+          # GHCR rejects uppercase in an image path; the owner is mixed-case.
+          owner="$(printf '%s' "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')"
+          {
+            echo "release=true"
+            echo "create_tag=${create_tag}"
+            echo "version=${version}"
+            echo "tag=${tag}"
+            echo "sha=${sha}"
+            echo "minor=${minor}"
+            echo "latest=${latest}"
+            echo "latest_minor=${latest_minor}"
+            echo "owner=${owner}"
+          } >> "$GITHUB_OUTPUT"
+          echo "Releasing ${tag} from ${sha} (create tag: ${create_tag}, latest: ${latest}, ${minor} tag: ${latest_minor})"
+
+      # CI runs on every push to main; wait for its result on this commit
+      # rather than racing it.
+      - name: Require a passing CI run for this commit
+        if: steps.plan.outputs.release == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ steps.plan.outputs.sha }}
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 180); do
+            # Newest first: "status conclusion url" per CI run of this commit.
+            runs="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs?head_sha=${SHA}&event=push&per_page=20" \
+              --jq '.workflow_runs[] | "\(.status) \(.conclusion) \(.html_url)"')"
+            if [ -z "${runs}" ]; then
+              # Give a just-pushed commit's CI run a few minutes to appear.
+              if [ "${attempt}" -ge 20 ]; then
+                echo "No CI run on main for ${SHA}: a release is only cut from a commit CI has passed on main." >&2
+                exit 1
+              fi
+            elif passed="$(grep -m1 '^completed success ' <<<"${runs}")"; then
+              echo "CI passed for ${SHA}: ${passed##* }"
+              exit 0
+            elif pending="$(grep -m1 -v '^completed ' <<<"${runs}")"; then
+              echo "CI is ${pending%% *} for ${SHA}; waiting (${pending##* })"
+            else
+              # Every run finished and none passed. ci.yml cancels a run when
+              # a newer push supersedes it; re-running that run is enough.
+              read -r _ conclusion url <<<"${runs}"
+              echo "CI did not pass for ${SHA} (${conclusion}): ${url}" >&2
+              echo "Fix or re-run CI for this commit, then run this workflow again." >&2
+              exit 1
+            fi
+            sleep 15
+          done
+          echo "Timed out waiting for CI on ${SHA}." >&2
+          exit 1
+
+      - name: Create the tag
+        if: steps.plan.outputs.create_tag == 'true'
+        shell: bash
+        env:
+          TAG: ${{ steps.plan.outputs.tag }}
+          SHA: ${{ steps.plan.outputs.sha }}
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git tag -a "${TAG}" -m "${TAG}" -m "See CHANGELOG.md for what changed." "${SHA}"
+          git push origin "refs/tags/${TAG}"
+          echo "Created ${TAG} at ${SHA}."
+
   publish:
     name: Publish ${{ matrix.image }}
+    needs: prepare
+    if: needs.prepare.outputs.release == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -47,36 +252,32 @@ jobs:
             description: Privileged tier — holds the Docker socket, speaks one closed operation vocabulary.
 
     steps:
-      - name: Checkout
+      - name: Checkout the release commit
         uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+          persist-credentials: false
 
-      - name: Derive version from the tag
-        id: version
+      # Consumers get up to three ways to refer to a release, narrowest
+      # first; docs/docker.md tells operators to pin the exact version.
+      - name: Choose image tags
+        id: tags
         shell: bash
+        env:
+          REPO: ghcr.io/${{ needs.prepare.outputs.owner }}/${{ matrix.image }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+          MINOR: ${{ needs.prepare.outputs.minor }}
+          LATEST: ${{ needs.prepare.outputs.latest }}
+          LATEST_MINOR: ${{ needs.prepare.outputs.latest_minor }}
         run: |
           set -euo pipefail
-          ref="${GITHUB_REF_NAME}"
-          case "${ref}" in
-            v*) version="${ref#v}" ;;
-            *)
-              echo "Refusing to publish: '${ref}' is not a v-prefixed version tag." >&2
-              exit 1
-              ;;
-          esac
-          # Consumers get three ways to refer to a release, narrowest first.
-          # `latest` is a convenience for trying it out; `docs/docker.md`
-          # tells operators to pin the exact version, because this project
-          # is 0.x and says plainly that minors may break.
-          minor="${version%.*}"
-          # GHCR rejects an image path containing uppercase, and this
-          # repository's owner is mixed-case ("ArvinRahnama"). Lowercasing
-          # here rather than hardcoding the name keeps the workflow correct
-          # if the repository is ever forked or transferred.
-          owner="$(echo "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')"
-          echo "version=${version}" >> "$GITHUB_OUTPUT"
-          echo "minor=${minor}" >> "$GITHUB_OUTPUT"
-          echo "owner=${owner}" >> "$GITHUB_OUTPUT"
-          echo "Publishing ghcr.io/${owner}/… ${version} (also tagging ${minor} and latest)"
+          {
+            echo "list<<EOF"
+            echo "${REPO}:${VERSION}"
+            if [ "${LATEST_MINOR}" = "true" ]; then echo "${REPO}:${MINOR}"; fi
+            if [ "${LATEST}" = "true" ]; then echo "${REPO}:latest"; fi
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
@@ -102,27 +303,80 @@ jobs:
           # installer's own `DWG_IMAGE_MODE=build` path — leaves the
           # Dockerfile's own `source` default in place.
           build-args: |
-            DWG_VERSION=${{ steps.version.outputs.version }}
+            DWG_VERSION=${{ needs.prepare.outputs.version }}
             DWG_IMAGE_ORIGIN=registry
-          tags: |
-            ghcr.io/${{ steps.version.outputs.owner }}/${{ matrix.image }}:${{ steps.version.outputs.version }}
-            ghcr.io/${{ steps.version.outputs.owner }}/${{ matrix.image }}:${{ steps.version.outputs.minor }}
-            ghcr.io/${{ steps.version.outputs.owner }}/${{ matrix.image }}:latest
+          tags: ${{ steps.tags.outputs.list }}
           labels: |
             org.opencontainers.image.title=${{ matrix.title }}
             org.opencontainers.image.description=${{ matrix.description }}
-            org.opencontainers.image.version=${{ steps.version.outputs.version }}
-            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ needs.prepare.outputs.version }}
+            org.opencontainers.image.revision=${{ needs.prepare.outputs.sha }}
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
             org.opencontainers.image.url=${{ github.server_url }}/${{ github.repository }}
-            org.opencontainers.image.documentation=${{ github.server_url }}/${{ github.repository }}/blob/${{ github.ref_name }}/docs/docker.md
+            org.opencontainers.image.documentation=${{ github.server_url }}/${{ github.repository }}/blob/${{ needs.prepare.outputs.tag }}/docs/docker.md
             org.opencontainers.image.licenses=Apache-2.0
             org.opencontainers.image.vendor=${{ github.repository_owner }}
 
       - name: Report what was published
         shell: bash
+        env:
+          TAGS: ${{ steps.tags.outputs.list }}
         run: |
           echo "Published:"
-          for tag in "${{ steps.version.outputs.version }}" "${{ steps.version.outputs.minor }}" latest; do
-            echo "  ghcr.io/${{ steps.version.outputs.owner }}/${{ matrix.image }}:${tag}"
-          done
+          printf '%s\n' "${TAGS}" | sed 's/^/  /'
+
+  github-release:
+    name: Create the GitHub Release
+    needs: [prepare, publish]
+    if: needs.prepare.outputs.release == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout the release commit
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+          persist-credentials: false
+
+      - name: Create the Release from the CHANGELOG section
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+          OWNER: ${{ needs.prepare.outputs.owner }}
+          LATEST: ${{ needs.prepare.outputs.latest }}
+        run: |
+          set -euo pipefail
+          if gh release view "${TAG}" >/dev/null 2>&1; then
+            echo "The ${TAG} Release already exists; its notes are left as they are."
+            exit 0
+          fi
+          # Everything between this version's heading and the next one,
+          # without the link references at the end of the file or the blank
+          # lines around it.
+          awk -v heading="## [${VERSION}] - " '
+            index($0, heading) == 1 { found = 1; next }
+            !found { next }
+            /^## \[/ { exit }
+            /^\[[^]]+\]: / { next }
+            /^[[:space:]]*$/ { blank++; next }
+            { if (started) while (blank-- > 0) print ""; blank = 0; started = 1; print }
+          ' CHANGELOG.md > "${RUNNER_TEMP}/notes.md"
+          if ! grep -q '[^[:space:]]' "${RUNNER_TEMP}/notes.md"; then
+            echo "CHANGELOG.md's ${VERSION} section is empty." >&2
+            exit 1
+          fi
+          # Relative links point into the repository; on the Release page
+          # they would resolve against /releases/tag/, so pin them to the tag.
+          sed -E -i "s|\]\((\./)?([^)#:][^):]*)\)|](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/blob/${TAG}/\2)|g" \
+            "${RUNNER_TEMP}/notes.md"
+          {
+            echo
+            echo "Images: \`ghcr.io/${OWNER}/docker-webmail-gui-server:${VERSION}\` and \`ghcr.io/${OWNER}/docker-webmail-gui-broker:${VERSION}\`."
+          } >> "${RUNNER_TEMP}/notes.md"
+          gh release create "${TAG}" --verify-tag --title "${TAG}" \
+            --notes-file "${RUNNER_TEMP}/notes.md" --latest="${LATEST}"
+          echo "Created the ${TAG} Release."

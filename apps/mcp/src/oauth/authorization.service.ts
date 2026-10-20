@@ -44,13 +44,17 @@ import type { SettingsRepository } from '../store/settings.repository.js';
 import type { BindingsRepository } from '../store/bindings.repository.js';
 import type { McpAuditLog } from '../domain/audit.js';
 import type { ConnectionsService } from '../domain/connections.service.js';
-import type { ClientsService } from './clients.service.js';
+import { isMetadataDocumentClientId, type ClientsService } from './clients.service.js';
 import type { TokensService } from './tokens.service.js';
 import { connectionIdFromResource, resourceFor } from './endpoints.js';
 import { parseScopeParam } from './tokens.service.js';
 import { maskMailbox, type ClientDisplay } from '../web/authorize-views.js';
 
 export const AUTHORIZATION_REQUEST_TTL_SECONDS = 600;
+
+/** Shown for an unregistered plain `client_id` — see `authorize()`. */
+export const UNKNOWN_CLIENT_HINT =
+  'This server does not know the client ID your app sent. Leave your app’s OAuth Client ID and Client Secret fields empty — the app registers itself with this server. Your MCP username and setup password go on this sign-in page, not in the app’s settings.';
 const IP_FAILURE_WINDOW_SECONDS = 900;
 const IP_FAILURE_LIMIT = 20;
 
@@ -190,9 +194,21 @@ export class AuthorizationService {
     try {
       client = await this.deps.clients.resolve(params.client_id, ip);
     } catch (err) {
+      // A plain (non-URL) client_id nobody registered is almost always a value
+      // typed into the app's OAuth Client ID field — often the MCP username.
+      // The hint is the same for every unknown id, so this page reveals nothing
+      // about which usernames exist.
+      const unknownPlainId =
+        err instanceof OAuthError &&
+        err.error === 'invalid_client' &&
+        !isMetadataDocumentClientId(params.client_id);
       return errorPage(
         'Unknown application',
-        err instanceof OAuthError ? err.description : 'The application could not be identified.',
+        unknownPlainId
+          ? UNKNOWN_CLIENT_HINT
+          : err instanceof OAuthError
+            ? err.description
+            : 'The application could not be identified.',
       );
     }
     const redirectUri = this.deps.clients.selectRedirectUri(client, params.redirect_uri);

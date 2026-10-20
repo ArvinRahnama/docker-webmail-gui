@@ -384,8 +384,12 @@ labels ([References](#24-references)). In outline:
 1. A workspace admin enables **developer mode / custom MCP apps** for the
    workspace (Business, Enterprise and Edu — see section 20).
 2. The user creates a new app/connector, pastes the **MCP server URL**
-   and chooses **OAuth** authentication. ChatGPT discovers everything else
-   (client registration, endpoints, scopes) itself.
+   and chooses **OAuth** authentication, leaving the **OAuth Client ID**
+   and **Client Secret** fields empty. ChatGPT discovers everything else
+   (client registration, endpoints, scopes) itself. The MCP username and
+   setup password do **not** go in those fields — a username pasted there is
+   sent as the client ID, and the sign-in page answers "Unknown
+   application".
 3. A browser window opens on **your** MCP service's sign-in page. The
    mailbox address is masked until sign-in. The user enters the **MCP
    username** and **setup password**.
@@ -556,18 +560,20 @@ moves to Trash.
 
 ## 17. Troubleshooting
 
-| Symptom                                          | Likely cause / fix                                                                                                   |
-| ------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------- |
-| Page says "turned off on this install"           | `MCP_ENABLED` is off — switch on MCP integration on Maintenance → Configuration and restart the panel.               |
-| Server does not start after enabling             | MCP misconfiguration is fatal by design (e.g. missing vault key): `docker compose … logs server` names the problem.  |
-| Validate discovery fails on HTTPS                | Proxy not sending `X-Forwarded-Proto: https`, or proxy not in `MCP_TRUST_PROXY`. Requests then get `https_required`. |
-| ChatGPT says it cannot find OAuth metadata       | Hostname routed only partly to the service; route the **whole** hostname (root `/.well-known/…` must reach it).      |
-| "The mail server rejected this mailbox password" | Wrong password, or changed seconds ago (DMS applies changes asynchronously) — retry shortly.                         |
-| "Could not verify … against the mail server"     | IMAP/SMTP host/port/TLS settings, network attachment (section 6), or certificate name/CA.                            |
-| Connection **Suspended**                         | Credential stale/missing/invalid, mailbox missing, or vault unavailable — the detail page says which.                |
-| Sign-in page: "locked"                           | Five wrong setup passwords. Reissue.                                                                                 |
-| Works, then ChatGPT asks to reconnect            | The grant was revoked (by you, by rotation, or by refresh-token replay). Reissue setup credentials.                  |
-| Send refused                                     | No `mail.send`, limits reached (per hour/day), too many recipients, or a From address that is not an approved alias. |
+| Symptom                                                          | Likely cause / fix                                                                                                                                                                              |
+| ---------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Page says "turned off on this install"                           | `MCP_ENABLED` is off — switch on MCP integration on Maintenance → Configuration and restart the panel.                                                                                          |
+| Generating a connection: "TLS certificate could not be verified" | The mail server's certificate names a public host (e.g. `mail.example.com`) while the mail host is the container name. Set that name as **Certificate name** in Service settings.               |
+| Sign-in page: "Unknown application"                              | The app sent a client ID this server never registered — usually the MCP username typed into its OAuth Client ID field. Recreate the connector with the OAuth Client ID and Client Secret empty. |
+| Server does not start after enabling                             | MCP misconfiguration is fatal by design (e.g. missing vault key): `docker compose … logs server` names the problem.                                                                             |
+| Validate discovery fails on HTTPS                                | Proxy not sending `X-Forwarded-Proto: https`, or proxy not in `MCP_TRUST_PROXY`. Requests then get `https_required`.                                                                            |
+| ChatGPT says it cannot find OAuth metadata                       | Hostname routed only partly to the service; route the **whole** hostname (root `/.well-known/…` must reach it).                                                                                 |
+| "The mail server rejected this mailbox password"                 | Wrong password, or changed seconds ago (DMS applies changes asynchronously) — retry shortly.                                                                                                    |
+| "Could not verify … against the mail server"                     | IMAP/SMTP host/port/TLS settings, network attachment (section 6), or certificate name/CA.                                                                                                       |
+| Connection **Suspended**                                         | Credential stale/missing/invalid, mailbox missing, or vault unavailable — the detail page says which.                                                                                           |
+| Sign-in page: "locked"                                           | Five wrong setup passwords. Reissue.                                                                                                                                                            |
+| Works, then ChatGPT asks to reconnect                            | The grant was revoked (by you, by rotation, or by refresh-token replay). Reissue setup credentials.                                                                                             |
+| Send refused                                                     | No `mail.send`, limits reached (per hour/day), too many recipients, or a From address that is not an approved alias.                                                                            |
 
 Logs: `docker logs dwg-server` (MCP
 lines carry `"component":"mcp"`).

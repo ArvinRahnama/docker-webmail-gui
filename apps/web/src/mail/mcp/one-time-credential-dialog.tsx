@@ -116,6 +116,12 @@ export function OneTimeCredentialDialog({
             <Field label="MCP server URL" value={url} />
             <Field label="MCP username" value={credential.username} />
             <Field label="Setup password" value={credential.setupPassword} />
+            <p className="text-body-sm text-text-secondary">
+              In ChatGPT, add a connector with the MCP server URL and OAuth authentication, and
+              leave its <strong>OAuth Client ID</strong> and <strong>Client Secret</strong> fields
+              empty. The username and setup password are entered on the sign-in page that opens when
+              connecting.
+            </p>
             <div className="flex flex-col gap-1">
               <span className="text-caption font-medium text-text-muted">Permissions</span>
               <ul className="list-disc pl-5 text-body-sm text-text-primary">

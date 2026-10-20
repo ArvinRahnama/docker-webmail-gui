@@ -229,6 +229,31 @@ describe('authorization code flow', () => {
     expect(response.body).toContain('redirect URI is not registered');
   });
 
+  it('explains an unknown plain client_id (e.g. the MCP username pasted as OAuth Client ID) without confirming it exists', async () => {
+    const connection = await createConnection(h, 'sales@example.test');
+    const { challenge } = pkcePair();
+    const pageFor = async (clientId: string) => {
+      const params = new URLSearchParams({
+        response_type: 'code',
+        client_id: clientId,
+        redirect_uri: REDIRECT_URI,
+        code_challenge: challenge,
+        code_challenge_method: 'S256',
+        resource: `${PUBLIC_BASE}/mcp/${connection.id}`,
+      });
+      return h.publicApp.inject({ method: 'GET', url: `/oauth/authorize?${params.toString()}` });
+    };
+    const pasted = await pageFor(connection.username);
+    expect(pasted.statusCode).toBe(400);
+    expect(pasted.body).toContain('Unknown application');
+    expect(pasted.body).toContain(
+      'Leave your app’s OAuth Client ID and Client Secret fields empty',
+    );
+    // Same page for an id that is nobody's username: no username oracle.
+    const other = await pageFor('mcp-0000000000000000');
+    expect(other.body).toBe(pasted.body);
+  });
+
   it('refuses PKCE plain and missing code_challenge', async () => {
     const clientId = await registerClient(h);
     const params = new URLSearchParams({

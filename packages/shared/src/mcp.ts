@@ -578,6 +578,10 @@ export function buildMcpConnectionDetailsText(input: McpConnectionPackageInput):
     '',
     'The setup password works once and expires at ' + input.expiresAt + ' (UTC).',
     'It is not your email password. Do not share it.',
+    '',
+    'The username and setup password go on the sign-in page that opens when you',
+    "connect — not into your app's OAuth Client ID / Client Secret fields, which",
+    'stay empty.',
   ].join('\n');
 }
 
@@ -593,6 +597,8 @@ export function buildMcpSetupInstructionsText(
     '   admin to allow them).',
     '2. Create a new connector, paste this MCP server URL, and choose OAuth authentication:',
     '   ' + input.mcpUrl,
+    '   Leave the OAuth Client ID and Client Secret fields empty: ChatGPT registers',
+    '   itself with this server. Do not put the MCP username or setup password there.',
     '3. ChatGPT opens a sign-in page served by your mail server. Check that it shows',
     '   ' + input.mailbox + ', then enter the MCP username and setup password you were given.',
     '4. Review the requested permissions and choose Authorize.',

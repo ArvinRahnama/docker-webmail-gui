@@ -46,4 +46,28 @@ describe('parseSieveGet', () => {
     expect(parseSieveGet('sieve script:\nkeep;')).toBe('keep;');
     expect(parseSieveGet('')).toBe('');
   });
+
+  // Captured 2026-10-21 from ghcr.io/docker-mailserver/docker-mailserver:16
+  // (v16.0.1, Dovecot 2.4.1-4): each script stored with `doveadm sieve put`,
+  // then `doveadm sieve get -u tester@example.test <name>` stdout compared
+  // with `cat ~/sieve/<name>.sieve`. Output = header + the file, nothing after.
+  it.each([
+    {
+      name: 'Default (ends with a newline)',
+      stdout:
+        'sieve script:\nrequire ["fileinto"];\nif header :contains "subject" "spam" {\n  fileinto "Junk";\n}\n',
+      onDisk:
+        'require ["fileinto"];\nif header :contains "subject" "spam" {\n  fileinto "Junk";\n}\n',
+    },
+    {
+      name: 'NoTrailingNewline',
+      stdout: 'sieve script:\nrequire ["fileinto"];\nkeep;',
+      onDisk: 'require ["fileinto"];\nkeep;',
+    },
+  ])(
+    'captured Dovecot 2.4.1 output for $name reads back as the file on disk',
+    ({ stdout, onDisk }) => {
+      expect(parseSieveGet(stdout)).toBe(onDisk);
+    },
+  );
 });

@@ -1,10 +1,13 @@
 /**
  * `/mcp/:connectionId` — the MCP Streamable HTTP endpoint (one URL per
- * connection). Each request is authorized by {@link BearerVerifier} first;
- * only then is it handed to the MCP SDK's handler with a per-request server
- * built for that one connection (stateless serving: 2026-07-28 per-request
- * envelopes natively, and 2025-era clients via the SDK's stateless legacy
- * fallback).
+ * connection). Each request is authorized by {@link BearerVerifier} first —
+ * in `onRequest`, before Fastify parses the body, so an unauthenticated
+ * client always gets the 401 challenge that starts OAuth discovery (never a
+ * 415/400 about a body it had no business sending yet) and never makes this
+ * server parse up to {@link MCP_MAX_BODY_BYTES}. Only then is the request
+ * handed to the MCP SDK's handler with a per-request server built for that
+ * one connection (stateless serving: 2026-07-28 per-request envelopes
+ * natively, and 2025-era clients via the SDK's stateless legacy fallback).
  */
 import { Readable } from 'node:stream';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
@@ -61,24 +64,34 @@ export async function registerMcpRoutes(
     { legacy: 'stateless', maxRequestBodySize: MCP_MAX_BODY_BYTES, responseMode: 'auto' },
   );
 
-  const serve = async (
+  const contexts = new WeakMap<FastifyRequest, McpAuthContext>();
+
+  const authorize = async (
     request: FastifyRequest<{ Params: { id: string } }>,
     reply: FastifyReply,
-  ): Promise<void> => {
+  ): Promise<FastifyReply | undefined> => {
     const outcome = deps.bearer.verify(
       request.params.id,
       request.headers.authorization,
       request.ip,
     );
-    if (!outcome.ok) {
-      if (outcome.challenge !== null) reply.header('www-authenticate', outcome.challenge);
-      void reply
-        .status(outcome.status)
-        .header('cache-control', 'no-store')
-        .send({ jsonrpc: '2.0', error: { code: -32001, message: outcome.description }, id: null });
-      return;
+    if (outcome.ok) {
+      contexts.set(request, outcome.context);
+      return undefined;
     }
-    const context = outcome.context;
+    if (outcome.challenge !== null) reply.header('www-authenticate', outcome.challenge);
+    return reply
+      .status(outcome.status)
+      .header('cache-control', 'no-store')
+      .send({ jsonrpc: '2.0', error: { code: -32001, message: outcome.description }, id: null });
+  };
+
+  const serve = async (
+    request: FastifyRequest<{ Params: { id: string } }>,
+    reply: FastifyReply,
+  ): Promise<void> => {
+    const context = contexts.get(request);
+    if (context === undefined) throw new Error('MCP request reached serve() unauthorized');
     const response = await handler.fetch(toWebRequest(request), {
       authInfo: {
         token: 'redacted',
@@ -91,8 +104,12 @@ export async function registerMcpRoutes(
     await sendWebResponse(reply, response);
   };
 
-  app.post<{ Params: { id: string } }>('/mcp/:id', { bodyLimit: MCP_MAX_BODY_BYTES }, serve);
-  app.get<{ Params: { id: string } }>('/mcp/:id', serve);
-  app.delete<{ Params: { id: string } }>('/mcp/:id', serve);
+  app.post<{ Params: { id: string } }>(
+    '/mcp/:id',
+    { bodyLimit: MCP_MAX_BODY_BYTES, onRequest: authorize },
+    serve,
+  );
+  app.get<{ Params: { id: string } }>('/mcp/:id', { onRequest: authorize }, serve);
+  app.delete<{ Params: { id: string } }>('/mcp/:id', { onRequest: authorize }, serve);
   return handler;
 }

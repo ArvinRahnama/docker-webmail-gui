@@ -91,6 +91,28 @@ describe('discovery', () => {
     );
     expect(challenge).toContain('scope="mail.read mail.send mail.delete"');
   });
+
+  // Authorization runs before the body is parsed: whatever an unauthenticated
+  // client sends, it gets the 401 challenge (never a 415/400 that hides the
+  // OAuth discovery path), and the server never parses its body.
+  it.each([
+    ['a content type the endpoint does not parse', 'application/octet-stream', 'probe'],
+    ['a body but no content type', undefined, '{}'],
+    ['an unparseable JSON body', 'application/json', '{not json'],
+    ['no body at all', undefined, undefined],
+  ])('challenges an unauthenticated POST with %s', async (_label, contentType, payload) => {
+    const connection = await createConnection(h, 'sales@example.test');
+    const response = await h.publicApp.inject({
+      method: 'POST',
+      url: `/mcp/${connection.id}`,
+      headers: contentType === undefined ? {} : { 'content-type': contentType },
+      ...(payload === undefined ? {} : { payload }),
+    });
+    expect(response.statusCode).toBe(401);
+    expect(String(response.headers['www-authenticate'])).toContain(
+      `resource_metadata="${PUBLIC_BASE}/.well-known/oauth-protected-resource/mcp/${connection.id}"`,
+    );
+  });
 });
 
 describe('authorization code flow', () => {

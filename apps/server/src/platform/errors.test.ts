@@ -180,7 +180,8 @@ describe('createErrorHandler — DmsDriver write-path errors (M7)', () => {
 
     const response = await app.inject({ method: 'GET', url: '/thing' });
 
-    expect(response.statusCode).toBe(502);
+    // 424, not 502: a CDN in front of the panel would replace a 502's body.
+    expect(response.statusCode).toBe(424);
     const body = response.json();
     expect(body.error.code).toBe('UPSTREAM_UNAVAILABLE');
     expect(body.error.message).toContain('account exists');

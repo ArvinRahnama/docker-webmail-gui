@@ -11,6 +11,30 @@ version and are called out explicitly here.
 
 ## [Unreleased]
 
+### Fixed
+
+- **An unauthenticated request to an MCP URL always gets the OAuth
+  challenge.** The bearer check ran after Fastify parsed the body, so a
+  client probing with a body Fastify does not parse got `415 Unsupported
+  Media Type` (or `400` for malformed JSON) instead of the `401` with
+  `WWW-Authenticate` that starts discovery. It now runs before parsing,
+  which also means an anonymous client can no longer make the server parse
+  a body of up to 48 MB.
+- **The sign-in page explains an unknown client ID.** A non-URL `client_id`
+  nobody registered — typically the MCP username typed into the app's OAuth
+  Client ID field — now gets a hint to leave those fields empty and enter
+  the username and setup password on the sign-in page. The text is the same
+  for every unknown ID, so the page reveals nothing about which usernames
+  exist. The credentials dialog and the copied instructions say the same.
+- **Errors from a failing dependency reach the browser intact behind a
+  CDN.** `UPSTREAM_UNAVAILABLE` is now sent as `424 Failed Dependency`
+  instead of `502`: Cloudflare replaces a 502's body with its own page, so
+  the panel showed "Could not generate the connection." where the server had
+  said what failed. Verifying a mailbox credential now also names the
+  protocol and reason (a TLS certificate failure is identified for SMTP as
+  well as IMAP) and points a certificate-name mismatch at **Certificate
+  name** in Service settings.
+
 ## [1.2.0] - 2026-10-20
 
 ### Changed

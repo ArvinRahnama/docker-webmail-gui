@@ -303,13 +303,17 @@ export class ImapSmtpMailBackend implements MailBackend {
       await transporter.verify();
       smtp = { ok: true, message: 'SMTP authentication succeeded.', authFailed: false };
     } catch (err) {
-      const e = err as { code?: string; responseCode?: number };
+      const e = err as { code?: string; responseCode?: number; message?: string };
       const authFailed = e.code === 'EAUTH' || e.responseCode === 535;
+      const certFailed =
+        !authFailed && /certificate|altnames|self[- ]signed/i.test(e.message ?? '');
       smtp = {
         ok: false,
         message: authFailed
           ? 'The mail server rejected the mailbox credential for SMTP.'
-          : 'The SMTP submission server could not be reached or refused TLS.',
+          : certFailed
+            ? 'The SMTP server’s TLS certificate could not be verified.'
+            : 'The SMTP submission server could not be reached or refused TLS.',
         authFailed,
       };
     } finally {

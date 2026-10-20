@@ -42,7 +42,7 @@ import type {
 import type { OAuthRepository } from '../store/oauth.repository.js';
 import type { SettingsRepository } from '../store/settings.repository.js';
 import type { McpAuditLog } from './audit.js';
-import type { MailBackend, MailAccountContext } from '../mail/types.js';
+import type { MailBackend, MailAccountContext, VerifyResult } from '../mail/types.js';
 
 export interface ConnectionsServiceDeps {
   readonly db: Database;
@@ -315,11 +315,9 @@ export class ConnectionsService {
           { details: { imap: result.imap.message, smtp: result.smtp.message } },
         );
       }
-      throw new ControlError(
-        'UPSTREAM_UNAVAILABLE',
-        'Could not verify the mailbox password against the mail server. Nothing was stored.',
-        { details: { imap: result.imap.message, smtp: result.smtp.message } },
-      );
+      throw new ControlError('UPSTREAM_UNAVAILABLE', describeVerificationFailure(result), {
+        details: { imap: result.imap.message, smtp: result.smtp.message },
+      });
     }
     const now = this.nowIso();
     const sealed = this.deps.vault.seal(password, binding.id, binding.mailbox);
@@ -926,6 +924,24 @@ export class ConnectionsService {
     }
     return { checked: live.length, stale, missing, restored };
   }
+}
+
+/**
+ * The postmaster-facing reason a credential check failed for something other
+ * than a rejected password. Built only from the backend's own fixed messages
+ * (never server output), and it names the fix for the commonest case: a
+ * certificate issued for a public name while the mail host is the container
+ * name.
+ */
+export function describeVerificationFailure(result: VerifyResult): string {
+  const failed = [
+    ...(result.imap.ok ? [] : [`IMAP: ${result.imap.message}`]),
+    ...(result.smtp.ok ? [] : [`SMTP: ${result.smtp.message}`]),
+  ];
+  const certificate = /certificate/i.test(`${result.imap.message} ${result.smtp.message}`)
+    ? ' If the mail server’s certificate is issued for a different name than the mail host (for example a public hostname while the host is the container name), set that name as Certificate name in Service settings.'
+    : '';
+  return `Could not verify the mailbox password against the mail server. ${failed.join(' ')} Nothing was stored.${certificate}`;
 }
 
 function suspensionReason(health: McpCredentialHealth): string {

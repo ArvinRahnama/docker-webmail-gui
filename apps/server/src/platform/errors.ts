@@ -29,7 +29,11 @@ const DEFAULT_HTTP_STATUS: Record<ErrorCode, number> = {
   NOT_FOUND: 404,
   CONFLICT: 409,
   RATE_LIMITED: 429,
-  UPSTREAM_UNAVAILABLE: 502,
+  // 424 Failed Dependency, not 502: the panel usually sits behind a reverse
+  // proxy or CDN, and those replace a 502/503/504 body with their own error
+  // page (Cloudflare does for 502), which throws away the envelope — and
+  // with it the one message that says what actually failed.
+  UPSTREAM_UNAVAILABLE: 424,
   CAPABILITY_UNSUPPORTED: 409,
   INTERNAL: 500,
   INVALID_CREDENTIALS: 401,

@@ -70,7 +70,7 @@ export async function restartManagedContainer(): Promise<void> {
 /**
  * Restarts the panel's own server container. Expect this request to be
  * dropped as the server goes down — a rejection here is normal, not a
- * failure. The caller confirms recovery by polling {@link pingHealth},
+ * failure. The caller confirms recovery by polling {@link probePanelUptime},
  * never by waiting on this promise.
  */
 export async function restartPanel(): Promise<void> {
@@ -79,22 +79,32 @@ export async function restartPanel(): Promise<void> {
   });
 }
 
-/** A single, unauthenticated liveness probe against the public health endpoint — `true` iff the server answered 2xx. Never throws: a network error while the server is restarting resolves to `false`, which is exactly what the reconnect poll treats as "not back yet". */
-export async function pingHealth(): Promise<boolean> {
+/**
+ * A single, unauthenticated probe against the public health endpoint,
+ * returning the answering process's uptime in seconds — `null` for anything
+ * short of a valid 2xx response. Never throws: a network error while the
+ * server is restarting resolves to `null`, which is exactly what the
+ * reconnect poll treats as "not back yet". Uptime rather than a bare "it
+ * answered" because the old process answering is not a restart: only a
+ * process younger than the restart request is the restarted one.
+ */
+export async function probePanelUptime(): Promise<number | null> {
   try {
     const response = await fetch('/api/v1/health', {
       method: 'GET',
       headers: { accept: 'application/json' },
       cache: 'no-store',
     });
-    return response.ok;
+    if (!response.ok) return null;
+    const parsed = HealthResponseSchema.safeParse(await response.json());
+    return parsed.success ? parsed.data.uptime : null;
   } catch {
-    return false;
+    return null;
   }
 }
 
 /**
- * Same probe as {@link pingHealth}, but returns the reported
+ * Same probe as {@link probePanelUptime}, but returns the reported
  * `APP_VERSION` (`@dwg/shared`'s `version.ts`) instead of a bare
  * boolean — `null` for anything short of a fully valid response (network
  * error, non-2xx, unparseable body), never throws. Panel self-update's

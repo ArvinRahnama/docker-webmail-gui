@@ -32,6 +32,16 @@ version and are called out explicitly here.
   reachable from the panel's Docker networks without the overlay; publishing
   it on the host is still the overlay's job.
 
+### Fixed
+
+- **Restart panel no longer reports a restart that did not happen.** It
+  declared "The panel is back online" as soon as `/api/v1/health` answered,
+  so a restart request lost on the way (a proxy error, a dropped
+  connection) left the old process running while the page said it had
+  restarted, and settings that apply on restart silently stayed unapplied.
+  It now waits for a process younger than the request, and says so when the
+  same process is still running.
+
 ## [1.1.0] - 2026-10-19
 
 ### Added

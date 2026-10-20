@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { ApiError } from '@/lib/api-client';
-import { pingHealth, restartPanel } from '@/lib/docker-api';
+import { probePanelUptime, restartPanel } from '@/lib/docker-api';
 import { useRestartContainerMutation } from '@/docker/use-docker-queries';
 
 const delay = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
@@ -25,9 +25,15 @@ const RECONNECT_TIMEOUT_MS = 90_000;
  *   `panel.restart`. This one takes *this* server down, so the request that
  *   triggers it is expected to be dropped: instead of waiting on it, the UI
  *   shows a blocking "reconnecting" overlay and polls `/api/v1/health` until
- *   the server answers again. A structured API error (the broker refusing —
+ *   a *new* process answers — one whose uptime is shorter than the time since
+ *   the request. The old process answering is not success: a restart request
+ *   lost on the way (a proxy error, a dropped connection) would otherwise be
+ *   reported as a restart, and settings that only apply on restart would
+ *   silently stay unapplied. A structured API error (the broker refusing —
  *   e.g. an unresolved panel-server identity) means the server stayed up and
- *   did not restart, so that is surfaced directly rather than polled on.
+ *   did not restart, so that is surfaced directly rather than polled on. A
+ *   successful reply means the request was not dropped, which only happens
+ *   when nothing actually restarted the server: the development fake broker.
  */
 export function ServerControls() {
   const restartMail = useRestartContainerMutation();
@@ -57,21 +63,32 @@ export function ServerControls() {
     // Fire the restart but never block on it: in production the connection
     // drops as the server dies (an ApiClientError, expected), while the
     // broker refusing arrives as a structured ApiError we must surface.
+    const requestedAt = Date.now();
     let refusal: string | null = null;
-    void restartPanel().catch((err: unknown) => {
-      if (err instanceof ApiError) refusal = err.message;
-    });
+    let acknowledged = false;
+    void restartPanel().then(
+      () => {
+        acknowledged = true;
+      },
+      (err: unknown) => {
+        if (err instanceof ApiError) refusal = err.message;
+      },
+    );
 
     await delay(GO_DOWN_GRACE_MS);
 
     let recovered = false;
-    const deadline = Date.now() + RECONNECT_TIMEOUT_MS;
+    let oldProcessStillUp = false;
+    const deadline = requestedAt + RECONNECT_TIMEOUT_MS;
     while (Date.now() < deadline) {
       if (refusal !== null) break;
-      if (await pingHealth()) {
+      const uptime = await probePanelUptime();
+      if (uptime !== null && (acknowledged || uptime * 1000 < Date.now() - requestedAt)) {
         recovered = true;
         break;
       }
+      // What the last probe saw, so a timeout can say which way it failed.
+      oldProcessStillUp = uptime !== null;
       await delay(POLL_INTERVAL_MS);
     }
 
@@ -82,6 +99,10 @@ export function ServerControls() {
       toast.error(refusal);
     } else if (recovered) {
       toast.success('The panel is back online.');
+    } else if (oldProcessStillUp) {
+      toast.error(
+        'The panel did not restart: the same server process is still running, so settings that need a restart are not applied yet. Try again, or restart the container from the host.',
+      );
     } else {
       toast.error('The panel did not respond within 90 seconds. Reload the page to check on it.');
     }

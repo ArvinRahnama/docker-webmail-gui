@@ -152,7 +152,7 @@ describe('status', () => {
     auth = await loginAs(ctx.app, EMAIL, PASSWORD);
     const status = await call('GET', '/api/v1/mcp/status');
     expect(status.json()).toMatchObject({ deployed: false, service: null });
-    expect((status.json() as { reason: string }).reason).toContain('not enabled');
+    expect((status.json() as { reason: string }).reason).toContain('turned off');
     const list = await call('GET', '/api/v1/mcp/connections');
     expect(list.statusCode).toBe(409);
     expect(list.json()).toMatchObject({ error: { code: 'CAPABILITY_UNSUPPORTED' } });

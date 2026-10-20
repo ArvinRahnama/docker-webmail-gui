@@ -94,13 +94,17 @@ successful login — the installer's closing message says so too.
 `RSPAMD_PASSWORD` is the Rspamd controller password, if yours has one.
 Without it, Rspamd features report `Unavailable` rather than guessing.
 
-## The optional MCP integration
+## The MCP integration
 
-`MCP_ENABLED=true ./installer/install.sh` turns on the MCP integration,
-which runs inside the server container: the installer adds the
-`docker/compose.mcp.yaml` overlay and generates the vault key file
-`secrets/mcp_vault_key` once (it is never regenerated). With MCP off,
-neither is used. The settings that need a decision — `MCP_PUBLIC_URL` (a
+The MCP integration runs inside the server container and is **on by
+default** (`MCP_ENABLED=true`). It is also the **MCP integration** switch on
+**Maintenance → Configuration**, where a saved value wins over `.env` after
+a panel restart. With it on, the installer adds the `docker/compose.mcp.yaml`
+overlay and generates the vault key file `secrets/mcp_vault_key` once (it is
+never regenerated); without a mounted key the server generates one in its
+data volume instead. With MCP off, neither is used. The service itself still
+refuses every request until a postmaster switches it on under **Mail → MCP
+Connections → Service settings**. The settings that need a decision — `MCP_PUBLIC_URL` (a
 dedicated `https://` hostname), `MCP_BIND_ADDRESS` (keep `127.0.0.1` behind
 a proxy on the same host) and the reverse-proxy headers `MCP_TRUST_PROXY`
 depends on — are explained in

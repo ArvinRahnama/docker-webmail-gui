@@ -450,11 +450,11 @@ Mail volume, spam volume and error counts come from log parsing and our own samp
 
 ---
 
-## 35. MCP connections (optional) — **Constrained, opt-in, disabled by default**
+## 35. MCP connections — **Constrained, on by default, inert until enabled**
 
-An optional feature, embedded in the server container (`apps/mcp`;
-listening only with `MCP_ENABLED=true`, and inert until a postmaster
-enables it), through which a postmaster issues isolated, per-mailbox
+A feature embedded in the server container (`apps/mcp`; listening unless
+`MCP_ENABLED=false` or it is switched off on the Configuration page, and
+inert until a postmaster enables the service), through which a postmaster issues isolated, per-mailbox
 connections to MCP clients such as ChatGPT. Full design: [`docs/mcp-integration.md`](docs/mcp-integration.md).
 
 | Capability                                     | Status           | Notes                                                                                                                                                       |
@@ -480,7 +480,7 @@ connections to MCP clients such as ChatGPT. Full design: [`docs/mcp-integration.
 | **Constrained** | 7                                        | Spam rules, Containers/lifecycle, Volumes, Config editor, Environment, Terminal/Exec, Rspamd (write)                                                                                                                                                                                                                                                       |
 | **Unsupported** | 0 whole features; **7 sub-capabilities** | Create/delete/disable domain · true mailbox disable (only send/receive restrict) · Let's Encrypt issuance · bulk mailbox delete (refused by us) · general Rspamd config editing (refused by us) · container recreate and update apply/rollback (refused by us — they need `container.create`, §22/§31) · image pull (no destination without recreate, §24) |
 
-The optional MCP integration (§35) is listed separately and not counted above: it is not part of a default install.
+The MCP integration (§35) is listed separately and not counted above.
 
 Every unsupported sub-capability is stated here rather than quietly dropped. Most ship as a visible, disabled control with an explanation — never hidden, never faked. Container recreate, image pull and update rollback are the exception: they have no control anywhere, because the broker has no operation for a control to call. `POST /api/v1/updates/apply` is the one place a user can still ask for that path, and it answers with the reason, names the missing Docker operation, and audits the refusal (§22, §24, §31).
 

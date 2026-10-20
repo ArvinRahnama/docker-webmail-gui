@@ -110,6 +110,16 @@ export const SETTINGS_ALLOWLIST: readonly SettingDefinition[] = [
     getValue: (config) => boolToString(config.enableExecConsole),
   },
   {
+    key: 'MCP_ENABLED',
+    label: 'MCP integration',
+    description:
+      'Runs the MCP listener that lets a mailbox owner connect ChatGPT-compatible clients to one mailbox (docs/mcp-integration.md). On by default. Even when on, it refuses every request until you switch it on in Mail → MCP Connections; turn it off here to stop the listener entirely.',
+    classification: 'needs-restart',
+    secret: false,
+    valueType: 'boolean',
+    getValue: (config) => boolToString(config.mcp.enabled),
+  },
+  {
     key: 'ENABLE_HSTS',
     label: 'HTTP Strict Transport Security',
     description:

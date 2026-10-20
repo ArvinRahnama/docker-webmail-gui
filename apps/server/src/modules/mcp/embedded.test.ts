@@ -4,7 +4,7 @@
  * MCP component (fake mail backend only), its own public listener on a real
  * port, and the panel's real routes and mailbox lifecycle hooks.
  */
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -46,22 +46,56 @@ afterEach(async () => {
 
 describe('embedded MCP integration', () => {
   it('starts nothing when MCP_ENABLED is off', async () => {
-    expect(await startMcpIntegration(loadConfig({}), silent(), {})).toBeNull();
+    expect(
+      await startMcpIntegration(loadConfig({ MCP_ENABLED: 'false' }), silent(), {}),
+    ).toBeNull();
   });
 
-  it('refuses to start when enabled in production without a vault key', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'dwg-mcp-embedded-'));
-    cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
-    const config = loadConfig({
+  it('is on by default', () => {
+    expect(loadConfig({}).mcp.enabled).toBe(true);
+  });
+
+  function productionConfig(dir: string) {
+    return loadConfig({
       APP_MODE: 'production',
       COOKIE_SECRET: 'c'.repeat(32),
       BROKER_SHARED_SECRET: 'b'.repeat(32),
       DATA_DIR: dir,
       BACKUP_DIR: join(dir, 'backups'),
-      MCP_ENABLED: 'true',
     });
+  }
+
+  it('generates a vault key once in production when none is configured, and reuses it', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'dwg-mcp-embedded-'));
+    cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+    const keyPath = join(dir, 'mcp', 'vault.key');
+
+    const first = (await startMcpIntegration(productionConfig(dir), silent(), {
+      APP_MODE: 'production',
+    })) as McpIntegration;
+    await first.mcp.close();
+    expect(statSync(keyPath).mode & 0o777).toBe(0o600);
+    const key = readFileSync(keyPath, 'utf8');
+    expect(first.mcp.config.vaultKey?.toString('hex')).toBe(key.trim());
+
+    const second = (await startMcpIntegration(productionConfig(dir), silent(), {
+      APP_MODE: 'production',
+    })) as McpIntegration;
+    await second.mcp.close();
+    expect(readFileSync(keyPath, 'utf8')).toBe(key);
+    expect(second.mcp.config.vaultKey?.equals(first.mcp.config.vaultKey as Buffer)).toBe(true);
+  });
+
+  it('refuses to start in production when no key is configured and none can be generated', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'dwg-mcp-embedded-'));
+    cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+    const notADirectory = join(dir, 'file');
+    writeFileSync(notADirectory, '');
     await expect(
-      startMcpIntegration(config, silent(), { APP_MODE: 'production' }),
+      startMcpIntegration(productionConfig(dir), silent(), {
+        APP_MODE: 'production',
+        MCP_DATA_DIR: join(notADirectory, 'mcp'),
+      }),
     ).rejects.toBeInstanceOf(McpConfigError);
   });
 

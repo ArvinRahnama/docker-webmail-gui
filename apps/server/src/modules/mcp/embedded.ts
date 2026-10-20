@@ -1,6 +1,6 @@
 /**
- * Starts the optional MCP integration inside this process when
- * `MCP_ENABLED=true` (docs/mcp-integration.md). There is no separate MCP
+ * Starts the MCP integration inside this process unless `MCP_ENABLED=false`
+ * (docs/mcp-integration.md). There is no separate MCP
  * container: the MCP component's public listener (OAuth + MCP, its own
  * port) runs here, and the panel reaches its control API in-process.
  *
@@ -33,10 +33,15 @@ export async function startMcpIntegration(
   env: NodeJS.ProcessEnv = process.env,
 ): Promise<McpIntegration | null> {
   if (!config.mcp.enabled) {
-    logger.info('MCP integration: off (MCP_ENABLED is not set)');
+    logger.info('MCP integration: off (MCP_ENABLED=false)');
     return null;
   }
-  const mcpConfig = loadMcpConfig(env, { defaultDataDir: join(config.dataDir, 'mcp') });
+  const mcpConfig = loadMcpConfig(env, {
+    defaultDataDir: join(config.dataDir, 'mcp'),
+    // On by default means it must start on an install that never mounted
+    // a vault key (plain compose.yaml, a self-updated container).
+    generateMissingVaultKey: true,
+  });
   const mcp = await startEmbeddedMcp({ config: mcpConfig });
   logger.info(
     { listener: mcpConfig.publicListener, mailBackend: mcpConfig.mailBackend },

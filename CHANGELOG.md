@@ -11,6 +11,27 @@ version and are called out explicitly here.
 
 ## [Unreleased]
 
+### Changed
+
+- **The MCP integration is on by default, and switchable from the
+  Configuration page.** `MCP_ENABLED` now defaults to `true` (server,
+  `docker/compose.yaml`, installer) and appears on **Maintenance →
+  Configuration** as **MCP integration**, a restart-to-apply setting whose
+  saved value wins over `.env`. The service is still inert until a
+  postmaster switches it on in **Mail → MCP Connections → Service
+  settings**. An existing `.env` that says `MCP_ENABLED=false` keeps it off
+  until it is switched on there.
+- **No mounted vault key is no longer fatal.** With neither `MCP_VAULT_KEY`
+  nor `MCP_VAULT_KEY_FILE` set, the server generates
+  `<MCP_DATA_DIR>/vault.key` (`0600`) on first start and reuses it, so a
+  plain `compose.yaml` install or a self-updated container can run MCP. That
+  key sits in the data volume; the installer's mounted
+  `secrets/mcp_vault_key` remains the preferred setup and always wins, and
+  the installer adopts an already-generated key instead of minting a new one.
+- The server image sets `MCP_PUBLIC_HOST=0.0.0.0`, so the listener is
+  reachable from the panel's Docker networks without the overlay; publishing
+  it on the host is still the overlay's job.
+
 ## [1.1.0] - 2026-10-19
 
 ### Added

@@ -149,7 +149,7 @@ The guiding rule: **a feature is real, explicitly unsupported, or absent.** No c
 | **Backups and restore**                                     | Full, and the highest-risk feature here: restore needs the container stopped, a typed confirmation, and either a verified backup or an explicit acknowledgement. Backups can run on a schedule and optionally upload to S3 or FTP/FTPS, with automatic remote retention; secrets are masked, audited on reveal, and proven never to leak in logs or responses. |
 | **Updates**                                                 | Checking is real. **Applying is refused**, names the missing Docker operation, and audits the refusal every time.                                                                                                                                                                                                                                              |
 | **Terminal**                                                | A fixed set of zero-argument diagnostic commands, off by default. Never a shell.                                                                                                                                                                                                                                                                               |
-| **MCP connections (optional)**                              | Optional; off unless installed with `MCP_ENABLED=true`. Postmaster-issued, per-mailbox connections for ChatGPT and other MCP clients (OAuth): read and search, confirmed send, move to Trash. Runs inside the server container, with no Docker access — [`docs/mcp-integration.md`](docs/mcp-integration.md).                                                  |
+| **MCP connections**                                         | On by default (switch it off on the Configuration page); inert until a postmaster turns the service on. Postmaster-issued, per-mailbox connections for ChatGPT and other MCP clients (OAuth): read and search, confirmed send, move to Trash. Runs inside the server container, with no Docker access — [`docs/mcp-integration.md`](docs/mcp-integration.md).  |
 
 [`FEATURE_MATRIX.md`](FEATURE_MATRIX.md) is the authoritative row-by-row version, including everything deliberately unsupported and why.
 
@@ -161,7 +161,7 @@ The guiding rule: **a feature is real, explicitly unsupported, or absent.** No c
 - [`docs/operations.md`](docs/operations.md) — what each area of the panel does.
 - [`docs/backup-restore.md`](docs/backup-restore.md) — archive format and the by-hand restore path.
 - [`docs/troubleshooting.md`](docs/troubleshooting.md) — symptoms, causes, and how to read `Unknown`.
-- [`docs/mcp-integration.md`](docs/mcp-integration.md) — the optional MCP service: postmaster-issued mailbox connections for ChatGPT and other MCP clients.
+- [`docs/mcp-integration.md`](docs/mcp-integration.md) — the MCP service: postmaster-issued mailbox connections for ChatGPT and other MCP clients.
 - [`AUDIT.md`](AUDIT.md) · [`SECURITY.md`](SECURITY.md) · [`ARCHITECTURE.md`](ARCHITECTURE.md) · [`CHANGELOG.md`](CHANGELOG.md)
 
 ## Development

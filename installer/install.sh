@@ -17,11 +17,11 @@
 # an upgrade would print a password the admin has (per the mandatory
 # first-login flow) already rotated away.
 #
-# The optional MCP integration (docs/mcp-integration.md) runs inside the
-# server container and is off unless MCP_ENABLED=true. Only then does this
-# script add the docker/compose.mcp.yaml overlay, generate the vault key file
-# (once — never regenerated) and wait for the MCP listener to answer inside
-# the server container. With it off, the install needs nothing MCP-related.
+# The MCP integration (docs/mcp-integration.md) runs inside the server
+# container and is on unless MCP_ENABLED=false. When on, this script adds
+# the docker/compose.mcp.yaml overlay, generates the vault key file (once —
+# never regenerated) and waits for the MCP listener to answer inside the
+# server container. With it off, the install needs nothing MCP-related.
 #
 # Where each setting comes from, in precedence order — this is the part
 # that makes a re-run safe to do on a system an operator has since tuned
@@ -238,10 +238,11 @@ RSPAMD_PASSWORD=$(resolve RSPAMD_PASSWORD '')
 ENABLE_EXEC_CONSOLE=$(resolve ENABLE_EXEC_CONSOLE 'false')
 ENABLE_HSTS=$(resolve ENABLE_HSTS 'true')
 
-# Optional MCP integration (docs/mcp-integration.md) — off by default. It
-# runs inside the server container; MCP_ENABLED selects the
-# docker/compose.mcp.yaml overlay (see dc() above), the rest configure it.
-MCP_ENABLED=$(resolve MCP_ENABLED 'false')
+# MCP integration (docs/mcp-integration.md) — on by default. It runs inside
+# the server container; MCP_ENABLED selects the docker/compose.mcp.yaml
+# overlay (see dc() above), the rest configure it. An existing .env keeps
+# whatever it already says, so an install that had it off stays off.
+MCP_ENABLED=$(resolve MCP_ENABLED 'true')
 case "${MCP_ENABLED}" in
   true | false) ;;
   *) die "MCP_ENABLED must be 'true' or 'false', not '${MCP_ENABLED}'." ;;
@@ -405,10 +406,18 @@ if [ "${MCP_ENABLED}" = "true" ]; then
     log "MCP vault key present (${MCP_VAULT_KEY_PATH}) — kept as is."
   else
     TMP_KEY=$(mktemp "${MCP_SECRETS_DIR}/.mcp_vault_key.XXXXXX")
-    gen_secret > "${TMP_KEY}"
+    # A server that ran without this overlay sealed its credentials with
+    # the key it generated in its data volume; adopt that key rather than
+    # mint a new one that could not open them.
+    if docker exec dwg-server cat /app/data/mcp/vault.key > "${TMP_KEY}" 2>/dev/null && [ -s "${TMP_KEY}" ]; then
+      log "Adopted the MCP vault key the server generated in its data volume."
+    else
+      gen_secret > "${TMP_KEY}"
+      log "Generated the MCP vault key."
+    fi
     chmod 444 "${TMP_KEY}"
     mv "${TMP_KEY}" "${MCP_VAULT_KEY_PATH}"
-    log "Generated the MCP vault key at ${MCP_VAULT_KEY_PATH}."
+    log "MCP vault key written to ${MCP_VAULT_KEY_PATH}."
   fi
 fi
 

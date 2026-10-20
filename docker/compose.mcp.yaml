@@ -5,16 +5,18 @@
 #   docker compose -f docker/compose.yaml -f docker/compose.mcp.yaml \
 #     --env-file .env up -d
 #
-# installer/install.sh adds this file exactly when MCP_ENABLED=true. It
-# turns the integration on inside the existing `server` container — there
-# is no third container — publishes its listener (port 3100, loopback by
-# default, for an HTTPS reverse proxy with its own hostname) and mounts the
-# vault key. Without this file nothing listens on 3100 and no key is needed,
-# so a plain compose.yaml install needs nothing MCP-related at all.
+# installer/install.sh adds this file exactly when MCP_ENABLED=true. The
+# integration runs inside the existing `server` container — there is no
+# third container — and is on by default even without this file; what this
+# adds is the listener published on the host (port 3100, loopback by
+# default, for an HTTPS reverse proxy with its own hostname) and a mounted
+# vault key. Without it, 3100 is reachable only from the panel's own Docker
+# networks and the server generates its vault key inside the data volume.
 #
 # The vault key seals every stored mailbox credential. It is a file secret,
 # never an environment variable, and it lives outside the server-data
-# volume, so a copy of that volume alone cannot unseal anything. The
+# volume, so a copy of that volume alone cannot unseal anything — which is
+# why a mounted key is preferred over the generated one. The
 # installer generates it once and never regenerates it: losing or replacing
 # it makes every stored credential unreadable (the integration then reports
 # the vault as unavailable and suspends connections rather than failing

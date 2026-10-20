@@ -1,4 +1,7 @@
-import { describe, expect, it } from 'vitest';
+import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, describe, expect, it } from 'vitest';
 import { loadMcpConfig, McpConfigError, parseVaultKey } from './config.js';
 
 const HEX_KEY = 'a'.repeat(64);
@@ -45,6 +48,60 @@ describe('apps/mcp configuration', () => {
         p.includes('both set'),
       ),
     ).toBe(true);
+  });
+
+  describe('generateMissingVaultKey', () => {
+    const dirs: string[] = [];
+    afterEach(() => {
+      while (dirs.length > 0) rmSync(dirs.pop() as string, { recursive: true, force: true });
+    });
+    function dataDir(): string {
+      const dir = mkdtempSync(join(tmpdir(), 'dwg-mcp-key-'));
+      dirs.push(dir);
+      return join(dir, 'mcp');
+    }
+    const production = (dir: string, extra: Record<string, string> = {}) =>
+      loadMcpConfig(
+        { APP_MODE: 'production', MCP_DATA_DIR: dir, ...extra },
+        { generateMissingVaultKey: true },
+      );
+
+    it('creates <dataDir>/vault.key (0600) on first start and reuses it afterwards', () => {
+      const dir = dataDir();
+      const first = production(dir);
+      const keyPath = join(dir, 'vault.key');
+      expect(first.vaultKey).toHaveLength(32);
+      expect(statSync(keyPath).mode & 0o777).toBe(0o600);
+      expect(readFileSync(keyPath, 'utf8').trim()).toBe(first.vaultKey?.toString('hex'));
+      expect(production(dir).vaultKey?.equals(first.vaultKey as Buffer)).toBe(true);
+    });
+
+    it('lets a configured key win, warning only when it differs from a generated one', () => {
+      const dir = dataDir();
+      const generated = production(dir).vaultKey as Buffer;
+
+      const matching = production(dir, { MCP_VAULT_KEY: generated.toString('hex') });
+      expect(matching.warnings).toEqual([]);
+
+      const differing = production(dir, { MCP_VAULT_KEY: HEX_KEY });
+      expect(differing.vaultKey?.toString('hex')).toBe(HEX_KEY);
+      expect(differing.warnings.some((w) => w.includes('differs from the generated one'))).toBe(
+        true,
+      );
+      expect(differing.warnings.join('\n')).not.toContain(HEX_KEY);
+    });
+
+    it('never writes a key when one is configured', () => {
+      const dir = dataDir();
+      production(dir, { MCP_VAULT_KEY: HEX_KEY });
+      expect(() => statSync(join(dir, 'vault.key'))).toThrow();
+    });
+
+    it('refuses to start when the key cannot be created', () => {
+      const dir = dataDir();
+      writeFileSync(dir, '');
+      expect(() => production(join(dir, 'mcp'))).toThrow(McpConfigError);
+    });
   });
 
   it('generates a fresh in-process control secret every time; it is never configurable', () => {

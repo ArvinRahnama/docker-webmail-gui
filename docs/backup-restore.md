@@ -177,10 +177,11 @@ Stated here rather than left to be discovered:
 
 ## The MCP integration is backed up separately
 
-If you use the optional MCP integration, its state is **not** in these
+If you use the MCP integration, its state is **not** in these
 archives: its database lives in the server's own volume
 (`dwg-server-data`, under `mcp/`) and its encryption key in
-`secrets/mcp_vault_key`. Back the two up separately (and store them apart)
+`secrets/mcp_vault_key` (or, with no key mounted, in `mcp/vault.key` in that
+same volume). Back the two up separately (and store them apart)
 as described in [`mcp-integration.md`](mcp-integration.md) §18.
 
 ## What is never touched

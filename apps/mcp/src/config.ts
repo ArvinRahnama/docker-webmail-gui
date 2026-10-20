@@ -7,10 +7,13 @@
  *
  * The vault key can be supplied inline (`MCP_VAULT_KEY`) or — preferred, and
  * what docker/compose.yaml uses — as a path to a mounted secret file
- * (`MCP_VAULT_KEY_FILE`). Setting both is rejected as ambiguous. In
- * production it is mandatory: the service refuses to start rather than run
- * with an ephemeral key that would silently make every stored credential
- * undecryptable after a restart.
+ * (`MCP_VAULT_KEY_FILE`). Setting both is rejected as ambiguous. When
+ * neither is set and the caller opts in (`generateMissingVaultKey` — the
+ * server does), a key is generated once into `<dataDir>/vault.key` and read
+ * back on every later start, so the integration can be on by default on an
+ * install that never mounted one. Otherwise production refuses to start
+ * rather than run with an ephemeral key that would silently make every
+ * stored credential undecryptable after a restart.
  *
  * The control API is never exposed on a socket: the panel reaches it
  * in-process. It still authenticates every call, with a secret generated
@@ -18,7 +21,8 @@
  * can reach it even by accident.
  */
 import { randomBytes } from 'node:crypto';
-import { readFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { z } from 'zod';
 import { APP_VERSION } from '@dwg/shared';
 
@@ -218,6 +222,33 @@ export interface LoadMcpConfigOptions {
   readonly version?: string;
   /** Where the MCP database lives when MCP_DATA_DIR is unset (the server passes `${DATA_DIR}/mcp`). */
   readonly defaultDataDir?: string;
+  /**
+   * With no `MCP_VAULT_KEY`/`MCP_VAULT_KEY_FILE`, use `<dataDir>/vault.key`
+   * (created on first start) instead of refusing to start in production.
+   * The key then sits in the same volume as the credentials it seals, which
+   * is why a configured key always wins (docs/mcp-integration.md §5).
+   */
+  readonly generateMissingVaultKey?: boolean;
+}
+
+/** The file `generateMissingVaultKey` reads, or creates on first start. */
+export const GENERATED_VAULT_KEY_FILENAME = 'vault.key';
+
+/** Reads the generated key, creating it (0600, never overwritten) on first use. */
+function readOrCreateGeneratedVaultKey(path: string, readFile: (path: string) => string): string {
+  try {
+    return readFile(path).trim();
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
+  }
+  mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
+  try {
+    // `wx`: if another process won the race, keep its key rather than replace it.
+    writeFileSync(path, `${randomBytes(32).toString('hex')}\n`, { flag: 'wx', mode: 0o600 });
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err;
+  }
+  return readFile(path).trim();
 }
 
 export function loadMcpConfig(
@@ -235,14 +266,26 @@ export function loadMcpConfig(
   const problems: string[] = [];
   const warnings: string[] = [];
   const isProduction = data.APP_MODE === 'production';
+  const dataDir = data.MCP_DATA_DIR ?? options.defaultDataDir ?? './data/mcp';
+  const generatedKeyPath = join(dataDir, GENERATED_VAULT_KEY_FILENAME);
 
-  const vaultKeyRaw = resolveSecret(
+  let vaultKeyRaw = resolveSecret(
     'MCP_VAULT_KEY',
     data.MCP_VAULT_KEY,
     data.MCP_VAULT_KEY_FILE,
     problems,
     readFile,
   );
+  const vaultKeyConfigured = data.MCP_VAULT_KEY !== null || data.MCP_VAULT_KEY_FILE !== null;
+  if (!vaultKeyConfigured && options.generateMissingVaultKey === true) {
+    try {
+      vaultKeyRaw = readOrCreateGeneratedVaultKey(generatedKeyPath, readFile);
+    } catch {
+      problems.push(
+        `No vault key is configured and ${generatedKeyPath} could not be read or created (check that the data directory is writable), so mailbox credentials have nowhere safe to be sealed.`,
+      );
+    }
+  }
   let vaultKey: Buffer | null = null;
   if (vaultKeyRaw !== null) {
     vaultKey = parseVaultKey(vaultKeyRaw);
@@ -279,6 +322,22 @@ export function loadMcpConfig(
 
   if (problems.length > 0) throw new McpConfigError(problems);
 
+  // A configured key that differs from a previously generated one means
+  // whatever was sealed while running on the generated key no longer opens.
+  if (vaultKeyConfigured && vaultKey !== null && options.generateMissingVaultKey === true) {
+    let generated: Buffer | null = null;
+    try {
+      generated = parseVaultKey(readFile(generatedKeyPath).trim());
+    } catch {
+      // No generated key was ever written — the usual case.
+    }
+    if (generated !== null && !generated.equals(vaultKey)) {
+      warnings.push(
+        `The configured vault key differs from the generated one at ${generatedKeyPath}; mailbox credentials stored while running on the generated key cannot be decrypted. Re-enter them, or configure that key instead.`,
+      );
+    }
+  }
+
   if (data.MCP_PUBLIC_URL !== null && data.MCP_PUBLIC_URL.startsWith('http:') && isProduction) {
     warnings.push(
       'MCP_PUBLIC_URL is http://. OAuth and MCP endpoints must be served over HTTPS; the service will refuse to issue tokens until it is https://.',
@@ -290,7 +349,7 @@ export function loadMcpConfig(
     isProduction,
     logLevel: data.LOG_LEVEL,
     publicListener: Object.freeze({ host: data.MCP_PUBLIC_HOST, port: data.MCP_PUBLIC_PORT }),
-    dataDir: data.MCP_DATA_DIR ?? options.defaultDataDir ?? './data/mcp',
+    dataDir,
     publicUrlSeed: data.MCP_PUBLIC_URL,
     controlSecret: randomBytes(32).toString('hex'),
     vaultKey,

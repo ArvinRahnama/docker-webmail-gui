@@ -41,7 +41,9 @@ logs in to mail as each mailbox with that mailbox's own password, stored
 encrypted under a key kept in a separate file. Because it shares the
 server's process, a successful attack on it would have the web tier's
 reach — the panel's data and the broker's allowlist — but, like any web-tier
-compromise, still not Docker or the host. Leave it off unless you use it.
+compromise, still not Docker or the host. It is on by default but inert
+until a postmaster switches the service on; turn it off on the
+Configuration page if you do not use it.
 
 ## 2. What the boundary actually buys you
 

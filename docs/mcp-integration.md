@@ -8,9 +8,9 @@ administrative access of any kind: they receive a URL and a one-time setup
 credential, sign in once in the browser, and that is all.
 
 It runs **inside the panel's server container** — there is no extra
-container — and it is **off by default** twice over: nothing listens unless
-the installer is run with `MCP_ENABLED=true`, and even then the service
-refuses every request until a postmaster switches it on in
+container. The listener is **on by default** (`MCP_ENABLED`, also the
+**MCP integration** switch on **Maintenance → Configuration**), but the
+service still refuses every request until a postmaster switches it on in
 **Mail → MCP Connections → Service settings**.
 
 Contents:
@@ -65,16 +65,18 @@ Contents:
 ```
 
 - The MCP integration (`apps/mcp`) is a component of the **server** process.
-  With `MCP_ENABLED=true` (the `docker/compose.mcp.yaml` overlay) the server
-  also opens a second listener on port
+  Unless `MCP_ENABLED=false`, the server also opens a second listener on port
   **3100**: the OAuth 2.1 authorization server and the MCP endpoints. It is
   a separate listener on purpose — its security headers, cookies and CSP
   never mix with the panel's, the panel's API is not served on it, and the
   OAuth pages are not served on the panel's port.
 - It keeps its **own SQLite database** (`/app/data/mcp/mcp.db`, inside the
-  `dwg-server-data` volume) and its **own vault key file**
-  (`secrets/mcp_vault_key`, mounted read-only, never in the volume). It
-  never reads or writes the panel's database.
+  `dwg-server-data` volume) and its **own vault key file**. The installer
+  mounts it from `secrets/mcp_vault_key` (read-only, outside the volume);
+  with no key mounted, the server generates `/app/data/mcp/vault.key` on
+  first start instead — inside the volume, next to what it seals, so the
+  mounted key is the stronger setup. It never reads or writes the panel's
+  database.
 - The panel manages it through its control API **in-process**: nothing
   listens for it on any socket, and every call still passes the control
   API's own authentication (a secret generated fresh for each process) and
@@ -94,7 +96,7 @@ broker's fixed operation allowlist. The broker boundary itself is
 unchanged — the server still holds no Docker socket and cannot express a
 container specification — so such a compromise still cannot reach the
 host. Keep the MCP port behind your HTTPS proxy, on its own hostname, and
-off unless you use it. [`SECURITY.md`](../SECURITY.md) §3.10a has the full
+turn the integration off (Maintenance → Configuration) if you do not use it. [`SECURITY.md`](../SECURITY.md) §3.10a has the full
 analysis.
 
 ## 2. Before you start
@@ -116,8 +118,11 @@ You need:
 
 ## 3. Installation
 
-On an existing install, re-run the installer with the feature enabled. It
-is idempotent and keeps every existing secret and setting:
+A fresh install has it on. On an existing install whose `.env` says
+`MCP_ENABLED=false` (the default before it was on), either switch on
+**MCP integration** on Maintenance → Configuration and restart the panel, or
+re-run the installer with the feature enabled. The installer is idempotent
+and keeps every existing secret and setting:
 
 ```sh
 MCP_ENABLED=true MCP_PUBLIC_URL=https://mcp.example.com ./installer/install.sh
@@ -128,7 +133,10 @@ panel.) On top of the normal install this:
 
 1. writes `MCP_ENABLED=true` (and the other `MCP_*` settings) to `.env`;
 2. makes sure the **vault key** exists at `secrets/mcp_vault_key`
-   (directory `0700`, file `0444`) — created once and never regenerated;
+   (directory `0700`, file `0444`) — created once and never regenerated. If
+   the running server already generated a key in its data volume (it ran
+   with MCP on but without the overlay), that key is adopted, so nothing it
+   sealed is lost;
 3. adds the `docker/compose.mcp.yaml` overlay to every `docker compose` call
    and recreates the server container, which now also opens the MCP
    listener, publishes its port and mounts the vault key;
@@ -140,21 +148,25 @@ panel.) On top of the normal install this:
 The usual boundary checks still run and still fail the install: the server
 has no Docker socket, the broker publishes nothing.
 
-To turn the feature off again: `MCP_ENABLED=false ./installer/install.sh`.
-The server is recreated without the overlay, so the listener closes and the
-port is no longer published; the MCP database and the vault key are kept,
-so turning it back on restores every connection as it was.
+To turn the feature off again: switch off **MCP integration** on
+Maintenance → Configuration and restart the panel, or run
+`MCP_ENABLED=false ./installer/install.sh`. The installer recreates the
+server without the overlay, so the listener closes and the port is no
+longer published. Either way the MCP database and the vault key are kept,
+so turning it back on restores every connection as it was. A value saved
+on the Configuration page wins over `.env`.
 
 Uninstalling (`./installer/uninstall.sh`) keeps the `dwg-server-data` volume
 (which holds the MCP database) and the vault key. Only `--purge` (with its
 typed confirmation) deletes them.
 
-Manual Compose users: set the variables below in `.env` (`MCP_ENABLED`
-itself is only read by the installer), create `secrets/mcp_vault_key` once
-(see [secrets](#secrets)), and add the overlay to every `docker compose`
-call:
+Manual Compose users: `docker/compose.yaml` alone runs the integration with
+a generated key and 3100 reachable only from the panel's Docker networks
+(e.g. a reverse-proxy container joined to `dwg-frontend`). To publish it on
+the host and keep the key outside the volume, set the variables below in
+`.env`, create `secrets/mcp_vault_key` once (see [secrets](#secrets)), and
+add the overlay to every `docker compose` call:
 `docker compose -f docker/compose.yaml -f docker/compose.mcp.yaml --env-file .env up -d`.
-Without the overlay the integration is off and no key is needed.
 
 ## 4. Configuration reference
 
@@ -162,7 +174,7 @@ Without the overlay the integration is off and no key is needed.
 
 | Variable            | Default                          | Meaning                                                                                             |
 | ------------------- | -------------------------------- | --------------------------------------------------------------------------------------------------- |
-| `MCP_ENABLED`       | `false`                          | Installer: adds the `compose.mcp.yaml` overlay, which opens the MCP listener in the server process. |
+| `MCP_ENABLED`       | `true`                           | Opens the MCP listener in the server process; installer: adds the `compose.mcp.yaml` overlay.       |
 | `MCP_PUBLIC_URL`    | empty                            | `https://` origin your proxy serves the MCP service on. Seeds the setting; editable in the panel.   |
 | `MCP_BIND_ADDRESS`  | `127.0.0.1`                      | Host address the public listener is published on. Keep loopback when the proxy is on the same host. |
 | `MCP_PORT`          | `3100`                           | Host port for the public listener.                                                                  |
@@ -189,6 +201,14 @@ The vault key encrypts the stored mailbox passwords (AES-256-GCM, bound to
 each binding and mailbox as associated data). It is deliberately **not** in
 the data volume, so a copy of `dwg-server-data` alone unlocks nothing.
 Back the two up together, store them apart.
+
+With no key mounted (`MCP_VAULT_KEY`/`MCP_VAULT_KEY_FILE` both unset) the
+server generates one at `<MCP_DATA_DIR>/vault.key` (`0600`) on first start
+and reuses it afterwards, so the integration can be on by default. That key
+_is_ in the data volume: a copy of `dwg-server-data` then carries both. A
+mounted key always wins; if it differs from a generated one already in use,
+the server logs a warning, since credentials sealed with the generated key
+no longer open.
 
 ### Panel settings (Mail → MCP Connections → Service settings)
 
@@ -475,8 +495,9 @@ What protects a mailbox:
    delete-then-recreate both change it, which is how stale credentials and
    recreated addresses are detected (section 15).
 6. **Separate storage and secrets.** Its own database file, never the
-   panel's; the vault key is a file outside the data volume; the control
-   API is unreachable from outside the process.
+   panel's; the installer's vault key is a file outside the data volume (a
+   generated fallback key, used only when none is mounted, is not); the
+   control API is unreachable from outside the process.
 7. **No secrets in logs or audit.** Setup passwords, mailbox passwords,
    tokens, codes, PKCE verifiers, client secrets, cookies and message
    bodies/subjects/attachments are redacted from logs, and the audit log
@@ -537,7 +558,7 @@ moves to Trash.
 
 | Symptom                                          | Likely cause / fix                                                                                                   |
 | ------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------- |
-| Page says "not enabled on this install"          | `MCP_ENABLED` is off — re-run the installer with `MCP_ENABLED=true`.                                                 |
+| Page says "turned off on this install"           | `MCP_ENABLED` is off — switch on MCP integration on Maintenance → Configuration and restart the panel.               |
 | Server does not start after enabling             | MCP misconfiguration is fatal by design (e.g. missing vault key): `docker compose … logs server` names the problem.  |
 | Validate discovery fails on HTTPS                | Proxy not sending `X-Forwarded-Proto: https`, or proxy not in `MCP_TRUST_PROXY`. Requests then get `https_required`. |
 | ChatGPT says it cannot find OAuth metadata       | Hostname routed only partly to the service; route the **whole** hostname (root `/.well-known/…` must reach it).      |
@@ -560,7 +581,8 @@ panel's own data — so they do **not** include the MCP database. Back up:
 
 1. the `dwg-server-data` volume (it holds the MCP database at `mcp/`,
    alongside the panel's own database), and
-2. `secrets/mcp_vault_key`.
+2. `secrets/mcp_vault_key` (or, with no key mounted, the generated
+   `mcp/vault.key` already inside that volume — see [secrets](#secrets)).
 
 Keep them in **separate** places: either one alone is useless to an
 attacker, both together decrypt the stored mailbox passwords.
@@ -649,7 +671,7 @@ part of this work** — see section 22.
   several connections (several apps in ChatGPT).
 - **Shared process.** The MCP listener runs in the panel's server process
   (section 1): a remotely exploitable bug in it has the web tier's reach,
-  bounded by the broker. Keep it off unless used, and behind your proxy.
+  bounded by the broker. Turn it off unless used, and keep it behind your proxy.
 - **Container recreation loses the mail-network attachment** until the
   installer is re-run (unchanged from the panel's own behaviour).
 - **Not covered by the panel's backup archives** (section 18).

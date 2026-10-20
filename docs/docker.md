@@ -18,13 +18,14 @@ Two containers, two networks — `docker/compose.yaml`:
   `internal: true` — no route to or from the internet in either direction,
   and no route to `frontend` either.
 
-**Optional MCP integration, inside `server`** (`MCP_ENABLED=true
-./installer/install.sh`). No extra container: the server also opens the
-per-mailbox MCP + OAuth listener for clients such as ChatGPT on port 3100,
-published on `127.0.0.1` by default for your HTTPS reverse proxy. All of
-it — the listener's port, its settings and the `secrets/mcp_vault_key`
-mount — lives in the `docker/compose.mcp.yaml` overlay, which the installer
-adds only when MCP is on; `compose.yaml` alone needs nothing MCP-related.
+**MCP integration, inside `server`** (on by default; `MCP_ENABLED=false`
+or the Configuration page turns it off). No extra container: the server also
+opens the per-mailbox MCP + OAuth listener for clients such as ChatGPT on
+port 3100. The `docker/compose.mcp.yaml` overlay, which the installer adds
+when MCP is on, publishes it on `127.0.0.1` by default for your HTTPS
+reverse proxy and mounts `secrets/mcp_vault_key`. `compose.yaml` alone still
+works: 3100 is then reachable only from the panel's Docker networks, and the
+server generates its vault key in its data volume.
 The MCP database lives in the server's own volume. Everything about it —
 proxy setup, networking, backup, upgrades — is in
 [`mcp-integration.md`](mcp-integration.md).

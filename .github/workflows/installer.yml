@@ -133,8 +133,10 @@ jobs:
       # Cycle 1 — fresh install, full verification, non-destructive
       # re-install, default (data-preserving) uninstall.
       # -----------------------------------------------------------------
+      # MCP is on by default (cycle 3 checks that); cycles 1–2 cover the
+      # opt-out, so this .env pins it off for every re-install below.
       - name: 'Cycle 1: install'
-        run: ./installer/install.sh
+        run: MCP_ENABLED=false ./installer/install.sh
 
       - name: 'Cycle 1: verify health'
         run: curl -fsS http://127.0.0.1:3000/api/v1/health | tee /dev/stderr | grep -q '"status":"ok"'
@@ -143,8 +145,8 @@ jobs:
       - name: 'Cycle 1: verify DWG_VERSION defaults to the checkout version'
         run: grep -qx "DWG_VERSION=$(node -p "require('./package.json').version")" .env
 
-      # MCP is off by default: the install must need no vault key and the
-      # server must publish nothing but the panel port.
+      # With MCP off, the install must need no vault key and the server must
+      # publish nothing but the panel port.
       - name: 'Cycle 1: MCP off needs no vault key and opens no MCP port'
         run: |
           set -eu
@@ -362,6 +364,15 @@ jobs:
           if grep -q 'Existing installation found' /tmp/install3.log; then echo "FAIL: the post-purge install ran as an upgrade"; exit 1; fi
           echo "confirmed: a post-purge install is a genuinely fresh one."
 
+      # Nothing set MCP_ENABLED for this fresh install, so this is the default.
+      - name: 'Cycle 3: MCP is on by default, with its own vault key'
+        run: |
+          set -eu
+          grep -qx 'MCP_ENABLED=true' .env
+          grep -q 'MCP listener answering on port 3100' /tmp/install3.log
+          test "$(stat -c '%a' secrets/mcp_vault_key)" = "444"
+          curl -fsS http://127.0.0.1:3100/healthz | grep -q '"status":"ok"'
+
       - name: 'Cycle 3: verify health'
         run: curl -fsS http://127.0.0.1:3000/api/v1/health | grep -q '"status":"ok"'
 
@@ -372,8 +383,8 @@ jobs:
 
       # -----------------------------------------------------------------
       # Cycle 4 — the optional MCP integration (docs/mcp-integration.md),
-      # inside the server container. Off in cycles 1–3 (the default); here
-      # it is turned on, verified, turned off again, and purged.
+      # inside the server container. Off in cycles 1–2, on by default in
+      # cycle 3; here it is turned on, verified, turned off again, and purged.
       # -----------------------------------------------------------------
       - name: 'Cycle 4: install with MCP_ENABLED=true'
         run: |

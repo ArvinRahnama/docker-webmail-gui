@@ -144,11 +144,12 @@ describe('MCP Connections page', () => {
   it('says plainly when the MCP service is not deployed, and offers no actions', async () => {
     vi.mocked(fetchMcpStatus).mockResolvedValue({
       deployed: false,
-      reason: 'The MCP integration is not enabled on this install (MCP_ENABLED is off).',
+      reason:
+        'The MCP integration is turned off on this install. Turn on "MCP integration" in Maintenance → Configuration and restart the panel.',
       service: null,
     });
     wrap(<McpConnectionsPage />);
-    expect(await screen.findByText(/not enabled on this install/)).toBeInTheDocument();
+    expect(await screen.findByText(/turned off on this install/)).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /generate connection/i })).not.toBeInTheDocument();
     expect(fetchMcpConnections).not.toHaveBeenCalled();
   });

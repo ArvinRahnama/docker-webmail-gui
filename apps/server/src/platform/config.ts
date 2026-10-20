@@ -215,12 +215,14 @@ const rawEnvSchema = z
     ENABLE_EXEC_CONSOLE: booleanVar(false),
     ENABLE_HSTS: booleanVar(true),
 
-    // Optional MCP integration (docs/mcp-integration.md), run inside this
-    // process when enabled. Off = no MCP listener at all, and the MCP page
-    // says the integration is not enabled. Its own settings (MCP_PUBLIC_*,
-    // MCP_VAULT_KEY_FILE, …) are read by @dwg/mcp's loadMcpConfig at
-    // startup, only when this is on.
-    MCP_ENABLED: booleanVar(false),
+    // MCP integration (docs/mcp-integration.md), run inside this process —
+    // on by default, and editable from the Configuration page. Off = no MCP
+    // listener at all, and the MCP page says the integration is not
+    // enabled. Its own settings (MCP_PUBLIC_*, MCP_VAULT_KEY_FILE, …) are
+    // read by @dwg/mcp's loadMcpConfig at startup, only when this is on.
+    // Even on, it refuses every request until the postmaster switches it on
+    // in Mail → MCP Connections.
+    MCP_ENABLED: booleanVar(true),
   })
   .superRefine((data, ctx) => {
     // BOOTSTRAP_ADMIN_EMAIL/PASSWORD must be set together, in every mode
@@ -339,8 +341,9 @@ export interface AppConfig {
   readonly enableHsts: boolean;
 
   /**
-   * The optional MCP integration (docs/mcp-integration.md), embedded in this
-   * process. `enabled: false` means no MCP listener is started.
+   * The MCP integration (docs/mcp-integration.md), embedded in this
+   * process and on by default. `enabled: false` means no MCP listener is
+   * started.
    */
   readonly mcp: {
     readonly enabled: boolean;

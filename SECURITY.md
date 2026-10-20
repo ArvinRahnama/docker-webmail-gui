@@ -37,7 +37,7 @@ These are properties of the design, stated openly rather than hidden:
 
 1. **Mail data** — irreplaceable. Loss is unrecoverable and unacceptable.
 2. **The host** — compromise means everything else is moot.
-3. **Secrets** — DKIM private keys, TLS private keys, mail account credentials, the broker secret, admin password hashes; with the optional MCP integration, the MCP vault key, sealed mailbox credentials, and OAuth tokens.
+3. **Secrets** — DKIM private keys, TLS private keys, mail account credentials, the broker secret, admin password hashes; with the MCP integration, the MCP vault key, sealed mailbox credentials, and OAuth tokens.
 4. **Mail integrity** — the ability to send as a domain (spoofing, reputation damage, blocklisting).
 5. **Availability** — an outage is serious but recoverable.
 
@@ -162,17 +162,17 @@ A test asserts both, and states why, so that neither is "simplified" away later.
 
 **Honest exception:** backup archives contain DKIM and TLS private keys by necessity. Download is audited and gated.
 
-### 3.10a The optional MCP integration
+### 3.10a The MCP integration
 
-The MCP integration (`apps/mcp`, [`docs/mcp-integration.md`](docs/mcp-integration.md)) runs **inside the server process**, on its own listener (port 3100), when `MCP_ENABLED=true`. It is the one internet-facing surface besides the panel itself.
+The MCP integration (`apps/mcp`, [`docs/mcp-integration.md`](docs/mcp-integration.md)) runs **inside the server process**, on its own listener (port 3100), unless `MCP_ENABLED=false` (on by default; also the MCP integration switch on the Configuration page). Even on, it refuses every request until a postmaster switches the service on. It is the one internet-facing surface besides the panel itself.
 
-**The trade-off, stated plainly.** Keeping the deployment at two containers means the MCP listener shares the web tier's process. A remotely exploitable bug in it is therefore a web-tier compromise — the panel database (admin hashes, sessions, audit log), the sealed mailbox credentials and the vault key, and the broker's fixed allowlist — not something narrower. What does **not** change is B2: the web tier still has no Docker socket and no way to express a container specification, so even then the host is out of reach. Operators who do not use MCP should leave it off (nothing listens on 3100 then); those who do should keep 3100 on loopback behind an HTTPS proxy with its own hostname.
+**The trade-off, stated plainly.** Keeping the deployment at two containers means the MCP listener shares the web tier's process. A remotely exploitable bug in it is therefore a web-tier compromise — the panel database (admin hashes, sessions, audit log), the sealed mailbox credentials and the vault key, and the broker's fixed allowlist — not something narrower. What does **not** change is B2: the web tier still has no Docker socket and no way to express a container specification, so even then the host is out of reach. Operators who do not use MCP should turn it off (nothing listens on 3100 then); those who do should keep 3100 on loopback behind an HTTPS proxy with its own hostname.
 
 Controls on the MCP surface itself:
 
 - **No Docker vocabulary.** `apps/mcp` cannot import a Docker client or `child_process` (`eslint.config.js`); the server image build fails if a Docker client is present; `installer/install.sh` and `.github/workflows/installer.yml` still verify the server has no socket.
 - **Separation inside the process.** A separate Fastify instance with its own CSP, cookies (`__Host-` transaction cookie) and error handling; the panel's routes are not served on it and the OAuth pages are not served on the panel's port. Its own SQLite file; it never opens the panel's database. The control API is never bound to a socket and still authenticates every in-process call with a per-process secret.
-- **Credentials.** The mailbox password is verified against IMAP/SMTP before storage, sealed with AES-256-GCM (associated data binds it to its binding and mailbox), and the vault key lives in a file outside the data volume. Setup passwords (~139 bits) and tokens are stored only as Argon2id / SHA-256 hashes. Nothing is ever returned after the one-time display. No ROPC grant; no master user.
+- **Credentials.** The mailbox password is verified against IMAP/SMTP before storage, sealed with AES-256-GCM (associated data binds it to its binding and mailbox), and the vault key lives in a file outside the data volume when the installer mounts one; with none mounted, the server generates it inside the data volume (`mcp/vault.key`, `0600`), so a copy of that volume then carries both. Setup passwords (~139 bits) and tokens are stored only as Argon2id / SHA-256 hashes. Nothing is ever returned after the one-time display. No ROPC grant; no master user.
 - **Authorization.** OAuth 2.1 per the MCP 2026-07-28 spec: PKCE S256 only, exact redirect matching, RFC 8707 audience binding per connection, 60-second single-use codes with replay revocation, rotating refresh tokens with replay revocation, RFC 7009 revocation, RFC 9207 `iss`. Effective scopes are recomputed on every call from the postmaster's current settings.
 - **Isolation.** The mailbox is resolved from the connection's server-side binding; tools take no mailbox argument; message ids are only resolved inside the bound mailbox. Identity fingerprints from the panel detect password changes and delete/recreate; recreated addresses never inherit grants.
 - **SSRF.** Client ID Metadata Documents are fetched with a guarded resolver (public addresses only, checked at connect time), https/443, no redirects, size and time caps.

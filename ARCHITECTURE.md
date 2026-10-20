@@ -56,9 +56,9 @@ Stated plainly, because overclaiming here would be its own security failure:
 
 **Residual:** a bug in the broker is a host compromise. This is why the broker is deliberately tiny, has no business logic, no database, no template engine, and changes rarely.
 
-### 2.2 The optional MCP integration (apps/mcp)
+### 2.2 The MCP integration (apps/mcp)
 
-An optional feature, off unless installed with `MCP_ENABLED=true`, lets a postmaster issue per-mailbox MCP connections to clients such as ChatGPT. It is **not a separate tier or container**: `apps/mcp` is a library that the server process starts when the flag is on, with its own listener on its own port.
+A feature that is on by default (`MCP_ENABLED`, also switchable on the Configuration page) and inert until a postmaster turns the service on lets a postmaster issue per-mailbox MCP connections to clients such as ChatGPT. It is **not a separate tier or container**: `apps/mcp` is a library that the server process starts when the flag is on, with its own listener on its own port.
 
 ```
   MCP client (ChatGPT) ── HTTPS via your proxy ──▶ server process, port 3100 (OAuth + MCP)
@@ -69,7 +69,7 @@ An optional feature, off unless installed with `MCP_ENABLED=true`, lets a postma
                                                      └── named operations ─────────────────▶ broker (unchanged)
 ```
 
-- **Separate listener, separate state.** Port 3100 is a second Fastify instance with its own headers, cookies and CSP; the panel's API is not served on it and the OAuth pages are not served on the panel's port. The MCP component keeps its own SQLite database (`DATA_DIR/mcp`) and a vault key file outside the data volume; it never touches the panel's database.
+- **Separate listener, separate state.** Port 3100 is a second Fastify instance with its own headers, cookies and CSP; the panel's API is not served on it and the OAuth pages are not served on the panel's port. The MCP component keeps its own SQLite database (`DATA_DIR/mcp`) and a vault key file — mounted from outside the data volume by the installer, or generated inside it when none is mounted; it never touches the panel's database.
 - **No Docker vocabulary.** `apps/mcp` has no Docker client and runs no subprocesses (lint-enforced); it reaches mail only over IMAP/SMTP, authenticating as the mailbox with that mailbox's own password, sealed with AES-256-GCM. No Dovecot master user. It never calls the broker.
 - **In-process control API.** The panel manages it through the same Zod-validated control API as before, called in-process; every call still carries a per-process secret, so nothing outside the process can reach it.
 - **Mailbox isolation is server-side.** Each connection's MCP URL and token audience bind it to one mailbox; tools take no mailbox argument; effective scopes are recomputed per call.
@@ -268,7 +268,7 @@ Two containers plus two networks:
 - **server**: non-root, `read_only`, `cap_drop: ALL`, `no-new-privileges`, tmpfs for `/tmp`, named volume for SQLite. No socket.
 - **broker**: same hardening, plus the Docker socket. Minimal base image.
 - `privileged: true` is never used anywhere.
-- Optional: with `MCP_ENABLED=true`, **server** also publishes the MCP listener (port 3100, loopback by default) and mounts the MCP vault key as a file secret. Still two containers. See §2.2.
+- With the installer's MCP overlay (`MCP_ENABLED=true`, the default), **server** also publishes the MCP listener (port 3100, loopback by default) and mounts the MCP vault key as a file secret. Still two containers. See §2.2.
 
 Images are multi-stage, pinned by digest, with healthchecks and resource limits. Full deployment detail lives in `SECURITY.md` and `docs/docker.md`.
 

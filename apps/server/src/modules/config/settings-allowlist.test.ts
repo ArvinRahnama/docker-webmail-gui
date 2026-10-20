@@ -71,3 +71,17 @@ describe('filterStartupOverrides', () => {
     expect(filterStartupOverrides(new Map())).toEqual({});
   });
 });
+
+describe('MCP_ENABLED on the Configuration page', () => {
+  it('is an editable boolean that reads on by default', () => {
+    const definition = findSettingDefinition('MCP_ENABLED');
+    expect(definition).toMatchObject({ classification: 'needs-restart', valueType: 'boolean' });
+    expect(definition?.getValue(config)).toBe('true');
+  });
+
+  it('a saved "false" survives the startup filter and turns the integration off', () => {
+    const overrides = filterStartupOverrides(new Map([['MCP_ENABLED', 'false']]));
+    expect(overrides).toEqual({ MCP_ENABLED: 'false' });
+    expect(loadConfig({ MCP_ENABLED: 'true' }, overrides).mcp.enabled).toBe(false);
+  });
+});

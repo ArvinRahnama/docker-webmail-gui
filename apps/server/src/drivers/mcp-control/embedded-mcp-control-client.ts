@@ -244,7 +244,7 @@ export class NotConfiguredMcpControlClient implements McpControlClient {
   private fail(): never {
     throw new McpControlUnavailableError(
       'not_configured',
-      'The MCP integration is not enabled on this install (MCP_ENABLED is off). See docs/mcp-integration.md.',
+      'The MCP integration is turned off on this install. Turn on "MCP integration" in Maintenance → Configuration and restart the panel.',
     );
   }
   status = async () => this.fail();

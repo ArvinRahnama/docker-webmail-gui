@@ -247,8 +247,12 @@ RUN for pkg in dockerode docker-modem; do \
 
 USER dwg
 ENV STATIC_DIR=/app/apps/web/dist
-# 3000: the panel. 3100: the optional MCP listener (MCP_ENABLED=true), published
-# separately so a reverse proxy can give it its own hostname.
+# The MCP listener (on unless MCP_ENABLED=false) must bind beyond the
+# container's own loopback to be reachable at all; whether the host sees it
+# is decided by publishing 3100 (docker/compose.mcp.yaml), not by this.
+ENV MCP_PUBLIC_HOST=0.0.0.0
+# 3000: the panel. 3100: the MCP listener, published separately so a reverse
+# proxy can give it its own hostname.
 EXPOSE 3000 3100
 
 # No curl/wget in this image on purpose (smaller image, smaller attack

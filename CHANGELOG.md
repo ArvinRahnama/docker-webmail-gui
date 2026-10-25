@@ -11,6 +11,8 @@ version and are called out explicitly here.
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-10-25
+
 ### Fixed
 
 - **Restore no longer nests a volume inside itself.** Docker returns a
@@ -996,7 +998,8 @@ document set rather than a product.
   will be called out here. Pin the exact image version rather than a
   floating tag — see `docs/docker.md`.
 
-[Unreleased]: https://github.com/ArvinRahnama/docker-webmail-gui/compare/v1.2.1...HEAD
+[Unreleased]: https://github.com/ArvinRahnama/docker-webmail-gui/compare/v1.3.0...HEAD
+[1.3.0]: https://github.com/ArvinRahnama/docker-webmail-gui/compare/v1.2.1...v1.3.0
 [1.2.1]: https://github.com/ArvinRahnama/docker-webmail-gui/compare/v1.2.0...v1.2.1
 [1.2.0]: https://github.com/ArvinRahnama/docker-webmail-gui/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/ArvinRahnama/docker-webmail-gui/compare/v1.0.2...v1.1.0

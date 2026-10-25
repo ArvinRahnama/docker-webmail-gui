@@ -130,9 +130,8 @@ report `Unknown`/`Unavailable` — never a fabricated result (AGENT_BRIEF.md
 ## 4. Hardening actually applied
 
 Every item below is a real, running-container property, not aspirational —
-`.github/workflows/installer.yml` asserts most of these directly against
-live containers on every push that touches `docker/`, `installer/`,
-`apps/`, or `packages/` (see §6).
+The `installer` job in `.github/workflows/ci.yml` asserts most of these
+directly against live containers on every push (see §6).
 
 | Control                           | `server`                                                                   | `broker`                                                                                                                                                                                                                                                                                                     |
 | --------------------------------- | -------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -227,7 +226,7 @@ claims as much as to the app's: this section says plainly what is actually
 tested versus what remains a documented manual step, rather than letting
 "there's a workflow for it" imply more than it does.
 
-**Asserted in CI, on every relevant push (`.github/workflows/installer.yml`),
+**Asserted in CI, on every push (the `installer` job in `.github/workflows/ci.yml`),
 against a real Docker daemon on a real Linux runner** — this machine, at
 the time these files were written, had no Docker daemon reachable at all
 (confirmed directly: the socket exists, the session's user has no
@@ -273,7 +272,7 @@ against anything real rather than simulated:
   dependencies leaked into it — see §4.
 
 **Panel self-update, asserted in CI separately
-(`.github/workflows/self-update.yml`), also against a real Docker daemon**
+(the `self-update` job in `.github/workflows/ci.yml`), also against a real Docker daemon**
 — a distinct job from the install/uninstall cycle above, since it exercises
 a genuinely different mechanism (the panel recreating its own two
 containers in place, not a fresh install). See

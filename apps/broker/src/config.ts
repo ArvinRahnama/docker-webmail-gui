@@ -98,7 +98,7 @@ const rawEnvSchema = z.object({
   VISIBLE_SERVICE_PATTERNS: z.string().optional(),
 
   // CI-only escape hatch for the real-daemon self-update test (SU-F,
-  // `.github/workflows/self-update.yml`), never set by
+  // `.github/workflows/ci.yml`'s `self-update` job), never set by
   // `docker/compose.yaml` or `installer/install.sh` — see
   // `BrokerConfig.dangerouslyOverrideSelfUpdateRegistry`'s own doc
   // comment below for the full reasoning and the one thing it is allowed
@@ -137,7 +137,7 @@ export interface BrokerConfig {
    * `panel.selfUpdateApply` composes a reference for.
    *
    * Exists solely so the real-daemon self-update CI job
-   * (`.github/workflows/self-update.yml`, docs/design/self-update.md §8)
+   * (`.github/workflows/ci.yml`'s `self-update` job, docs/design/self-update.md §8)
    * can point a real broker at a disposable local registry instead of
    * the real GHCR — the "newer" version under test is never actually
    * published there. Read once, here, at process startup from

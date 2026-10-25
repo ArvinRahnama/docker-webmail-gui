@@ -2,7 +2,7 @@
  * Integration suite against a **real docker-mailserver** (Dovecot IMAP +
  * Postfix submission over TLS). Not part of `npm test`: run with
  * `npm run test:integration --workspace apps/mcp` and these variables
- * (.github/workflows/mcp-integration.yml provisions them in CI):
+ * (the mcp-integration job in .github/workflows/ci.yml provisions them):
  *
  *   MCP_IT_IMAP_HOST / MCP_IT_IMAP_PORT     e.g. 127.0.0.1 / 19993 (implicit TLS)
  *   MCP_IT_SMTP_HOST / MCP_IT_SMTP_PORT     e.g. 127.0.0.1 / 19465 (implicit TLS)

@@ -217,7 +217,7 @@ COPY --from=prod-deps --chown=dwg:dwg /app/apps/web/dist ./apps/web/dist
 #     shipped artifact rather than a comment: the web tier holding no
 #     Docker vocabulary (AGENT_BRIEF.md §2) is enforced in the source tree
 #     by `docker-socket-isolation.security.test.ts` and in the running
-#     container by `.github/workflows/installer.yml`, and here, in the
+#     container by `.github/workflows/ci.yml` (installer job), and here, in the
 #     image itself, at the only moment it can still be cheaply fixed.
 #     Deliberately checked *after* the COPY above rather than trusted from
 #     the prune, so a future change to either step cannot quietly

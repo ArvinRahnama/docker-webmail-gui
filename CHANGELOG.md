@@ -19,6 +19,15 @@ version and are called out explicitly here.
   and `fast-uri` 4.2.3/3.1.9. The two remaining moderate advisories, in
   `uuid` through `dockerode`, need the breaking `dockerode` 5 upgrade.
 
+### Changed
+
+- **CI is one workflow.** The installer, real-daemon self-update, MCP
+  integration and security workflows are now jobs in
+  `.github/workflows/ci.yml`, run in parallel on every push and pull request
+  (the weekly scheduled run keeps only the dependency audit). A release now
+  waits for all of them, the audit included; before, it waited only for
+  lint, tests, build and end-to-end.
+
 ## [1.3.0] - 2026-10-25
 
 ### Fixed

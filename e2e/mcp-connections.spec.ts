@@ -3,7 +3,7 @@
  * processes: the postmaster's browser on the panel, the panel server, and
  * the separate MCP service it controls (playwright.config.ts starts it with
  * the fake mail backend — the real IMAP/SMTP path is covered by
- * .github/workflows/mcp-integration.yml).
+ * the mcp-integration job in .github/workflows/ci.yml).
  *
  * The one test walks the whole lifecycle in order, because each step needs
  * the state the previous one produced (one MCP service backs the run):

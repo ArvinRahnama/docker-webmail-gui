@@ -121,7 +121,7 @@ export const E2E_MAIL_DOMAIN = 'dwg-e2e.test';
  * instance also opens its own MCP listener (OAuth + MCP) on the port below.
  * It uses the in-memory fake mail backend (development mode only), so no
  * mail server is needed; the real IMAP/SMTP path is covered by
- * .github/workflows/mcp-integration.yml instead. Development mode also
+ * the mcp-integration job in .github/workflows/ci.yml instead. Development mode also
  * allows the plain-http loopback public URL the browser can reach here —
  * production refuses anything but https.
  */

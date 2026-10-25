@@ -472,7 +472,7 @@ log "Healthy."
 #
 #     Read/write access to /var/run/docker.sock is root on the host
 #     (AGENT_BRIEF.md §2), and the entire architecture exists to keep that
-#     access on one small tier. `.github/workflows/installer.yml` asserts
+#     access on one small tier. the `installer` job in `.github/workflows/ci.yml` asserts
 #     the same properties in CI; this repeats the two load-bearing ones
 #     where they actually matter to an operator — on their machine, on
 #     their Docker version, against the compose file as it was actually

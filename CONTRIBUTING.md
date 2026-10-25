@@ -156,7 +156,9 @@ the new `x.y.z`:
   from `[Unreleased]`, plus its link reference at the bottom — this section
   becomes the GitHub Release notes.
 
-Once that commit is on `main` and CI has passed on it, the workflow checks
+Once that commit is on `main` and CI has passed on it — every job in
+`.github/workflows/ci.yml`, the real-Docker installer, self-update and MCP
+jobs and the dependency audit included — the workflow checks
 the version agrees in `package.json`, the compose fallbacks and the
 CHANGELOG heading, then creates the annotated `vx.y.z` tag, publishes both
 images to GHCR and creates the GitHub Release — in that order, because the

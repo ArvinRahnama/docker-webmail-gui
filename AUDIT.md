@@ -163,18 +163,18 @@ The traceability table in `SECURITY.md` Part 5 maps each check to its
 test file. **Verified during this audit: every path that table cites
 exists.** Two did not, and were corrected (§6.1).
 
-| #   | Check                                    | Evidence                                                                                      | Status                      |
-| --- | ---------------------------------------- | --------------------------------------------------------------------------------------------- | --------------------------- |
-| 1   | Injection, every command builder         | `apps/broker/src/dms/command-injection.security.test.ts` — 52 tests, manifest vs real exports | Asserted                    |
-| 2   | Path traversal, every file-touching path | `apps/server/src/security/path-traversal.security.test.ts`                                    | Asserted                    |
-| 3   | Out-of-enum ops / container allowlist    | `apps/broker/src/app.test.ts`                                                                 | Asserted                    |
-| 4   | No Docker socket in the web tier         | `eslint.config.js` ban + `apps/server/src/security/docker-socket-isolation.security.test.ts`  | Asserted                    |
-| 5   | Cookie flags, revocation, lockout        | `apps/server/src/modules/auth/auth.routes.test.ts`, `auth.service.test.ts`                    | Asserted                    |
-| 6   | Uniform login responses                  | same two files                                                                                | Asserted                    |
-| 7   | Headers present; CSP not broken          | `apps/server/src/security/security-headers.security.test.ts` + `e2e/security/csp.spec.ts`     | **Observed** (real browser) |
-| 8   | Log redaction                            | `apps/server/src/security/log-redaction.security.test.ts`                                     | Asserted                    |
-| 9   | Authorization on every mutating route    | `apps/server/src/security/route-authorization.security.test.ts`                               | Asserted                    |
-| 10  | `npm audit` + SBOM license gate          | `npm run check:audit` + `scripts/check-licenses.mjs` + `.github/workflows/security.yml`       | Partly observed — §5.1      |
+| #   | Check                                    | Evidence                                                                                            | Status                      |
+| --- | ---------------------------------------- | --------------------------------------------------------------------------------------------------- | --------------------------- |
+| 1   | Injection, every command builder         | `apps/broker/src/dms/command-injection.security.test.ts` — 52 tests, manifest vs real exports       | Asserted                    |
+| 2   | Path traversal, every file-touching path | `apps/server/src/security/path-traversal.security.test.ts`                                          | Asserted                    |
+| 3   | Out-of-enum ops / container allowlist    | `apps/broker/src/app.test.ts`                                                                       | Asserted                    |
+| 4   | No Docker socket in the web tier         | `eslint.config.js` ban + `apps/server/src/security/docker-socket-isolation.security.test.ts`        | Asserted                    |
+| 5   | Cookie flags, revocation, lockout        | `apps/server/src/modules/auth/auth.routes.test.ts`, `auth.service.test.ts`                          | Asserted                    |
+| 6   | Uniform login responses                  | same two files                                                                                      | Asserted                    |
+| 7   | Headers present; CSP not broken          | `apps/server/src/security/security-headers.security.test.ts` + `e2e/security/csp.spec.ts`           | **Observed** (real browser) |
+| 8   | Log redaction                            | `apps/server/src/security/log-redaction.security.test.ts`                                           | Asserted                    |
+| 9   | Authorization on every mutating route    | `apps/server/src/security/route-authorization.security.test.ts`                                     | Asserted                    |
+| 10  | `npm audit` + SBOM license gate          | `npm run check:audit` + `scripts/check-licenses.mjs` + `.github/workflows/ci.yml` (`audit`, `sbom`) | Partly observed — §5.1      |
 
 Check 7 is the only one that is genuinely _observed_: a real Chromium
 loads the real built bundle and the browser itself reports violations.
@@ -353,11 +353,11 @@ $ node scripts/check-licenses.mjs
 
 The gate **fails when it cannot run**, which is the property that
 matters. It is not part of `npm run check` (no SBOM locally); it runs in
-`.github/workflows/security.yml`, which generates the SBOM first:
+the `sbom` job in `.github/workflows/ci.yml`, which generates the SBOM first:
 
 ```
-.github/workflows/security.yml:101  npx @cyclonedx/cyclonedx-npm --output-file sbom.cdx.json
-.github/workflows/security.yml:108  node scripts/check-licenses.mjs sbom.cdx.json
+.github/workflows/ci.yml:1335  npx @cyclonedx/cyclonedx-npm --output-file sbom.cdx.json
+.github/workflows/ci.yml:1342  node scripts/check-licenses.mjs sbom.cdx.json
 ```
 
 `EXCEPTIONS` in the gate is **empty** — no component is excluded.
@@ -465,7 +465,7 @@ $ npx shellcheck --shell=sh installer/install.sh installer/uninstall.sh
   (no output)   exit 0
 ```
 
-`.github/workflows/installer.yml` is where the real cycle is asserted —
+The `installer` job in `.github/workflows/ci.yml` is where the real cycle is asserted —
 three install → healthy → uninstall passes, the privilege boundary
 against live containers, the same-origin SPA topology, and the
 hand-edited-`.env` idempotency case. **No run observed** (§1.5).

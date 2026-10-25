@@ -23,8 +23,9 @@
 #   - A pushed `v*` tag, or a manual run on one: publishes that tag.
 #
 # Before any tag is created or anything is published, the commit must pass
-# two gates: its CI run on main succeeded (a release is never cut from a
-# red or untested commit), and the version is consistent everywhere a
+# two gates: its CI run on main succeeded (ci.yml holds every check, the
+# real-Docker jobs and the dependency audit included, so a release is never
+# cut from a red or untested commit), and the version is consistent everywhere a
 # release has to state it — package.json (what the images report as
 # APP_VERSION), the DWG_VERSION fallback in docker/compose.yaml (what a
 # plain `docker compose up` pulls) and a dated `## [x.y.z] - YYYY-MM-DD`

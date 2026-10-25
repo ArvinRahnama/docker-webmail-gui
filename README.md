@@ -7,8 +7,7 @@
 A self-hosted web admin panel for [`docker-mailserver`](https://github.com/docker-mailserver/docker-mailserver), built so that a compromise of the web panel cannot become a compromise of your host.
 
 [![CI](https://github.com/ArvinRahnama/docker-webmail-gui/actions/workflows/ci.yml/badge.svg)](https://github.com/ArvinRahnama/docker-webmail-gui/actions/workflows/ci.yml)
-[![Security](https://github.com/ArvinRahnama/docker-webmail-gui/actions/workflows/security.yml/badge.svg)](https://github.com/ArvinRahnama/docker-webmail-gui/actions/workflows/security.yml)
-[![Installer](https://github.com/ArvinRahnama/docker-webmail-gui/actions/workflows/installer.yml/badge.svg)](https://github.com/ArvinRahnama/docker-webmail-gui/actions/workflows/installer.yml)
+[![Release](https://github.com/ArvinRahnama/docker-webmail-gui/actions/workflows/release.yml/badge.svg)](https://github.com/ArvinRahnama/docker-webmail-gui/actions/workflows/release.yml)
 [![License](https://img.shields.io/badge/licence-Apache--2.0-blue.svg)](LICENSE)
 
 Manage mailboxes, aliases, quotas, DKIM, Sieve rules, spam and antivirus settings, container health, logs and backups — from a browser, without handing that browser-facing process the keys to your machine.
@@ -82,7 +81,7 @@ That is the whole design. [`docs/security-model.md`](docs/security-model.md) is 
 
 ## Status
 
-**v1.3.0 — production release.** Every feature milestone is built, the images are published, and CI runs a real install → healthy → uninstall cycle — plus a real-daemon panel self-update — on every relevant push.
+**v1.3.0 — production release.** Every feature milestone is built, the images are published, and CI runs a real install → healthy → uninstall cycle — plus a real-daemon panel self-update — on every push.
 
 Verified: the full unit and real-browser end-to-end suites pass, including a CSP and accessibility sweep against the built SPA; both images built and run; the privilege boundary checked from inside the running containers; a real-daemon self-update that recreates both panel containers and comes back healthy; and the panel driving a live `docker-mailserver`, reading a real account and creating one that appears in the mail server's own config with a maildir on disk.
 

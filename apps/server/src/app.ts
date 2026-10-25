@@ -520,6 +520,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     {
       uploader: backupUploader,
       enabled: () => backupScheduleRepository.get().uploadToRemote,
+      idle: () => jobRunner.currentJobId === null && jobRunner.queueLength === 0,
       logger,
     },
     options.backupReconcileIntervalMs,

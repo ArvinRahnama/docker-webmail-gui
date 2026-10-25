@@ -37,6 +37,11 @@ version and are called out explicitly here.
   current version, so a versioned bucket keeps nothing. The credentials
   need `s3:ListBucketVersions` and `s3:DeleteObjectVersion`. If the remote
   copy cannot be deleted, nothing is.
+- **Retention also applies to backups that never reached the remote.** With
+  a remote configured, "keep the newest N" and "delete older than" now
+  also delete VPS-only backups (failed or not-yet-run uploads), which used
+  to stay forever. The newest backup is always kept, and with no remote
+  configured nothing on the VPS is deleted automatically.
 
 ### Changed
 

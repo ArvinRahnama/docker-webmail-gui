@@ -805,6 +805,13 @@ export function BackupScheduleCard() {
           </div>
         </div>
 
+        <p className="text-body-sm text-text-secondary">
+          Retention prunes the remote destination, and deletes backups that never made it there —
+          their upload failed or has not run — from this server by the same rule. The newest backup
+          is always kept. With no remote destination, backups on this server are never deleted
+          automatically.
+        </p>
+
         <label className="flex items-center gap-2 text-body-sm text-text-primary">
           <Switch
             checked={form.uploadToRemote}

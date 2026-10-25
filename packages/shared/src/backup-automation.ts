@@ -75,14 +75,15 @@ export const BackupScheduleSchema = z.object({
   /** Warm (default, live data) or cold (container stopped) — same choice as a manual backup. */
   mode: BackupModeSchema,
   /**
-   * Newest N to keep. Applied to the remote destination only
-   * (`BackupUploader#applyRemoteRetention`) — local staging is never pruned
-   * by this count; a locally-staged archive is instead deleted entirely
-   * once its remote copy is uploaded and verified, or kept indefinitely
-   * (retryable) if it never uploads. See FEATURE_MATRIX.md §27c.
+   * Newest N to keep. Prunes uploaded backups on the remote
+   * (`BackupUploader#applyRemoteRetention`) and, once a remote is
+   * configured, deletes VPS-only backups — never uploaded, or whose upload
+   * failed — past the same count (`BackupUploader#applyLocalRetention`). An
+   * uploaded backup's local archive is reclaimed regardless of this count,
+   * once its remote copy verifies. See FEATURE_MATRIX.md §27c.
    */
   retentionKeep: z.number().int().min(1),
-  /** Optional age cap in days; `null` means count-only, no age pruning. */
+  /** Optional age cap in days, applied like `retentionKeep`; `null` means count-only, no age pruning. */
   retentionMaxAgeDays: z.number().int().min(1).nullable(),
   /** Whether each new backup, scheduled or manual, is uploaded to the configured remote once it verifies — and whether the background sweep retries uploads. */
   uploadToRemote: z.boolean(),

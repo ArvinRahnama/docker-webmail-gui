@@ -21,9 +21,11 @@
  *     window can never remove the last good copy — `selectBackupsForDeletion`
  *     additionally never selects the single newest.
  *
- *  3. **Deletion is permanent everywhere.** A pruned or manually deleted
- *     backup goes from the remote with every stored version
- *     (`BackupDestination.delete`) and from the VPS.
+ *  3. **Deletion is permanent everywhere.** A pruned, retention-expired or
+ *     manually deleted backup goes from the remote with every stored version
+ *     (`BackupDestination.delete`), and from the VPS — including a backup
+ *     whose upload failed and so only ever lived on the VPS
+ *     ({@link BackupUploader.applyLocalRetention}).
  *
  * Uploads/downloads run in the server tier over HTTP; no broker op, no Docker
  * socket, no client-supplied path or URL. Failures are recorded as safe,
@@ -71,6 +73,8 @@ export interface ReconcileSummary {
   readonly failed: number;
   readonly pruned: number;
   readonly reclaimed: number;
+  /** VPS-only backups (never uploaded, or whose upload failed) deleted by retention. */
+  readonly expiredLocal: number;
 }
 
 /** What {@link BackupUploader.purgeRemoteCopy} did about a backup's remote copy. */
@@ -115,12 +119,15 @@ export class BackupUploader {
     actor: UploadActor = SYSTEM_UPLOAD_ACTOR,
   ): Promise<UploadOutcome> {
     const outcome = await this.uploadOne(backupId, actor);
-    if (outcome.status === 'uploaded') {
-      const destination = this.deps.destinationProvider();
-      if (destination !== null) {
+    const destination = this.deps.destinationProvider();
+    if (destination !== null) {
+      if (outcome.status === 'uploaded') {
         await this.applyRemoteRetention(destination, actor);
         await this.reclaimLocalStaging();
       }
+      // Whatever the outcome, this backup is the one just worked on — never
+      // the one retention removes in the same breath.
+      await this.applyLocalRetention(actor, backupId);
     }
     return outcome;
   }
@@ -141,7 +148,7 @@ export class BackupUploader {
   async reconcile(actor: UploadActor = SYSTEM_UPLOAD_ACTOR): Promise<ReconcileSummary> {
     const destination = this.deps.destinationProvider();
     if (destination === null) {
-      return { skipped: true, uploaded: 0, failed: 0, pruned: 0, reclaimed: 0 };
+      return { skipped: true, uploaded: 0, failed: 0, pruned: 0, reclaimed: 0, expiredLocal: 0 };
     }
 
     // Best-effort: clear any multipart parts a previous crash orphaned before starting new work.
@@ -157,13 +164,64 @@ export class BackupUploader {
 
     const pruned = await this.applyRemoteRetention(destination, actor);
     const reclaimed = await this.reclaimLocalStaging();
-    return { skipped: false, uploaded, failed, pruned, reclaimed };
+    const expiredLocal = await this.applyLocalRetention(actor);
+    return { skipped: false, uploaded, failed, pruned, reclaimed, expiredLocal };
+  }
+
+  /**
+   * Applies the retention policy to backups that only exist on the VPS: never
+   * uploaded, or whose upload failed. Without this, a backup whose upload kept
+   * failing stayed on the VPS forever, whatever "keep the newest N" or "delete
+   * older than" said. Selection runs over *every* backup the panel knows, so
+   * "the newest N" means the newest N overall and the single newest backup is
+   * never selected — a failed upload is still kept while it is the latest
+   * copy of the data. Uploaded backups are left to remote retention.
+   *
+   * Only once a remote destination is configured: with none, the VPS is the
+   * only storage, and its backups are never deleted automatically.
+   */
+  async applyLocalRetention(
+    actor: UploadActor = SYSTEM_UPLOAD_ACTOR,
+    protectedId?: string,
+  ): Promise<number> {
+    if (this.deps.destinationProvider() === null) return 0;
+
+    const rows = this.deps.backupsRepository.listAllRows();
+    const selected = new Set(
+      selectBackupsForDeletion(
+        rows.map((row) => ({ id: row.id, createdAt: row.created_at })),
+        this.deps.retentionPolicy(),
+        this.nowFn(),
+        protectedId,
+      ),
+    );
+
+    let deleted = 0;
+    for (const row of rows) {
+      if (!selected.has(row.id) || row.local_present === 0) continue;
+      if (row.upload_status !== 'pending' && row.upload_status !== 'failed') continue;
+      // Never uploaded, so a stray object from an interrupted upload is the
+      // most the remote can hold; the purge never throws for one.
+      await this.purgeRemoteCopy(row.id);
+      this.deps.backupsRepository.delete(row.id);
+      await unlink(row.file_path).catch(() => undefined);
+      this.audit(actor, 'backup.delete', row.id, 'success', {
+        trigger: 'retention',
+        uploadStatus: row.upload_status,
+      });
+      this.deps.logger.info(
+        { backupId: row.id, uploadStatus: row.upload_status },
+        'Deleted a VPS-only backup past the retention policy',
+      );
+      deleted += 1;
+    }
+    return deleted;
   }
 
   /**
    * Permanently deletes whatever the configured destination holds for a
    * backup — every stored version included — ahead of its local archive and
-   * row going (manual delete). For a backup the panel knows
+   * row going (manual delete, local retention). For a backup the panel knows
    * is on the remote, a failure throws, so the caller keeps the backup for a
    * retry instead of orphaning a copy it can no longer see. For one that was
    * never uploaded, the purge only clears a stray object an interrupted
@@ -435,22 +493,38 @@ export interface BackupReconcilerHandle {
 const DEFAULT_RECONCILE_INTERVAL_MS = 5 * 60 * 1000;
 
 /**
- * Arms the periodic reconcile sweep — the "upload-after-create" and steady-
- * state staging enforcement. `enabled()` gates it on the operator's
- * upload-to-remote toggle (a manual "Upload to remote" action still works when
- * it is off; this only governs the automatic sweep). The timer is `.unref()`d
- * so it never keeps the process alive, and `reconcile` is itself a no-op when
- * no destination is configured.
+ * Arms the periodic sweep — the retry path for uploads and the steady-state
+ * staging and retention enforcement. `enabled()` is the operator's
+ * upload-to-remote toggle: on, a tick runs the full reconcile; off, it only
+ * applies local retention, which is time-based and so must run even when
+ * nothing else happens (a manual "Upload to remote" still works either way).
+ * `idle()` skips a tick while a job is queued or running, so a sweep — which
+ * can delete archives — does not start alongside a restore or verify job, and
+ * a tick never starts while the previous sweep is still going. The timer is
+ * `.unref()`d so it never keeps the process alive, and both calls are no-ops
+ * when no destination is configured.
  */
 export function startBackupReconciler(
-  deps: { uploader: BackupUploader; enabled: () => boolean; logger: Logger },
+  deps: {
+    uploader: BackupUploader;
+    enabled: () => boolean;
+    idle: () => boolean;
+    logger: Logger;
+  },
   intervalMs: number = DEFAULT_RECONCILE_INTERVAL_MS,
 ): BackupReconcilerHandle {
+  let sweeping = false;
   const timer = setInterval(() => {
-    if (!deps.enabled()) return;
-    void deps.uploader.reconcile().catch((err: unknown) => {
-      deps.logger.warn({ err }, 'Background remote reconcile failed');
-    });
+    if (sweeping || !deps.idle()) return;
+    sweeping = true;
+    const sweep = deps.enabled() ? deps.uploader.reconcile() : deps.uploader.applyLocalRetention();
+    void sweep
+      .catch((err: unknown) => {
+        deps.logger.warn({ err }, 'Background remote reconcile failed');
+      })
+      .finally(() => {
+        sweeping = false;
+      });
   }, intervalMs);
   timer.unref();
   return { stop: () => clearInterval(timer) };

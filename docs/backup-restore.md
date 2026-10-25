@@ -165,16 +165,25 @@ types, not merely unit-tested.
   copy is uploaded **and independently re-verified** — downloaded back and
   checksum-checked against its own manifest, never trusted on the upload's
   word alone.
-- **"Keep the newest N" and the age cap prune the remote only.** A backup
-  that failed to upload, or was created before any remote was configured,
-  is never auto-deleted by count or age — it stays until you delete it
-  yourself.
-- **A failed upload is kept, not discarded**, and is retryable from the
-  same row's action menu.
+- **"Keep the newest N" and the age cap apply everywhere a backup is.** On
+  the remote they prune uploaded backups. On the VPS they delete backups
+  that never made it to the remote — their upload failed, or has not run —
+  by the same rule: with "delete older than 2 days", a failed upload from
+  three days ago is deleted from the VPS. "The newest N" counts every
+  backup the panel knows, uploaded or not, and **the single newest backup is
+  never deleted**, so a failed upload survives while it is still the latest
+  copy of your data.
+- **With no remote destination configured, nothing on the VPS is deleted
+  automatically** — the VPS is then the only storage, and its backups stay
+  until you delete them.
+- **A failed upload is kept until retention says otherwise**, and is
+  retryable from the same row's action menu. A backup that failed
+  verification is never uploaded automatically.
 - **Reconcile runs automatically**, not on a button: immediately after you
   save a destination (if auto-upload is on), and on a periodic background
   sweep after that. A backup created while the remote was unreachable is
-  picked up the next time either fires.
+  picked up the next time either fires. A sweep does not start while any
+  job is queued or running.
 
 ## Deleting is permanent
 

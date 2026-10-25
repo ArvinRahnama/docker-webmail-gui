@@ -266,7 +266,14 @@ describe('BackupUploader.reconcile', () => {
   it('is a no-op when no destination is configured', async () => {
     await createRealBackup('bkp_1');
     const summary = await makeUploader(null).reconcile();
-    expect(summary).toEqual({ skipped: true, uploaded: 0, failed: 0, pruned: 0, reclaimed: 0 });
+    expect(summary).toEqual({
+      skipped: true,
+      uploaded: 0,
+      failed: 0,
+      pruned: 0,
+      reclaimed: 0,
+      expiredLocal: 0,
+    });
     expect(repo.getSummaryById('bkp_1')?.uploadStatus).toBe('pending');
   });
 
@@ -424,6 +431,147 @@ describe('BackupUploader.importFromRemote', () => {
     expect(await makeUploader(stub).importFromRemote('bkp_local')).toEqual({
       status: 'already-local',
     });
+  });
+});
+
+describe('BackupUploader.applyLocalRetention — VPS-only backups', () => {
+  const NOW = new Date('2026-08-05T12:00:00.000Z');
+
+  function uploaderWith(
+    destination: BackupDestination | null,
+    policy: { keep: number; maxAgeDays: number | null },
+  ): BackupUploader {
+    return new BackupUploader({
+      db,
+      backupsRepository: repo,
+      destinationProvider: () => destination,
+      retentionPolicy: () => policy,
+      backupDir,
+      logger: createLogger({ level: 'silent' }),
+      now: () => NOW,
+    });
+  }
+
+  /** A row plus a real file on disk, created at `createdAt`, in the given upload state. */
+  async function seed(
+    id: string,
+    createdAt: string,
+    state: 'pending' | 'failed' | 'uploaded-local' | 'uploaded-remote-only',
+  ): Promise<string> {
+    const filePath = join(backupDir, `${id}.tar`);
+    await writeFile(filePath, 'archive');
+    repo.insert({
+      id,
+      createdByAdminId: null,
+      filePath,
+      sizeBytes: 7,
+      checksum: 'a'.repeat(64),
+      manifest: minimalManifest(createdAt),
+    });
+    if (state === 'failed') repo.markUploadFailed(id, 'remote unreachable');
+    if (state === 'uploaded-local' || state === 'uploaded-remote-only') {
+      repo.markUploaded(id, {
+        destination: 's3://stub/prefix',
+        remoteKey: `prefix/${id}.tar`,
+        uploadedAt: createdAt,
+      });
+    }
+    if (state === 'uploaded-remote-only') repo.markLocalReclaimed(id);
+    return filePath;
+  }
+
+  it('deletes a failed-upload backup past the age cap from the VPS — the file and the row', async () => {
+    const oldFile = await seed('bkp_old', '2026-08-01T00:00:00.000Z', 'failed');
+    await seed('bkp_mid', '2026-08-04T00:00:00.000Z', 'pending');
+    await seed('bkp_new', '2026-08-05T00:00:00.000Z', 'failed');
+
+    const deleted = await uploaderWith(new StubDestination(), {
+      keep: 10,
+      maxAgeDays: 2,
+    }).applyLocalRetention();
+
+    expect(deleted).toBe(1);
+    expect(repo.getRowById('bkp_old')).toBeNull();
+    expect(existsSync(oldFile)).toBe(false);
+    expect(repo.getRowById('bkp_mid')).not.toBeNull();
+    expect(repo.getRowById('bkp_new')).not.toBeNull();
+    const audit = db.get<{ details: string }>(
+      "SELECT details FROM audit_log WHERE action = 'backup.delete'",
+    );
+    expect(JSON.parse(audit!.details)).toMatchObject({
+      trigger: 'retention',
+      uploadStatus: 'failed',
+    });
+  });
+
+  it('keeps an expired failed backup while it is still the newest backup there is', async () => {
+    await seed('bkp_only', '2026-07-01T00:00:00.000Z', 'failed');
+    const deleted = await uploaderWith(new StubDestination(), {
+      keep: 1,
+      maxAgeDays: 2,
+    }).applyLocalRetention();
+    expect(deleted).toBe(0);
+    expect(repo.getRowById('bkp_only')).not.toBeNull();
+  });
+
+  it('counts uploaded backups toward "keep the newest N"', async () => {
+    await seed('bkp_failed', '2026-08-01T00:00:00.000Z', 'failed');
+    await seed('bkp_up1', '2026-08-02T00:00:00.000Z', 'uploaded-remote-only');
+    await seed('bkp_up2', '2026-08-03T00:00:00.000Z', 'uploaded-remote-only');
+
+    const deleted = await uploaderWith(new StubDestination(), {
+      keep: 2,
+      maxAgeDays: null,
+    }).applyLocalRetention();
+
+    expect(deleted).toBe(1);
+    expect(repo.getRowById('bkp_failed')).toBeNull();
+  });
+
+  it('leaves uploaded backups to remote retention', async () => {
+    await seed('bkp_up', '2026-07-01T00:00:00.000Z', 'uploaded-local');
+    await seed('bkp_new', '2026-08-05T00:00:00.000Z', 'failed');
+    const deleted = await uploaderWith(new StubDestination(), {
+      keep: 1,
+      maxAgeDays: 2,
+    }).applyLocalRetention();
+    expect(deleted).toBe(0);
+    expect(repo.getRowById('bkp_up')).not.toBeNull();
+  });
+
+  it('never deletes VPS backups automatically when no destination is configured', async () => {
+    await seed('bkp_old', '2026-07-01T00:00:00.000Z', 'pending');
+    await seed('bkp_new', '2026-08-05T00:00:00.000Z', 'pending');
+    const deleted = await uploaderWith(null, { keep: 1, maxAgeDays: 2 }).applyLocalRetention();
+    expect(deleted).toBe(0);
+    expect(repo.getRowById('bkp_old')).not.toBeNull();
+  });
+
+  it('a failed retry does not delete the backup it just retried, but does expire the others', async () => {
+    const stub = new StubDestination();
+    stub.uploadThrows = true;
+    await createRealBackup('bkp_retried');
+    db.run(`UPDATE backups SET created_at = '2026-07-01T00:00:00.000Z' WHERE id = 'bkp_retried'`);
+    await seed('bkp_stale', '2026-07-02T00:00:00.000Z', 'failed');
+    await seed('bkp_new', '2026-08-05T00:00:00.000Z', 'failed');
+
+    const outcome = await uploaderWith(stub, { keep: 10, maxAgeDays: 2 }).uploadBackup(
+      'bkp_retried',
+    );
+
+    expect(outcome.status).toBe('failed');
+    expect(repo.getRowById('bkp_retried')).not.toBeNull();
+    expect(repo.getRowById('bkp_stale')).toBeNull();
+  });
+
+  it('runs as part of reconcile', async () => {
+    await seed('bkp_old', '2026-07-01T00:00:00.000Z', 'failed');
+    await seed('bkp_new', '2026-08-05T00:00:00.000Z', 'failed');
+    const stub = new StubDestination();
+    stub.uploadThrows = true;
+    const summary = await uploaderWith(stub, { keep: 10, maxAgeDays: 2 }).reconcile();
+    expect(summary.expiredLocal).toBe(1);
+    expect(repo.getRowById('bkp_old')).toBeNull();
   });
 });
 

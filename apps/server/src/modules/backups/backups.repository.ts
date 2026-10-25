@@ -221,6 +221,11 @@ export class BackupsRepository {
     );
   }
 
+  /** Every backup row, newest first and unpaginated — the input to local retention, which must see all of them to know which are the newest N. */
+  listAllRows(): readonly BackupRow[] {
+    return this.db.all<BackupRow>('SELECT * FROM backups ORDER BY created_at DESC');
+  }
+
   /** Backups the panel believes are uploaded and remote-verified — newest first, the input to remote retention. */
   listUploaded(): readonly BackupRow[] {
     return this.db.all<BackupRow>(

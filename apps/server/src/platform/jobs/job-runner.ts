@@ -88,7 +88,7 @@ export class JobRunner {
     private readonly logger: Logger,
   ) {}
 
-  /** The id of the job currently executing, or `null` when idle. Exposed for tests asserting strict serial execution — no production call site needs this. */
+  /** The id of the job currently executing, or `null` when idle. Tests use it to assert strict serial execution; the backup reconciler checks it (with {@link queueLength}) so a sweep does not start alongside a job. */
   get currentJobId(): string | null {
     return this.current;
   }

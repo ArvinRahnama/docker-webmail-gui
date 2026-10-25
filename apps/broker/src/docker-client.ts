@@ -514,5 +514,11 @@ export function createRealDockerApi(socketPath: string): DockerApi {
     async removeContainer(id, options): Promise<void> {
       await docker.getContainer(id).remove({ force: options?.force ?? false });
     },
+
+    async removeImage(reference): Promise<void> {
+      // `DELETE /images/{name}` with Docker's own defaults: not forced, and
+      // parent layers pruned once the image itself goes.
+      await docker.getImage(reference).remove();
+    },
   };
 }

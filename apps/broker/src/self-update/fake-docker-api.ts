@@ -270,4 +270,5 @@ export class FakeDockerApi implements DockerApi {
   getContainerArchive = (): ReturnType<DockerApi['getContainerArchive']> =>
     notUsedByThisFake('getContainerArchive');
   putContainerArchive = (): Promise<void> => notUsedByThisFake('putContainerArchive');
+  removeImage = (): Promise<void> => notUsedByThisFake('removeImage');
 }

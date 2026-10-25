@@ -6,10 +6,16 @@
  * or one of the focused modules it composes.
  */
 import pino from 'pino';
-import { BROKER_SECRET_HEADER } from '@dwg/shared';
+import { APP_VERSION, BROKER_SECRET_HEADER } from '@dwg/shared';
 import { loadBrokerConfig, BrokerConfigError } from './config.js';
 import { createRealDockerApi } from './docker-client.js';
 import { buildBrokerApp } from './app.js';
+import {
+  PANEL_BROKER_REPOSITORY,
+  PANEL_SERVER_REPOSITORY,
+  resolvePanelRepository,
+} from './self-update/image-refs.js';
+import { startStaleImageCleanup } from './self-update/stale-image-cleanup.js';
 
 async function main(): Promise<void> {
   let config;
@@ -50,6 +56,22 @@ async function main(): Promise<void> {
     return;
   }
 
+  // Earlier panel releases' images are otherwise left on the host by every
+  // update — see `stale-image-cleanup.ts` for what is removed and when.
+  const override = config.dangerouslyOverrideSelfUpdateRegistry;
+  const panelRepositories = [PANEL_SERVER_REPOSITORY, PANEL_BROKER_REPOSITORY];
+  const imageCleanup = startStaleImageCleanup({
+    docker,
+    runningVersion: APP_VERSION,
+    repositories: [
+      ...panelRepositories,
+      ...(override === null
+        ? []
+        : panelRepositories.map((repository) => resolvePanelRepository(repository, override))),
+    ],
+    logger,
+  });
+
   let shuttingDown = false;
   const shutdown = (signal: NodeJS.Signals): void => {
     if (shuttingDown) {
@@ -57,6 +79,7 @@ async function main(): Promise<void> {
     }
     shuttingDown = true;
     logger.info({ signal }, 'Shutting down');
+    imageCleanup.stop();
 
     // Safety net: if closing hangs (a stuck in-flight request), force-exit
     // rather than leaving a zombie process behind.

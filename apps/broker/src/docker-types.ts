@@ -298,9 +298,9 @@ export interface RawImageConfig {
  * is no generic `call(method, path, body)` escape hatch, mirroring the
  * closed vocabulary one layer up in `@dwg/shared`'s `BrokerOperation`.
  *
- * The last five methods below (`pullImage`, `inspectContainerForRecreate`,
- * `inspectImageConfig`, `createContainer`, `removeContainer`) are the one
- * deliberate exception
+ * The last six methods below (`pullImage`, `inspectContainerForRecreate`,
+ * `inspectImageConfig`, `createContainer`, `removeContainer`, `removeImage`)
+ * are the one deliberate exception
  * to "every method here backs a `BrokerOperation`": they exist solely for
  * panel self-update (docs/design/self-update.md §1-2) and are never
  * called from `operations.ts`'s request dispatch with anything a caller
@@ -433,4 +433,14 @@ export interface DockerApi {
   createContainer(spec: RawContainerRecreateSpec): Promise<{ readonly id: string }>;
   /** Stops (if running) and removes one container by id — the other half of the stop/remove/create/start recreate sequence panel self-update needs and no `BrokerOperation` exposes. `force` skips the "must already be stopped" requirement Docker's own remove call otherwise has. */
   removeContainer(id: string, options?: { readonly force?: boolean }): Promise<void>;
+  /**
+   * Removes one image *tag* (`repo:tag`), never forced — `docker rmi
+   * repo:tag`. Docker deletes the image once its last tag goes, and refuses
+   * (409) to drop the last tag of an image any container still uses. Like
+   * the five methods above it is internal-only: its one caller,
+   * `self-update/stale-image-cleanup.ts`, passes tags it read back from
+   * {@link DockerApi.listImages} and matched against the panel's own two
+   * fixed repositories — never a string from a request.
+   */
+  removeImage(reference: string): Promise<void>;
 }

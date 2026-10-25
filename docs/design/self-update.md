@@ -274,3 +274,18 @@ Nothing below is silently dropped; each is a real, considered decision to defer,
 - **Updater-crash resume-on-startup** (§9.7/§4) — v1 accepts documented manual recovery instead: the rollback plan is written to the status file before any teardown, and a crash mid-update is treated as a rare, by-hand-recoverable case, not an automatic one.
 - **Retry cool-down after a rollback** (§9.9) — none in v1; no throttle on re-attempting.
 - **`DANGEROUSLY_OVERRIDE_SELF_UPDATE_REGISTRY`** (`apps/broker/src/config.ts`, SU-F) is not a product feature. It exists solely so the real-daemon CI job above can point a real broker at a disposable local registry instead of the real GHCR, since nothing "newer" is ever actually published there for that job to pull. Read once, at broker process startup, from an env var — never a `BrokerRequest` field, never reachable from `/v1/ops` — and it can only ever replace the registry _host_ half of the two fixed repository constants, never the repository names themselves (`resolvePanelRepository`, `apps/broker/src/self-update/image-refs.ts`). It is never set by `docker/compose.yaml`, `installer/install.sh`, or any real deployment path; the only place it is ever set is `.github/workflows/self-update.yml`'s own generated, uncommitted compose override. Recorded here so its existence is never a surprise to a future reader of the broker's config surface.
+
+## 11. Removing earlier releases' images (added after 1.2.1)
+
+Every update left the previous release's two images on the host, and so did
+an installer re-run (`docker compose pull` + `up` never deletes). The
+updater cannot delete them as its last step, because it runs in a container
+of the previous broker image — Docker refuses to remove an image a
+container is using. So the **new broker** does it: two minutes after start
+(the updater has exited by then) and hourly after that,
+`apps/broker/src/self-update/stale-image-cleanup.ts` removes, tag by tag
+and never forced, every image whose tags all belong to the two panel
+repositories, whose `X.Y.Z` tags are all older than the running
+`APP_VERSION`, and that no container uses. The same sweep covers
+installer-driven upgrades. After a rollback the newly pulled, now unused
+images are newer than the running version, so they are kept.

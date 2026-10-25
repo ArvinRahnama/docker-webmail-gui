@@ -25,6 +25,12 @@ version and are called out explicitly here.
   directory, and the server checks all four volumes before writing any.
   The restore steps embedded in each new archive now use
   `--strip-components=1`.
+- **Previous panel images are removed from the host after an update.**
+  Self-update and installer upgrades left every earlier
+  `docker-webmail-gui-server`/`-broker` image behind. The broker now removes
+  images of the panel's own repositories that are older than the running
+  version and used by no container, two minutes after it starts and hourly
+  after that. Nothing else is touched.
 
 ## [1.2.1] - 2026-10-21
 

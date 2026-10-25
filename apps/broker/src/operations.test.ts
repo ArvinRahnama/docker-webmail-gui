@@ -161,6 +161,7 @@ function stubDocker(overrides: Partial<DockerApi> = {}): DockerApi {
     inspectImageConfig: vi.fn(),
     createContainer: vi.fn(),
     removeContainer: vi.fn(async () => undefined),
+    removeImage: vi.fn(async () => undefined),
     ...overrides,
   } as unknown as DockerApi;
 }

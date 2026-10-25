@@ -5,6 +5,7 @@ import { BROKER_SECRET_HEADER } from '@dwg/shared';
 import { buildBrokerApp } from './app.js';
 import type { BrokerConfig } from './config.js';
 import type { DockerApi, RawContainerListItem } from './docker-types.js';
+import { tarOf } from './tar-fixture.js';
 
 const SECRET = 'a'.repeat(32);
 
@@ -169,8 +170,14 @@ describe('PUT /v1/archive/:volumeKey', () => {
     expect(response.statusCode).toBe(401);
   });
 
-  it('streams the request body through to putContainerArchive, untouched', async () => {
-    const uploaded = Buffer.from('restore-tar-bytes');
+  it('streams the request body through to putContainerArchive untouched, into the parent directory', async () => {
+    const uploaded = tarOf([
+      { name: 'docker-mailserver/', type: '5' },
+      {
+        name: 'docker-mailserver/postfix-accounts.cf',
+        content: 'admin@example.com|{SHA512-CRYPT}x\n',
+      },
+    ]);
     let receivedPath: string | undefined;
     let receivedBytes: Buffer | undefined;
 
@@ -193,8 +200,65 @@ describe('PUT /v1/archive/:volumeKey', () => {
     });
 
     expect(response.statusCode).toBe(204);
-    expect(receivedPath).toBe('/tmp/docker-mailserver');
+    // Docker's GET of /tmp/docker-mailserver roots entries at
+    // `docker-mailserver/`; extracting that into the path itself was the
+    // nested-directory restore bug.
+    expect(receivedPath).toBe('/tmp');
     expect(receivedBytes?.equals(uploaded)).toBe(true);
+  });
+
+  it('extracts every volume into its parent directory', async () => {
+    const seenPaths: string[] = [];
+    const app = buildTestApp({
+      putContainerArchive: async (_id, path, tarStream) => {
+        seenPaths.push(path);
+        for await (const _chunk of tarStream) {
+          // drain
+        }
+      },
+    });
+
+    const roots = {
+      mail: 'mail',
+      mailState: 'mail-state',
+      mailLog: 'mail',
+      dmsConfig: 'docker-mailserver',
+    };
+    for (const [key, root] of Object.entries(roots)) {
+      const response = await app.inject({
+        method: 'PUT',
+        url: `/v1/archive/${key}`,
+        headers: { [BROKER_SECRET_HEADER]: SECRET, 'content-type': 'application/x-tar' },
+        payload: tarOf([{ name: `${root}/file`, content: 'x' }]),
+      });
+      expect(response.statusCode, key).toBe(204);
+    }
+    expect(seenPaths).toEqual(['/var', '/var', '/var/log', '/tmp']);
+  });
+
+  it('refuses an archive with an entry outside the volume, after Docker saw only the entries before it', async () => {
+    let forwarded: Buffer | undefined;
+    const app = buildTestApp({
+      putContainerArchive: async (_id, _path, tarStream) => {
+        const chunks: Buffer[] = [];
+        for await (const chunk of tarStream) chunks.push(chunk as Buffer);
+        forwarded = Buffer.concat(chunks);
+      },
+    });
+
+    const inside = tarOf([{ name: 'mail/ok', content: 'fine' }]).subarray(0, 1024);
+    const response = await app.inject({
+      method: 'PUT',
+      url: '/v1/archive/mail',
+      headers: { [BROKER_SECRET_HEADER]: SECRET, 'content-type': 'application/x-tar' },
+      payload: Buffer.concat([inside, tarOf([{ name: 'spool/cron/root', content: 'pwned' }])]),
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toMatchObject({
+      error: { message: expect.stringMatching(/"spool\/cron\/root" is outside mail\//) },
+    });
+    expect(forwarded?.equals(inside)).toBe(true);
   });
 
   it('rejects an unknown volume key', async () => {

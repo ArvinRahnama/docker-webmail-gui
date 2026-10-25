@@ -1,10 +1,11 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { BACKUP_VOLUME_KEYS } from '@dwg/shared';
 import { FakeBrokerClient } from '../../drivers/broker/fake-broker-client.js';
 import { buildFixtureVolumeTar } from '../../drivers/broker/fixtures/index.js';
+import { buildUstarTar } from '../../drivers/broker/fixtures/archive.js';
 import type { JobContext } from '../../platform/jobs/job-runner.js';
 import {
   createBackupArchive,
@@ -185,5 +186,47 @@ describe('backup-archive', () => {
     for (const volumeKey of BACKUP_VOLUME_KEYS) {
       expect(putBodies[volumeKey]?.equals(buildFixtureVolumeTar(volumeKey))).toBe(true);
     }
+  });
+
+  it('refuses before writing any volume when one tar is not rooted at its volume name', async () => {
+    const putKeys: string[] = [];
+    const broker = Object.assign(new FakeBrokerClient(), {
+      archivePut: async (volumeKey: string) => {
+        putKeys.push(volumeKey);
+      },
+    });
+    const destDir = join(backupDir, 'hand-made');
+    mkdirSync(destDir, { recursive: true });
+    for (const volumeKey of BACKUP_VOLUME_KEYS) {
+      writeFileSync(join(destDir, `${volumeKey}.tar`), buildFixtureVolumeTar(volumeKey));
+    }
+    // A hand-made dmsConfig.tar whose entries sit at the top level — restored
+    // into /tmp, it would scatter files there instead of /tmp/docker-mailserver.
+    writeFileSync(
+      join(destDir, 'dmsConfig.tar'),
+      buildUstarTar([{ path: 'postfix-accounts.cf', content: Buffer.from('x') }]),
+    );
+
+    await expect(restoreVolumesFromExtractedArchive(broker, destDir, silentCtx())).rejects.toThrow(
+      /dmsConfig\.tar .* "postfix-accounts\.cf" is not under docker-mailserver\/\. Nothing was restored\./,
+    );
+    expect(putKeys).toEqual([]);
+  });
+
+  it('embeds by-hand restore steps that strip the volume directory', async () => {
+    const created = await createBackupArchive(
+      {
+        broker: new FakeBrokerClient(),
+        backupDir,
+        backupId: 'bkp_notes',
+        mode: 'warm',
+        createdBy: { adminId: null, label: 'admin@example.com' },
+        dmsImageDigest: null,
+      },
+      silentCtx(),
+    );
+    expect(created.manifest.notes).toContain(
+      'tar -xf mail.tar --strip-components=1 -C <restored /var/mail>',
+    );
   });
 });

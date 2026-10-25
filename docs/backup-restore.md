@@ -32,9 +32,23 @@ restore instructions, which amount to:
 
 ```sh
 tar -xf <archive> manifest.json
-tar -xf <archive> mail.tar && tar -xf mail.tar -C <restored /var/mail>
+tar -xf <archive> mail.tar && tar -xf mail.tar --strip-components=1 -C <restored /var/mail>
 # ... and the same for mailState, mailLog, dmsConfig
 ```
+
+Each `<key>.tar` is rooted at its volume's own directory name — `mail/`,
+`mail-state/`, `mail/` and `docker-mailserver/` — because that is how
+Docker's archive API returns a directory. `--strip-components=1` removes
+that level; without it the data lands one directory too deep
+(`/var/mail/mail/...`).
+
+Releases up to 1.2.1 had exactly that bug in the panel's own restore: it
+wrote each volume tar _into_ the volume path instead of its parent, so a
+restore put mail in `/var/mail/mail/...`. The archives themselves were
+never affected — every backup, whichever version made it, restores
+correctly now. If you restored with 1.2.1 or earlier, the nested directory
+is still in the volume, and it is safe to remove once you have checked the
+restored data is in place.
 
 Every extracted entry keeps its original owner, group and mode. **Do not
 `chown` afterwards** — the `vmail` account (uid/gid 5000 by default)

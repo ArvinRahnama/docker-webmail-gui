@@ -5,6 +5,7 @@ import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import * as tar from 'tar';
 import type { ReadEntry } from 'tar';
+import { BACKUP_VOLUME_ARCHIVE_ROOTS } from '@dwg/shared';
 import { buildFixtureVolumeTar, buildUstarTar, fixtureVolumeTarChecksum } from './archive.js';
 
 /**
@@ -67,7 +68,7 @@ describe('buildUstarTar', () => {
     }
   });
 
-  it('produces a fixture per volume key that the real tar package accepts', async () => {
+  it('produces a fixture per volume key that the real tar package accepts, rooted where Docker roots it', async () => {
     for (const volumeKey of ['mail', 'mailState', 'mailLog', 'dmsConfig'] as const) {
       const dir = mkdtempSync(join(tmpdir(), 'dwg-archive-test-'));
       const tarPath = join(dir, 'volume.tar');
@@ -77,7 +78,7 @@ describe('buildUstarTar', () => {
         await tar.list({ file: tarPath, onentry: (entry: ReadEntry) => entries.push(entry.path) });
         expect(entries.length).toBeGreaterThan(0);
         for (const entryPath of entries) {
-          expect(entryPath.startsWith(`${volumeKey}/`)).toBe(true);
+          expect(entryPath.startsWith(`${BACKUP_VOLUME_ARCHIVE_ROOTS[volumeKey]}/`)).toBe(true);
         }
       } finally {
         rmSync(dir, { recursive: true, force: true });

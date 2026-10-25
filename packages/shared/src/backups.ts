@@ -36,6 +36,19 @@ export const BACKUP_VOLUME_CONTAINER_PATHS: Readonly<Record<BackupVolumeKey, str
   dmsConfig: '/tmp/docker-mailserver',
 };
 
+/**
+ * The directory name every entry in a volume's `<key>.tar` is rooted at —
+ * the container path's basename (`mail/...` for `/var/mail`), because that
+ * is how Docker's archive GET lays the volume out. Restore extracts into the
+ * parent directory for the same reason (`apps/broker/src/restore-tar-guard.ts`).
+ */
+export const BACKUP_VOLUME_ARCHIVE_ROOTS: Readonly<Record<BackupVolumeKey, string>> = {
+  mail: 'mail',
+  mailState: 'mail-state',
+  mailLog: 'mail',
+  dmsConfig: 'docker-mailserver',
+};
+
 export const BACKUP_VOLUME_LABELS: Readonly<Record<BackupVolumeKey, string>> = {
   mail: 'Mail data',
   mailState: 'Mail state (Dovecot indexes, Fail2ban)',

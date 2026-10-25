@@ -397,9 +397,11 @@ export function createRealDockerApi(socketPath: string): DockerApi {
       // `dockerode`'s `putArchive` maps onto `PUT
       // /containers/{id}/archive?path=…`, streaming the request body
       // through unmodified. `path` here is the *directory* Docker
-      // extracts into — for this project's four fixed volume paths
-      // (`/var/mail`, …) that is always the path itself, matching how
-      // `getContainerArchive` reads that same path.
+      // extracts into — for this project's four fixed volume paths that
+      // is the volume's parent (`/var` for `/var/mail`), because
+      // `getContainerArchive` roots its entries at the volume's basename
+      // (`restore-tar-guard.ts`). Extracting into the volume path itself
+      // was the `/var/mail/mail/...` restore bug.
       await docker.getContainer(id).putArchive(tarStream, { path });
     },
 

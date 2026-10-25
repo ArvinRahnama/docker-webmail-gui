@@ -11,6 +11,21 @@ version and are called out explicitly here.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Restore no longer nests a volume inside itself.** Docker returns a
+  directory's archive rooted at its own name (`mail/...` for `/var/mail`),
+  and restore extracted it _into_ `/var/mail`, so restored mail landed in
+  `/var/mail/mail/...` (and likewise for the other three volumes). Restore
+  now extracts into the parent directory, the exact inverse; checked
+  against Docker Engine 29.9.1. Every existing backup restores correctly —
+  the archives were never wrong. If you restored with an earlier version,
+  remove the nested directory once you have checked the data. The broker
+  refuses, mid-stream, any archive entry outside the volume's own
+  directory, and the server checks all four volumes before writing any.
+  The restore steps embedded in each new archive now use
+  `--strip-components=1`.
+
 ## [1.2.1] - 2026-10-21
 
 ### Fixed

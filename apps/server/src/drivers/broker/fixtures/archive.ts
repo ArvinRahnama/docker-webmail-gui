@@ -17,7 +17,7 @@
  * against even without a live container.
  */
 import { createHash } from 'node:crypto';
-import type { BackupVolumeKey } from '@dwg/shared';
+import { BACKUP_VOLUME_ARCHIVE_ROOTS, type BackupVolumeKey } from '@dwg/shared';
 
 const HEADER_SIZE = 512;
 const VMAIL_UID = 5000;
@@ -105,8 +105,12 @@ export function buildUstarTar(entries: readonly UstarEntry[]): Buffer {
   return Buffer.concat(parts);
 }
 
+/** Rooted at the volume's own directory name (`mail/...` for `/var/mail`), the layout Docker's archive GET produces — observed on Docker Engine 29.9.1, see `BACKUP_VOLUME_ARCHIVE_ROOTS`. */
 function fixtureFile(volumeKey: BackupVolumeKey, name: string, text: string): UstarEntry {
-  return { path: `${volumeKey}/${name}`, content: Buffer.from(text, 'utf8') };
+  return {
+    path: `${BACKUP_VOLUME_ARCHIVE_ROOTS[volumeKey]}/${name}`,
+    content: Buffer.from(text, 'utf8'),
+  };
 }
 
 /**

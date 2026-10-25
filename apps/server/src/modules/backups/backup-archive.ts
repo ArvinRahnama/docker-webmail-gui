@@ -36,6 +36,7 @@ import type { ReadEntry } from 'tar';
 import {
   APP_VERSION,
   BACKUP_MANIFEST_SCHEMA_VERSION,
+  BACKUP_VOLUME_ARCHIVE_ROOTS,
   BACKUP_VOLUME_CONTAINER_PATHS,
   BACKUP_VOLUME_KEYS,
   BACKUP_VOLUME_LABELS,
@@ -65,8 +66,9 @@ function buildRestoreNotes(): string {
     '  tar -xf <this-file> manifest.json',
     ...BACKUP_VOLUME_KEYS.map(
       (key) =>
-        `  tar -xf <this-file> ${volumeTarFilename(key)} && tar -xf ${volumeTarFilename(key)} -C <restored ${BACKUP_VOLUME_CONTAINER_PATHS[key]}>`,
+        `  tar -xf <this-file> ${volumeTarFilename(key)} && tar -xf ${volumeTarFilename(key)} --strip-components=1 -C <restored ${BACKUP_VOLUME_CONTAINER_PATHS[key]}>`,
     ),
+    `Each <key>.tar is rooted at the volume's own directory name (${BACKUP_VOLUME_KEYS.map((key) => `${volumeTarFilename(key)}: ${BACKUP_VOLUME_ARCHIVE_ROOTS[key]}/`).join(', ')}), which --strip-components=1 removes; without it the data lands one directory too deep.`,
     'Every extracted entry keeps its original owner, group and mode — do not chown afterwards. The vmail account (uid/gid 5000 by default) depends on this exact preservation to keep mail delivery working.',
   ].join('\n');
 }
@@ -345,10 +347,49 @@ export async function extractBackupArchiveForRestore(
   return BackupManifestSchema.parse(JSON.parse(manifestRaw));
 }
 
+/** Path components after dropping `.` and empty ones, or `null` for an absolute path or any `..`. */
+function entryComponents(path: string): string[] | null {
+  if (path.startsWith('/')) return null;
+  const parts = path.split('/').filter((part) => part !== '' && part !== '.');
+  return parts.includes('..') ? null : parts;
+}
+
+/**
+ * The first entry in a volume tar that is not rooted at the volume's own
+ * directory name (`mail/...` — {@link BACKUP_VOLUME_ARCHIVE_ROOTS}), or `null`
+ * when every entry (and every hard link's target) is. The broker refuses the
+ * same thing mid-stream (`restore-tar-guard.ts`); checking all four volumes
+ * here first means a mis-shaped backup is refused before *any* volume is
+ * written, rather than after some already were.
+ */
+async function findEntryOutsideRoot(
+  volumeTarPath: string,
+  rootName: string,
+): Promise<string | null> {
+  let outside: string | null = null;
+  await tar.list({
+    file: volumeTarPath,
+    onentry: (entry: ReadEntry) => {
+      if (outside !== null) return;
+      const parts = entryComponents(entry.path);
+      if (parts === null || parts[0] !== rootName) {
+        outside = entry.path;
+        return;
+      }
+      if (entry.type === 'Link') {
+        const target = entryComponents(entry.linkpath ?? '');
+        if (target === null || target[0] !== rootName) outside = entry.path;
+      }
+    },
+  });
+  return outside;
+}
+
 /**
  * Streams each extracted volume tar back into the container via
  * `BrokerClient.archivePut`, one at a time — restore's actual data
- * mutation. Callers must have already confirmed the container is stopped;
+ * mutation. Every volume's layout is checked before the first one is
+ * written. Callers must have already confirmed the container is stopped;
  * this function performs no such check (see `types.ts`'s `archivePut` doc
  * comment).
  */
@@ -357,6 +398,19 @@ export async function restoreVolumesFromExtractedArchive(
   destDir: string,
   ctx: JobContext,
 ): Promise<void> {
+  for (const volumeKey of BACKUP_VOLUME_KEYS) {
+    const rootName = BACKUP_VOLUME_ARCHIVE_ROOTS[volumeKey];
+    const outside = await findEntryOutsideRoot(
+      join(destDir, volumeTarFilename(volumeKey)),
+      rootName,
+    );
+    if (outside !== null) {
+      throw new Error(
+        `${volumeTarFilename(volumeKey)} is not laid out the way this panel's backups are: its entry ${JSON.stringify(outside)} is not under ${rootName}/. Nothing was restored.`,
+      );
+    }
+  }
+
   let progress = 10;
   ctx.setProgress(progress);
 

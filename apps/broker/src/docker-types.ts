@@ -378,9 +378,11 @@ export interface DockerApi {
    */
   getContainerArchive(id: string, path: string): Promise<NodeJS.ReadableStream>;
   /**
-   * Writes a `tar` stream into the container at one absolute path,
-   * replacing whatever is there — the restore half of
-   * {@link getContainerArchive}. Docker's own `PUT
+   * Extracts a `tar` stream into one absolute directory in the container,
+   * replacing whatever its entries name — the restore half of
+   * {@link getContainerArchive}. The restore route passes the *parent* of
+   * the volume path, because that GET roots its entries at the volume's own
+   * basename (`restore-tar-guard.ts`). Docker's own `PUT
    * .../archive` extracts the tar's entries using the uid/gid/mode
    * recorded in *their own headers*, not the caller's identity, which is
    * what makes vmail ownership preservation automatic for a backup this

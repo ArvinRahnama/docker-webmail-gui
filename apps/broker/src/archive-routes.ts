@@ -31,6 +31,7 @@ import type { DockerApi } from './docker-types.js';
 import { createSecretGuard } from './auth.js';
 import { BrokerError } from './errors.js';
 import { resolveOrForbid, type OperationDeps } from './operations.js';
+import { RestoreTarGuard, restoreTargetFor } from './restore-tar-guard.js';
 
 export interface ArchiveRoutesOptions {
   readonly config: BrokerConfig;
@@ -118,13 +119,31 @@ export function registerArchiveRoutes(app: FastifyInstance, options: ArchiveRout
         async (request, reply) => {
           const volumeKey = parseVolumeKey(request.params.volumeKey);
           const ref = await resolveOrForbid(deps);
-          const path = ARCHIVE_VOLUME_PATHS[volumeKey];
+          // Extract into the parent, not the volume path itself: the archive's
+          // entries are rooted at the volume's own name (`mail/...`), exactly
+          // as the GET above produced them — `restore-tar-guard.ts` explains
+          // the `/var/mail/mail` bug this fixes, and keeps every entry inside
+          // that root.
+          const { parentPath, rootName } = restoreTargetFor(ARCHIVE_VOLUME_PATHS[volumeKey]);
+          const guard = new RestoreTarGuard(rootName);
+          request.body.on('error', (err) => guard.destroy(err));
+          request.body.pipe(guard);
 
           try {
-            await docker.putContainerArchive(ref.id, path, request.body);
+            await docker.putContainerArchive(ref.id, parentPath, guard);
           } catch (err) {
-            deps.logger.error({ err, volumeKey, path }, 'archive.put: Docker call failed');
+            deps.logger.error({ err, volumeKey, parentPath }, 'archive.put: Docker call failed');
             throw new BrokerError('UPSTREAM_UNAVAILABLE', 'Could not write the requested volume.');
+          }
+          if (guard.rejection !== null) {
+            deps.logger.warn(
+              { volumeKey, reason: guard.rejection },
+              'archive.put: archive refused',
+            );
+            throw new BrokerError(
+              'VALIDATION_FAILED',
+              `Restore of this volume stopped: ${guard.rejection}`,
+            );
           }
 
           void reply.code(204).send();

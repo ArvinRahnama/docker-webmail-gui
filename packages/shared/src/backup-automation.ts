@@ -84,7 +84,7 @@ export const BackupScheduleSchema = z.object({
   retentionKeep: z.number().int().min(1),
   /** Optional age cap in days; `null` means count-only, no age pruning. */
   retentionMaxAgeDays: z.number().int().min(1).nullable(),
-  /** Whether a scheduled backup is uploaded to the configured remote after it is archived. */
+  /** Whether each new backup, scheduled or manual, is uploaded to the configured remote once it verifies — and whether the background sweep retries uploads. */
   uploadToRemote: z.boolean(),
   /** ISO timestamp of the last scheduled run the server fired, or `null` if none yet. */
   lastRunAt: z.string().nullable(),

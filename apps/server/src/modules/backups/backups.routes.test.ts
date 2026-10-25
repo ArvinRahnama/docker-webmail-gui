@@ -35,7 +35,7 @@ describe('/api/v1/backups', () => {
     await app.close();
   });
 
-  it('creates a backup via a job, then lists and fetches its detail', async () => {
+  it('creates a backup via a job, verifies it in that same job, then lists and fetches its detail', async () => {
     const { app, db } = await setUpBackupsApp();
     const auth = await loginAs(app);
     await createBackup(app, auth, 'warm');
@@ -47,7 +47,8 @@ describe('/api/v1/backups', () => {
     };
     expect(list.backups).toHaveLength(1);
     expect(list.backups[0]?.mode).toBe('warm');
-    expect(list.backups[0]?.verificationStatus).toBe('unverified');
+    // Verified automatically by the create job itself — no separate Verify click.
+    expect(list.backups[0]?.verificationStatus).toBe('verified');
 
     const id = list.backups[0]!.id;
     const detailResponse = await authedInject(app, auth, {
@@ -240,9 +241,12 @@ describe('POST /api/v1/backups/:id/restore — Tier 4 refusals', () => {
     const broker = Object.assign(new FakeBrokerClient(), {
       containerInspect: async () => FIXTURE_CONTAINER_INSPECT_STOPPED,
     });
-    const { app } = await setUpBackupsApp({ brokerClient: broker });
+    const { app, db } = await setUpBackupsApp({ brokerClient: broker });
     const auth = await loginAs(app);
-    await createBackup(app, auth); // no verified backup exists yet
+    await createBackup(app, auth);
+    // A create job verifies its own backup now, so the only way to have no
+    // verified backup is one whose verification did not pass.
+    db.run(`UPDATE backups SET verification_status = 'failed', verified_at = NULL`);
 
     const id = (
       (await authedInject(app, auth, { method: 'GET', url: '/api/v1/backups' })).json() as {

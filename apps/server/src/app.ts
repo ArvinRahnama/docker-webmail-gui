@@ -465,12 +465,6 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   // Backups/restore (IMPLEMENTATION_PLAN.md §2.1) — built on the same
   // `jobRunner`/`brokerClient` constructed above.
   const backupsRepository = new BackupsRepository(db);
-  const backupsService = new BackupsService(
-    backupsRepository,
-    jobRunner,
-    brokerClient,
-    config.backupDir,
-  );
 
   // M13 — scheduled backups + remote destinations. The schedule and the
   // destination config are live DB rows re-read on every use, so both survive a
@@ -498,6 +492,18 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     backupDir: config.backupDir,
     logger,
   });
+  // Every new backup is verified inside its own create job and, when
+  // auto-upload is on, uploaded right after.
+  const backupsService = new BackupsService(
+    backupsRepository,
+    jobRunner,
+    brokerClient,
+    config.backupDir,
+    {
+      uploader: backupUploader,
+      autoUploadEnabled: () => backupScheduleRepository.get().uploadToRemote,
+    },
+  );
 
   // Re-armed from the DB on every startup (both timers are `.unref()`d and
   // stopped on close): the scheduler fires due backups, the reconciler sweeps

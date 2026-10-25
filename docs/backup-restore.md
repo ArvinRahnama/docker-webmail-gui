@@ -68,7 +68,11 @@ without extracting it, and reports every mismatch as a result rather than
 throwing. A backup that fails verification still tells you exactly which
 entries differ.
 
-Verify your backups. An unverified backup is a hypothesis.
+**Every new backup is verified by its own create job**, straight after the
+archive is written (and, for a cold backup, after the container is running
+again). A backup that fails is marked as such, its job fails with the
+reason, and it is never uploaded. **Verify** on a backup's menu re-checks
+it on demand — worth doing before a restore, since disks rot.
 
 ## Restore — and why it is deliberately awkward
 
@@ -113,7 +117,7 @@ five fixed choices, so there is nothing to get subtly wrong.
 
 ## Remote destinations (S3 and FTP/FTPS)
 
-A verified backup can optionally be pushed off the VPS entirely, to Amazon
+A verified backup can be pushed off the VPS entirely, to Amazon
 S3 (or an S3-compatible endpoint) or to an FTP/FTPS server. This is
 configured entirely through the Settings UI on the Backups page — **there
 is no `.env` variable for it**. The connection settings live in their own
@@ -132,6 +136,10 @@ than silently accepting it. Built on `basic-ftp`. An interrupted upload
 resumes by appending only the bytes not yet sent, when a smaller partial
 already exists on the remote; otherwise it re-sends cleanly from the
 start.
+
+With **Upload automatically** on (the Schedule card), each new backup —
+scheduled or manual — is uploaded by its create job as soon as it has
+verified, and the upload is verified again on the remote (see below).
 
 Once a destination is configured, **Test connection** performs a real
 login (FTP) or signed request (S3) before anything is uploaded, each

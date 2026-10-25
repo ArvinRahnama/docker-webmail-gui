@@ -810,7 +810,7 @@ export function BackupScheduleCard() {
             checked={form.uploadToRemote}
             onCheckedChange={(checked) => setForm({ ...form, uploadToRemote: checked })}
           />
-          Upload backups to the remote destination automatically
+          Upload each backup to the remote destination automatically, once it has verified
         </label>
 
         <div>

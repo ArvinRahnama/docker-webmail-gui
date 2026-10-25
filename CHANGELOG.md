@@ -32,6 +32,14 @@ version and are called out explicitly here.
   version and used by no container, two minutes after it starts and hourly
   after that. Nothing else is touched.
 
+### Changed
+
+- **Each new backup is verified by its own create job, then uploaded.** No
+  separate Verify click is needed, and a backup that fails verification is
+  never uploaded. With automatic upload on, the create job uploads the
+  backup as soon as it verifies instead of waiting for the next background
+  sweep.
+
 ## [1.2.1] - 2026-10-21
 
 ### Fixed

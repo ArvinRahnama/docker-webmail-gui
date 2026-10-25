@@ -33,11 +33,19 @@ import {
   restoreVolumesFromExtractedArchive,
   verifyBackupArchive,
 } from './backup-archive.js';
+import type { BackupUploader, UploadOutcome } from './backup-uploader.js';
 import type { BackupsRepository } from './backups.repository.js';
 
 export interface BackupActor {
   readonly adminId: string | null;
   readonly label: string;
+}
+
+/** The remote side of a backup's lifecycle: uploading a backup once it has verified. Absent in tests that exercise the archive alone. */
+export interface BackupRemoteHooks {
+  readonly uploader: BackupUploader;
+  /** The operator's "upload automatically" toggle, re-read on every create. */
+  readonly autoUploadEnabled: () => boolean;
 }
 
 /** Static, always-present reminder surfaced in the pre-flight report itself — FEATURE_MATRIX.md §27's "documented restore gotcha that silently breaks mail delivery if missed" is not left to documentation an admin may never open. */
@@ -60,6 +68,7 @@ export class BackupsService {
     private readonly jobRunner: JobRunner,
     private readonly broker: BrokerClient,
     private readonly backupDir: string,
+    private readonly remote?: BackupRemoteHooks,
   ) {}
 
   list(): readonly BackupSummary[] {
@@ -138,8 +147,15 @@ export class BackupsService {
       );
     }
 
+    // Archiving reports 0-100; it is the first 70% of this job, verification
+    // and upload the rest.
+    const archiveCtx: JobContext = {
+      ...ctx,
+      setProgress: (percent) => ctx.setProgress(Math.round(percent * 0.7)),
+    };
+    let created: Awaited<ReturnType<typeof createBackupArchive>>;
     try {
-      const created = await createBackupArchive(
+      created = await createBackupArchive(
         {
           broker: this.broker,
           backupDir: this.backupDir,
@@ -148,7 +164,7 @@ export class BackupsService {
           createdBy: { adminId: actor.adminId, label: actor.label },
           dmsImageDigest,
         },
-        ctx,
+        archiveCtx,
       );
 
       this.repository.insert({
@@ -159,14 +175,77 @@ export class BackupsService {
         checksum: created.checksumSha256,
         manifest: created.manifest,
       });
-
-      return { backupId, mode, sizeBytes: created.sizeBytes };
     } finally {
       if (mode === 'cold') {
         ctx.log('info', 'Cold backup: restarting the managed container...');
         await this.broker.containerStart();
       }
     }
+
+    // Verified straight away — after a cold backup's container is back up,
+    // since this reads only the archive — so an unverified archive is never
+    // what gets uploaded, and a corrupt one is flagged the moment it exists.
+    ctx.log('info', 'Verifying the new archive against its manifest (no extraction)...');
+    const verification = await verifyBackupArchive(created.filePath, created.manifest);
+    if (!verification.ok) {
+      this.repository.markVerificationFailed(backupId);
+      throw new Error(
+        `The backup was written but failed verification, so it was not uploaded: ${verification.reason ?? 'unknown reason'}`,
+      );
+    }
+    this.repository.markVerified(backupId, new Date().toISOString());
+    ctx.log('info', 'Verification succeeded: checksums and structure match the manifest.');
+    ctx.setProgress(80);
+
+    const upload = await this.uploadAfterCreate(backupId, actor, ctx);
+    ctx.setProgress(100);
+    return { backupId, mode, sizeBytes: created.sizeBytes, verified: true, upload };
+  }
+
+  /** Uploads a just-verified backup when auto-upload is on and a destination is configured. A failed upload never fails the create job: the backup exists and is verified, and the periodic sweep retries the upload. */
+  private async uploadAfterCreate(
+    backupId: string,
+    actor: BackupActor,
+    ctx: JobContext,
+  ): Promise<string> {
+    if (this.remote === undefined || !this.remote.autoUploadEnabled()) {
+      return 'off';
+    }
+    ctx.log('info', 'Uploading to the remote destination...');
+    let outcome: UploadOutcome;
+    try {
+      outcome = await this.remote.uploader.uploadBackup(backupId, actor);
+    } catch (err) {
+      // Remote retention or a listing can throw after the upload itself; the
+      // backup is safe either way.
+      const message = err instanceof Error ? err.message : String(err);
+      ctx.log('warn', `The upload step stopped early (${message}). It is retried automatically.`);
+      return 'failed';
+    }
+    switch (outcome.status) {
+      case 'uploaded':
+      case 'already-uploaded':
+        ctx.log(
+          'info',
+          'Uploaded and verified on the remote; the copy on this server was reclaimed.',
+        );
+        break;
+      case 'skipped':
+        ctx.log(
+          'info',
+          outcome.reason === 'no-destination'
+            ? 'No remote destination is configured, so the backup stays on this server.'
+            : 'The backup is no longer on this server, so there was nothing to upload.',
+        );
+        break;
+      case 'failed':
+        ctx.log(
+          'warn',
+          `Upload failed (${outcome.error}). The backup is kept on this server and the upload is retried automatically.`,
+        );
+        break;
+    }
+    return outcome.status;
   }
 
   verify(id: string, actor: BackupActor): Job {

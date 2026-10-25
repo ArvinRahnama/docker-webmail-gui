@@ -319,3 +319,58 @@ describe('backups automation routes — remote round-trip', () => {
     expect(response.statusCode).toBe(400);
   });
 });
+
+describe('backups automation routes — verify and upload a new backup', () => {
+  async function enableAutoUpload(app: BackupsHarness['app'], auth: Auth): Promise<void> {
+    const response = await authedInject(app, auth, {
+      method: 'PUT',
+      url: '/api/v1/backups/schedule',
+      payload: {
+        frequency: 'off',
+        mode: 'warm',
+        retentionKeep: 3,
+        retentionMaxAgeDays: null,
+        uploadToRemote: true,
+      },
+    });
+    expect(response.statusCode).toBe(200);
+  }
+
+  async function backupSummary(app: BackupsHarness['app'], auth: Auth, id: string) {
+    const list = (
+      await authedInject(app, auth, { method: 'GET', url: '/api/v1/backups' })
+    ).json() as BackupListResponse;
+    return list.backups.find((backup) => backup.id === id);
+  }
+
+  it('verifies a new backup and uploads it within its own create job', async () => {
+    const { app } = await setUpBackupsApp(NO_TIMERS);
+    const auth = await loginAs(app);
+    await configureS3(app, auth);
+    await enableAutoUpload(app, auth);
+
+    const id = await createBackup(app, auth);
+
+    expect(await backupSummary(app, auth, id)).toMatchObject({
+      verificationStatus: 'verified',
+      uploadStatus: 'uploaded',
+      localPresent: false,
+    });
+    expect(fake.objects.has(`backups/${id}.tar`)).toBe(true);
+  });
+
+  it('leaves a new backup verified on the VPS when auto-upload is off', async () => {
+    const { app } = await setUpBackupsApp(NO_TIMERS);
+    const auth = await loginAs(app);
+    await configureS3(app, auth);
+
+    const id = await createBackup(app, auth);
+
+    expect(await backupSummary(app, auth, id)).toMatchObject({
+      verificationStatus: 'verified',
+      uploadStatus: 'pending',
+      localPresent: true,
+    });
+    expect(fake.objects.size).toBe(0);
+  });
+});

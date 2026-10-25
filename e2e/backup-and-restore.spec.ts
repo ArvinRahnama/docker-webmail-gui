@@ -14,13 +14,15 @@
  * see `backups.repository.ts`) and whether the managed container is
  * currently running (`BrokerClient.containerInspect()`). This file is the
  * only spec in the whole suite that ever touches the backups module, so
- * it owns that global fact outright and can drive it through both states
- * on purpose: create an unverified backup, prove the "no recent verified
- * backup" gate actually refuses, then verify it and prove the gate's
- * other branch. Splitting that into independent tests would mean either
- * duplicating a create+verify cycle per test (slower, and it still
- * wouldn't fix the ordering problem below) or leaving the "unverified"
- * branch untestable once anything has ever been verified. `test.describe.serial`
+ * it owns that global fact outright. A create job verifies its own backup
+ * before it finishes, so the backup this file creates is verified from the
+ * start: the gate's satisfied branch is what a browser can reach, and its
+ * "no recent verified backup — acknowledge to proceed" branch, reachable
+ * only through a backup whose verification failed, is covered at the
+ * route level (`backups.routes.test.ts`) and in `backups-page.test.tsx`.
+ * Splitting this file into independent tests would mean a create cycle
+ * per test (slower, and it still wouldn't fix the ordering problem
+ * below). `test.describe.serial`
  * (Playwright's documented, if discouraged-by-default, escape hatch for
  * genuinely dependent tests) keeps the three tests below in one worker,
  * strictly in order — each builds on the real backend state the previous
@@ -128,7 +130,9 @@ async function ensureManagedContainerStopped(page: Page): Promise<void> {
 }
 
 test.describe.serial('backup and restore', () => {
-  test('creates a warm backup that survives a reload', async ({ page }) => {
+  test('creates a warm backup, verified by its own create job, that survives a reload', async ({
+    page,
+  }) => {
     await page.goto('/maintenance/backups');
     await expect(page.getByRole('heading', { name: 'Backups', exact: true })).toBeVisible();
 
@@ -171,21 +175,20 @@ test.describe.serial('backup and restore', () => {
 
     await waitForJobDismiss(page);
 
+    // Verified by the create job itself — no separate Verify click.
     const row = backupRow(page);
     await expect(row).toBeVisible();
-    await expect(row.getByText('Not verified')).toBeVisible();
+    await expect(row.getByText('Verified', { exact: true })).toBeVisible();
 
     // The half that actually proves the write reached BackupsRepository's
     // own SQLite row, not just React Query's cache: a full reload discards
     // every client-side cache and refetches from the server.
     await page.reload();
     await expect(backupRow(page)).toBeVisible();
-    await expect(backupRow(page).getByText('Not verified')).toBeVisible();
+    await expect(backupRow(page).getByText('Verified', { exact: true })).toBeVisible();
   });
 
-  test('refuses restore via the type-to-confirm gate, the backup-acknowledgement gate, and a running container', async ({
-    page,
-  }) => {
+  test('refuses restore via the type-to-confirm gate and a running container', async ({ page }) => {
     // Arrange: a known-running container, through the real Start control —
     // this test's subject is restore's *refusal*, not this control.
     await ensureManagedContainerRunning(page);
@@ -203,13 +206,12 @@ test.describe.serial('backup and restore', () => {
     // the same fact `preflight()` will refuse `restore()` on server-side.
     await expect(dialog.getByText(/managed container is still running/i)).toBeVisible();
 
-    // The backup gate: unverified, so the checkbox path is the only one
-    // that can satisfy it.
+    // The backup gate: the backup this file created verified itself, so a
+    // verified backup exists and the dialog asks for no acknowledgement.
     await expect(
-      dialog.getByText(/No recent verified backup of the current data exists/),
+      dialog.getByText(/A recent verified backup of the current data exists/),
     ).toBeVisible();
-    const checkbox = dialog.getByRole('checkbox');
-    await expect(checkbox).toBeVisible();
+    await expect(dialog.getByRole('checkbox')).toHaveCount(0);
 
     const confirmButton = dialog.getByRole('button', { name: 'Restore', exact: true });
     const input = dialog.getByRole('textbox');
@@ -222,16 +224,10 @@ test.describe.serial('backup and restore', () => {
     await input.fill(`${expectedText}-wrong`);
     await expect(confirmButton).toBeDisabled();
 
-    // Gate 2: the exact text alone is still not enough — the backup gate
-    // (unticked) independently blocks Confirm even though typedMatches is
-    // now true.
+    // The exact text satisfies every gate the dialog itself enforces — but
+    // the next one, enforced server-side and re-checked by the page before
+    // it ever calls the mutation, is not a UI gate at all.
     await input.fill(expectedText);
-    await expect(confirmButton).toBeDisabled();
-
-    // Ticking the acknowledgement satisfies both gates the dialog itself
-    // enforces — but a third one, enforced server-side and re-checked by
-    // the page before it ever calls the mutation, is not a UI gate at all.
-    await checkbox.click();
     await expect(confirmButton).toBeEnabled();
     await confirmButton.click();
 
@@ -245,7 +241,7 @@ test.describe.serial('backup and restore', () => {
     await expect(dialog).toBeHidden();
   });
 
-  test('stops the container, restores via explicit acknowledgement, verifies the backup, then restores again on a satisfied gate', async ({
+  test('stops the container, restores, re-verifies the backup on demand, then restores again', async ({
     page,
   }) => {
     test.setTimeout(60_000); // Two full restore round trips plus one verify — see this file's header on why each is a real job, not a stub.
@@ -269,17 +265,15 @@ test.describe.serial('backup and restore', () => {
     ).toBeVisible();
     await expect(dialog.getByText(/managed container is still running/i)).not.toBeVisible();
 
-    // The backup gate is unchanged by fixing the container — still
-    // unverified, still needs the checkbox. Proves the two gates are
-    // independent, not that fixing one silently satisfies the other.
+    // The backup gate is satisfied by the verified backup, so the typed
+    // match is all Confirm needs.
     await expect(
-      dialog.getByText(/No recent verified backup of the current data exists/),
+      dialog.getByText(/A recent verified backup of the current data exists/),
     ).toBeVisible();
     let confirmButton = dialog.getByRole('button', { name: 'Restore', exact: true });
     let input = dialog.getByRole('textbox');
-    await input.fill(await readRestoreConfirmationText(dialog));
     await expect(confirmButton).toBeDisabled();
-    await dialog.getByRole('checkbox').click();
+    await input.fill(await readRestoreConfirmationText(dialog));
     await expect(confirmButton).toBeEnabled();
     await confirmButton.click();
 
@@ -288,8 +282,9 @@ test.describe.serial('backup and restore', () => {
     await expect(page.getByRole('heading', { name: 'Restoring backup' })).toBeVisible();
     await waitForJobDismiss(page);
 
-    // Now verify the same backup — genuinely recomputes checksums against
-    // the archive on disk (backup-archive.ts's verifyBackupArchive).
+    // Verify the same backup again on demand — genuinely recomputes
+    // checksums against the archive on disk (backup-archive.ts's
+    // verifyBackupArchive).
     await row.getByRole('button', { name: 'Actions for backup' }).click();
     await page.getByRole('menuitem', { name: 'Verify archive' }).click();
     await expect(page.getByText('Verification started')).toBeVisible();
@@ -302,9 +297,8 @@ test.describe.serial('backup and restore', () => {
     await expect(row.getByText('Verified', { exact: true })).toBeVisible();
     await expect(row.getByText(/Checked/)).toBeVisible();
 
-    // Restore once more — this time the backup gate's *other* branch:
-    // a verified backup now exists, so the dialog offers no checkbox at
-    // all, and Confirm needs only the typed match.
+    // Restore once more, from the re-verified backup: still no checkbox,
+    // and Confirm needs only the typed match.
     await row.getByRole('button', { name: 'Actions for backup' }).click();
     await page.getByRole('menuitem', { name: 'Restore from this backup…' }).click();
     dialog = page.getByRole('alertdialog');

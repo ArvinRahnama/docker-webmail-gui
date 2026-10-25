@@ -211,11 +211,12 @@ export class BackupsRepository {
     this.db.run('UPDATE backups SET local_present = 1 WHERE id = ?', [id]);
   }
 
-  /** Backups that still hold a local archive and are awaiting (or retrying) upload — oldest first, the order a reconcile drains them. */
+  /** Backups that still hold a local archive and are awaiting (or retrying) upload — oldest first, the order a reconcile drains them. One that failed verification is never shipped: it would only fail the remote check again. */
   listUploadCandidates(): readonly BackupRow[] {
     return this.db.all<BackupRow>(
       `SELECT * FROM backups
         WHERE upload_status IN ('pending', 'failed') AND local_present = 1
+          AND verification_status <> 'failed'
         ORDER BY created_at ASC`,
     );
   }

@@ -11,6 +11,14 @@ version and are called out explicitly here.
 
 ## [Unreleased]
 
+### Security
+
+- **Updated dependencies with newly published advisories:** `zod` 4.6.7
+  (memory exhaustion validating oversized collections), `postal-mime` 4.1.4
+  (quadratic CPU on encoded headers), `nodemailer` 10.2.1 (address parsing)
+  and `fast-uri` 4.2.3/3.1.9. The two remaining moderate advisories, in
+  `uuid` through `dockerode`, need the breaking `dockerode` 5 upgrade.
+
 ## [1.3.0] - 2026-10-25
 
 ### Fixed

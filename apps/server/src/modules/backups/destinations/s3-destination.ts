@@ -55,6 +55,8 @@ export interface S3DestinationConfig {
 const DEFAULT_PART_SIZE_BYTES = 64 * 1024 * 1024;
 const MAX_PART_ATTEMPTS = 3;
 const HEADERS_TIMEOUT_MS = 30_000;
+/** ListObjectVersions pages (1,000 versions each) followed for one key before giving up — far beyond any real backup's re-upload count. */
+const MAX_VERSION_LIST_PAGES = 100;
 const BODY_TIMEOUT_MS = 15 * 60_000;
 
 function firstHeader(value: string | string[] | undefined): string | undefined {
@@ -442,12 +444,111 @@ export class S3Destination implements BackupDestination {
     await pipeline(response.body, createWriteStream(destPath));
   }
 
+  /**
+   * Deletes `key` permanently — every stored version and delete marker, not
+   * just the current object. On a versioned bucket a plain DELETE only adds a
+   * delete marker: the backup vanishes from listings but every byte stays
+   * stored, billed and recoverable. So each version is deleted by id, then the
+   * key is listed again to prove nothing is left (an Object Lock or retention
+   * rule can make S3 refuse). A provider with no versioning API at all
+   * (`NotImplemented`) gets the plain DELETE, which is final there.
+   */
   async delete(key: string): Promise<void> {
-    const response = await this.send('DELETE', this.objectUrl(key));
-    await response.body.dump();
-    if (!S3Destination.ok(response.statusCode)) {
-      throw new AppError('UPSTREAM_UNAVAILABLE', `S3 delete failed (HTTP ${response.statusCode}).`);
+    const versions = await this.listKeyVersions(key);
+    if (versions === null) {
+      await this.deleteObject(key, null);
+      return;
     }
+    if (versions.length === 0) {
+      // Nothing listed. A plain DELETE here would *add* a delete marker on a
+      // versioned bucket, so it is sent only if the object answers anyway (a
+      // provider whose version listing omits unversioned objects).
+      if (await this.objectExists(key)) await this.deleteObject(key, null);
+      return;
+    }
+    for (const versionId of versions) await this.deleteObject(key, versionId);
+
+    const remaining = await this.listKeyVersions(key);
+    if (remaining !== null && remaining.length > 0) {
+      throw new AppError(
+        'UPSTREAM_UNAVAILABLE',
+        `S3 still holds ${remaining.length} version(s) of "${key}" after deleting them — an Object Lock or retention setting on bucket "${this.config.bucket}" may be protecting them.`,
+      );
+    }
+  }
+
+  private async objectExists(key: string): Promise<boolean> {
+    const response = await this.send('HEAD', this.objectUrl(key));
+    await response.body.dump();
+    return response.statusCode !== 404;
+  }
+
+  /** One DELETE — of a single version when `versionId` is given. */
+  private async deleteObject(key: string, versionId: string | null): Promise<void> {
+    const response = await this.send(
+      'DELETE',
+      this.objectUrl(key, versionId === null ? undefined : { versionId }),
+    );
+    const xml = await response.body.text();
+    if (S3Destination.ok(response.statusCode)) return;
+    // The unversioned object is listed as version `null`; a provider that
+    // will not take that id literally still deletes it with a plain DELETE.
+    if (versionId === 'null' && response.statusCode === 400) {
+      await this.deleteObject(key, null);
+      return;
+    }
+    const code = errorField(xml, 'Code');
+    throw new AppError(
+      'UPSTREAM_UNAVAILABLE',
+      code === 'AccessDenied' && versionId !== null
+        ? `S3 refused to delete a version of "${key}" (AccessDenied). The credentials need s3:DeleteObjectVersion, and no Object Lock may protect the version.`
+        : `S3 delete failed (HTTP ${response.statusCode}${code === null ? '' : `, ${code}`}).`,
+    );
+  }
+
+  /**
+   * Every version id (delete markers included) stored for exactly `key`,
+   * following ListObjectVersions pagination; `null` when the provider has no
+   * versioning API. Other keys sharing the prefix are filtered out.
+   */
+  private async listKeyVersions(key: string): Promise<string[] | null> {
+    const versionIds: string[] = [];
+    let keyMarker: string | null = null;
+    let versionIdMarker: string | null = null;
+    for (let page = 0; page < MAX_VERSION_LIST_PAGES; page += 1) {
+      const params: Record<string, string> = { versions: '', prefix: key };
+      if (keyMarker !== null) params['key-marker'] = keyMarker;
+      if (versionIdMarker !== null) params['version-id-marker'] = versionIdMarker;
+      const response = await this.send('GET', this.bucketUrl(params));
+      const xml = await response.body.text();
+      if (!S3Destination.ok(response.statusCode)) {
+        const code = errorField(xml, 'Code');
+        if (response.statusCode === 501 || code === 'NotImplemented') return null;
+        throw new AppError(
+          'UPSTREAM_UNAVAILABLE',
+          code === 'AccessDenied'
+            ? `S3 refused to list the versions of "${key}" (AccessDenied). Deleting a backup permanently needs s3:ListBucketVersions and s3:DeleteObjectVersion on bucket "${this.config.bucket}".`
+            : `S3 version listing failed (HTTP ${response.statusCode}${code === null ? '' : `, ${code}`}).`,
+        );
+      }
+      for (const block of xml.matchAll(
+        /<(Version|DeleteMarker)>([\s\S]*?)<\/(?:Version|DeleteMarker)>/g,
+      )) {
+        const body = block[2]!;
+        const versionId = firstMatch(body, /<VersionId>([\s\S]*?)<\/VersionId>/);
+        if (firstMatch(body, /<Key>([\s\S]*?)<\/Key>/) === key && versionId !== null) {
+          versionIds.push(versionId);
+        }
+      }
+      if (firstMatch(xml, /<IsTruncated>([\s\S]*?)<\/IsTruncated>/) !== 'true') return versionIds;
+      keyMarker = firstMatch(xml, /<NextKeyMarker>([\s\S]*?)<\/NextKeyMarker>/);
+      versionIdMarker = firstMatch(xml, /<NextVersionIdMarker>([\s\S]*?)<\/NextVersionIdMarker>/);
+      if (keyMarker === null) return versionIds;
+    }
+    throw new AppError(
+      'UPSTREAM_UNAVAILABLE',
+      `S3 listed more than ${MAX_VERSION_LIST_PAGES} pages of versions for "${key}"; refusing to guess the rest.`,
+    );
   }
 
   async cleanupInterruptedUploads(): Promise<void> {

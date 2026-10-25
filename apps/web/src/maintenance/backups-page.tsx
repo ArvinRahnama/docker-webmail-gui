@@ -796,7 +796,7 @@ export function BackupsPage() {
         tier={3}
         destructive
         title="Delete this backup?"
-        description="The archive is removed from disk permanently. Nothing else changes — this does not touch live mail data."
+        description="The archive is removed permanently, wherever it is stored. Nothing else changes — this does not touch live mail data."
         impactSummary={
           deleteTarget === null ? null : (
             <div className="flex flex-col gap-1">
@@ -808,6 +808,13 @@ export function BackupsPage() {
                   .join(', ')}
                 .
               </span>
+              {deleteTarget.uploadStatus === 'uploaded' &&
+              deleteTarget.uploadDestination !== null ? (
+                <span>
+                  Its copy on {deleteTarget.uploadDestination} is deleted too, with every version
+                  the destination keeps. If that copy cannot be deleted, nothing is.
+                </span>
+              ) : null}
               {deleteTarget.verificationStatus === 'verified' ? (
                 <span>
                   This is a verified backup. Deleting it may leave the system with no recent

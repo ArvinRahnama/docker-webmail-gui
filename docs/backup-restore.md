@@ -176,6 +176,30 @@ types, not merely unit-tested.
   sweep after that. A backup created while the remote was unreachable is
   picked up the next time either fires.
 
+## Deleting is permanent
+
+Deleting a backup — by hand, or by retention — removes it from everywhere
+the panel stored it:
+
+- **S3:** every stored version and delete marker of the object, not just
+  the current version. On a versioned bucket a plain delete only hides an
+  object behind a delete marker while every version stays stored and
+  billed; the panel deletes each version by id, then lists the key again
+  to prove nothing is left. The credentials need `s3:ListBucketVersions`
+  and `s3:DeleteObjectVersion` as well as the usual list/read/write/delete
+  permissions. A version an Object Lock protects is reported, never
+  claimed deleted. A provider with no versioning API at all gets a plain
+  delete, which is final there.
+- **FTP/FTPS:** the file is removed; FTP has no versions.
+- **The VPS:** the archive file and its row.
+
+If the remote copy of an uploaded backup cannot be deleted, **nothing is
+deleted** and the error says why, so the backup stays listed for a retry
+instead of leaving a copy the panel can no longer see. A backup uploaded
+to a destination that has since been removed or replaced is deleted
+locally, and the audit entry records that its remote copy could not be
+reached.
+
 ## What's deferred
 
 Stated here rather than left to be discovered:

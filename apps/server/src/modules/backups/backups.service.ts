@@ -33,7 +33,7 @@ import {
   restoreVolumesFromExtractedArchive,
   verifyBackupArchive,
 } from './backup-archive.js';
-import type { BackupUploader, UploadOutcome } from './backup-uploader.js';
+import type { BackupUploader, RemotePurgeOutcome, UploadOutcome } from './backup-uploader.js';
 import type { BackupsRepository } from './backups.repository.js';
 
 export interface BackupActor {
@@ -41,7 +41,7 @@ export interface BackupActor {
   readonly label: string;
 }
 
-/** The remote side of a backup's lifecycle: uploading a backup once it has verified. Absent in tests that exercise the archive alone. */
+/** The remote side of a backup's lifecycle: upload after a verified create, and the remote half of a permanent delete. Absent in tests that exercise the archive alone. */
 export interface BackupRemoteHooks {
   readonly uploader: BackupUploader;
   /** The operator's "upload automatically" toggle, re-read on every create. */
@@ -93,11 +93,18 @@ export class BackupsService {
     return { filePath: row.file_path, fileName: `${id}.tar` };
   }
 
-  async delete(id: string): Promise<void> {
+  /**
+   * Deletes a backup permanently: its remote copy first — every stored
+   * version — then the local archive and the row. A remote copy that cannot
+   * be deleted aborts before anything local goes, so the backup stays listed
+   * for a retry rather than leaving an orphan on the remote.
+   */
+  async delete(id: string): Promise<{ readonly remote: RemotePurgeOutcome }> {
     const row = this.repository.getRowById(id);
     if (row === null) {
       throw new AppError('NOT_FOUND', `No backup with id ${id}.`);
     }
+    const remote = (await this.remote?.uploader.purgeRemoteCopy(id)) ?? 'none';
     this.repository.delete(id);
     await unlink(row.file_path).catch(() => {
       // The DB row is the source of truth for "does this backup exist";
@@ -105,6 +112,7 @@ export class BackupsService {
       // partial cleanup) must not block deleting the row that referenced
       // it.
     });
+    return { remote };
   }
 
   create(mode: BackupMode, actor: BackupActor): Job {

@@ -493,7 +493,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     logger,
   });
   // Every new backup is verified inside its own create job and, when
-  // auto-upload is on, uploaded right after.
+  // auto-upload is on, uploaded right after; a delete purges the remote copy.
   const backupsService = new BackupsService(
     backupsRepository,
     jobRunner,

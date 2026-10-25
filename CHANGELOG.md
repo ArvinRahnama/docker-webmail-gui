@@ -31,6 +31,12 @@ version and are called out explicitly here.
   images of the panel's own repositories that are older than the running
   version and used by no container, two minutes after it starts and hourly
   after that. Nothing else is touched.
+- **Deleting a backup deletes it everywhere, permanently.** Deleting an
+  uploaded backup now also deletes its remote copy, which used to stay on
+  S3/FTP. On S3 every stored version and delete marker goes, not just the
+  current version, so a versioned bucket keeps nothing. The credentials
+  need `s3:ListBucketVersions` and `s3:DeleteObjectVersion`. If the remote
+  copy cannot be deleted, nothing is.
 
 ### Changed
 

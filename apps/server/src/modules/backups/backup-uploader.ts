@@ -21,6 +21,10 @@
  *     window can never remove the last good copy — `selectBackupsForDeletion`
  *     additionally never selects the single newest.
  *
+ *  3. **Deletion is permanent everywhere.** A pruned or manually deleted
+ *     backup goes from the remote with every stored version
+ *     (`BackupDestination.delete`) and from the VPS.
+ *
  * Uploads/downloads run in the server tier over HTTP; no broker op, no Docker
  * socket, no client-supplied path or URL. Failures are recorded as safe,
  * non-secret summaries — the destination never puts a signed URL or credential
@@ -68,6 +72,17 @@ export interface ReconcileSummary {
   readonly pruned: number;
   readonly reclaimed: number;
 }
+
+/** What {@link BackupUploader.purgeRemoteCopy} did about a backup's remote copy. */
+export type RemotePurgeOutcome =
+  /** The configured destination now holds nothing for this backup, every version included. */
+  | 'deleted'
+  /** It was uploaded, but no destination is configured any more, so the copy could not be reached. */
+  | 'no-destination'
+  /** It was uploaded to a different destination than the one configured now, which cannot be reached. */
+  | 'other-destination'
+  /** Never uploaded and no destination is configured — there is no remote copy to consider. */
+  | 'none';
 
 export interface BackupUploaderDeps {
   readonly db: Database;
@@ -143,6 +158,40 @@ export class BackupUploader {
     const pruned = await this.applyRemoteRetention(destination, actor);
     const reclaimed = await this.reclaimLocalStaging();
     return { skipped: false, uploaded, failed, pruned, reclaimed };
+  }
+
+  /**
+   * Permanently deletes whatever the configured destination holds for a
+   * backup — every stored version included — ahead of its local archive and
+   * row going (manual delete). For a backup the panel knows
+   * is on the remote, a failure throws, so the caller keeps the backup for a
+   * retry instead of orphaning a copy it can no longer see. For one that was
+   * never uploaded, the purge only clears a stray object an interrupted
+   * upload might have left.
+   */
+  async purgeRemoteCopy(backupId: string): Promise<RemotePurgeOutcome> {
+    const row = this.deps.backupsRepository.getRowById(backupId);
+    if (row === null) throw new AppError('NOT_FOUND', `No backup with id ${backupId}.`);
+    const uploaded = row.upload_status === 'uploaded';
+    const destination = this.deps.destinationProvider();
+    if (destination === null) return uploaded ? 'no-destination' : 'none';
+    if (uploaded && row.upload_destination !== destination.describe) return 'other-destination';
+
+    try {
+      await destination.delete(row.remote_key ?? destination.keyForBackup(backupId));
+    } catch (error) {
+      if (uploaded) {
+        const message = error instanceof Error ? error.message : 'unknown error';
+        throw new AppError(
+          'UPSTREAM_UNAVAILABLE',
+          `Could not delete the remote copy of this backup, so nothing was deleted: ${message}`,
+        );
+      }
+      // Never uploaded: an unreachable remote must not keep a VPS-only backup alive.
+      this.deps.logger.warn({ err: error, backupId }, 'Could not clear a stray remote object');
+      return 'none';
+    }
+    return 'deleted';
   }
 
   /**

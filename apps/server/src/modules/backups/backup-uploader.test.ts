@@ -43,6 +43,7 @@ class StubDestination implements BackupDestination {
   readonly deleted: string[] = [];
   listOverride: RemoteBackup[] | null = null;
   uploadThrows = false;
+  deleteThrows = false;
   corruptOnUpload = false;
 
   keyForBackup(id: string): string {
@@ -72,6 +73,7 @@ class StubDestination implements BackupDestination {
     await writeFile(destPath, body);
   }
   delete(key: string): Promise<void> {
+    if (this.deleteThrows) return Promise.reject(new Error('simulated delete failure'));
     this.deleted.push(key);
     this.objects.delete(key);
     return Promise.resolve();
@@ -422,5 +424,65 @@ describe('BackupUploader.importFromRemote', () => {
     expect(await makeUploader(stub).importFromRemote('bkp_local')).toEqual({
       status: 'already-local',
     });
+  });
+});
+
+describe('BackupUploader.purgeRemoteCopy', () => {
+  it('deletes an uploaded backup from the destination it was uploaded to', async () => {
+    const stub = new StubDestination();
+    await createRealBackup('bkp_1');
+    expect((await makeUploader(stub).uploadBackup('bkp_1')).status).toBe('uploaded');
+
+    await expect(makeUploader(stub).purgeRemoteCopy('bkp_1')).resolves.toBe('deleted');
+    expect(stub.objects.size).toBe(0);
+  });
+
+  it('throws — so nothing is deleted — when an uploaded copy cannot be removed', async () => {
+    const stub = new StubDestination();
+    await createRealBackup('bkp_1');
+    await makeUploader(stub).uploadBackup('bkp_1');
+    stub.deleteThrows = true;
+
+    await expect(makeUploader(stub).purgeRemoteCopy('bkp_1')).rejects.toThrow(
+      /nothing was deleted: simulated delete failure/,
+    );
+  });
+
+  it('does not let an unreachable remote block deleting a backup that was never uploaded', async () => {
+    const stub = new StubDestination();
+    stub.deleteThrows = true;
+    await createRealBackup('bkp_1');
+    await expect(makeUploader(stub).purgeRemoteCopy('bkp_1')).resolves.toBe('none');
+  });
+
+  it('reports a copy on a destination that is no longer configured instead of guessing', async () => {
+    const stub = new StubDestination();
+    await createRealBackup('bkp_1');
+    await makeUploader(stub).uploadBackup('bkp_1');
+    await expect(makeUploader(null).purgeRemoteCopy('bkp_1')).resolves.toBe('no-destination');
+  });
+
+  it('removes every version of an uploaded backup from a versioned S3 bucket', async () => {
+    const fake = await startFakeS3();
+    try {
+      fake.versioning = true;
+      const s3 = new S3Destination({
+        endpoint: `http://127.0.0.1:${fake.port}`,
+        region: 'us-east-1',
+        bucket: 'b',
+        accessKeyId: 'AKIA',
+        secretAccessKey: 'secret',
+        prefix: 'p',
+      });
+      await createRealBackup('bkp_1');
+      expect((await makeUploader(s3).uploadBackup('bkp_1')).status).toBe('uploaded');
+      expect(fake.versions.get('p/bkp_1.tar')).toHaveLength(1);
+
+      await makeUploader(s3).purgeRemoteCopy('bkp_1');
+
+      expect(fake.versions.size).toBe(0);
+    } finally {
+      await fake.close();
+    }
   });
 });

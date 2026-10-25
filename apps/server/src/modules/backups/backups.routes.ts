@@ -99,8 +99,8 @@ export async function registerBackupsRoutes(
       });
 
       backupsApp.delete<{ Params: { id: string } }>('/:id', async (request, reply) => {
-        await backupsService.delete(request.params.id);
-        audit(request, 'backup.delete', request.params.id);
+        const { remote } = await backupsService.delete(request.params.id);
+        audit(request, 'backup.delete', request.params.id, { remote });
         void reply.send(OperationAckSchema.parse({ ok: true }));
       });
 

@@ -1,8 +1,9 @@
 /**
  * An in-process fake S3 server for tests — a real `node:http` server speaking
- * just enough of the S3 REST surface (ListObjectsV2, GET/DELETE object, and
- * the multipart dance: CreateMultipartUpload / UploadPart /
- * CompleteMultipartUpload / AbortMultipartUpload / ListMultipartUploads) to
+ * just enough of the S3 REST surface (ListObjectsV2, ListObjectVersions,
+ * GET/DELETE object — per version too — and the multipart dance:
+ * CreateMultipartUpload / UploadPart / CompleteMultipartUpload /
+ * AbortMultipartUpload / ListMultipartUploads) to
  * exercise the real `S3Destination` and the whole upload/import/restore-from-
  * remote flow end to end, all over loopback. The milestone forbids a real
  * S3/FTP in tests; this is the local fake that stands in for one.
@@ -15,6 +16,12 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 interface Multipart {
   key: string;
   parts: Map<number, Buffer>;
+}
+
+/** One stored version of a key; `body: null` is a delete marker. */
+export interface FakeObjectVersion {
+  readonly versionId: string;
+  readonly body: Buffer | null;
 }
 
 export interface FakeS3 {
@@ -47,6 +54,22 @@ export interface FakeS3 {
     readonly code: string;
     readonly fields?: Readonly<Record<string, string>>;
   } | null;
+  /**
+   * Bucket versioning, as AWS documents it: every PUT (or completed multipart)
+   * stores a new version, a plain DELETE only adds a delete marker — the key
+   * vanishes from ListObjectsV2 while every version stays stored — and
+   * `DELETE ?versionId=` removes one version for good. Off by default: keys
+   * then live in `objects` alone and list as the single version `null`.
+   */
+  versioning: boolean;
+  /** Every stored version per key while `versioning` is on, oldest first. `objects` mirrors the current one. */
+  readonly versions: Map<string, FakeObjectVersion[]>;
+  /** How `GET ?versions` answers: normally, like a provider without the API (501 NotImplemented), or denied (403). */
+  versionsApi: 'ok' | 'not-implemented' | 'access-denied';
+  /** ListObjectVersions page size — set low to exercise pagination. */
+  versionsPageSize: number;
+  /** Version ids an Object Lock protects: deleting one answers 403 AccessDenied. */
+  readonly lockedVersions: Set<string>;
   close(): Promise<void>;
 }
 
@@ -74,7 +97,53 @@ export async function startFakeS3(): Promise<FakeS3> {
     servedBucket: null,
     knownBuckets: null,
     errorResponse: null,
+    versioning: false,
+    versions: new Map<string, FakeObjectVersion[]>(),
+    versionsApi: 'ok',
+    versionsPageSize: 1000,
+    lockedVersions: new Set<string>(),
     close: () => Promise.resolve(),
+  };
+
+  let versionCounter = 0;
+  const nextVersionId = (): string => {
+    versionCounter += 1;
+    return `v${versionCounter}`;
+  };
+
+  const putObject = (key: string, body: Buffer): void => {
+    state.objects.set(key, body);
+    if (!state.versioning) return;
+    const list = state.versions.get(key) ?? [];
+    list.push({ versionId: nextVersionId(), body });
+    state.versions.set(key, list);
+  };
+
+  /** Re-derives `objects` from a key's newest remaining version. */
+  const syncCurrent = (key: string): void => {
+    const list = state.versions.get(key) ?? [];
+    const latest = list.at(-1);
+    if (latest === undefined) state.versions.delete(key);
+    if (latest === undefined || latest.body === null) state.objects.delete(key);
+    else state.objects.set(key, latest.body);
+  };
+
+  /** Every version under `prefix` in ListObjectVersions order: keys ascending, each key's versions newest first. */
+  const listedVersions = (
+    prefix: string,
+  ): { key: string; versionId: string; body: Buffer | null; isLatest: boolean }[] => {
+    const keys = [...new Set([...state.versions.keys(), ...state.objects.keys()])]
+      .filter((key) => key.startsWith(prefix))
+      .sort();
+    return keys.flatMap((key) => {
+      const list = state.versions.get(key);
+      if (list === undefined) {
+        return [{ key, versionId: 'null', body: state.objects.get(key) ?? null, isLatest: true }];
+      }
+      return [...list]
+        .reverse()
+        .map((version, index) => ({ key, ...version, isLatest: index === 0 }));
+    });
   };
 
   const handler = (req: IncomingMessage, res: ServerResponse): void => {
@@ -118,6 +187,46 @@ export async function startFakeS3(): Promise<FakeS3> {
       res.end(
         `<?xml version="1.0"?><Error><Code>SignatureDoesNotMatch</Code>` +
           `<BucketName>${xmlEscape(state.servedBucket)}</BucketName></Error>`,
+      );
+      return;
+    }
+
+    if (req.method === 'GET' && q.has('versions')) {
+      if (state.versionsApi !== 'ok') {
+        const [status, code] =
+          state.versionsApi === 'not-implemented' ? [501, 'NotImplemented'] : [403, 'AccessDenied'];
+        res.writeHead(status, { 'content-type': 'application/xml' });
+        res.end(`<?xml version="1.0"?><Error><Code>${code}</Code></Error>`);
+        return;
+      }
+      const all = listedVersions(q.get('prefix') ?? '');
+      const keyMarker = q.get('key-marker');
+      const versionIdMarker = q.get('version-id-marker');
+      const start =
+        keyMarker === null
+          ? 0
+          : all.findIndex((v) => v.key === keyMarker && v.versionId === versionIdMarker) + 1;
+      const page = all.slice(start, start + state.versionsPageSize);
+      const truncated = start + page.length < all.length;
+      const last = page.at(-1);
+      const body = page
+        .map((v) =>
+          v.body === null
+            ? `<DeleteMarker><Key>${xmlEscape(v.key)}</Key><VersionId>${v.versionId}</VersionId>` +
+              `<IsLatest>${v.isLatest}</IsLatest></DeleteMarker>`
+            : `<Version><Key>${xmlEscape(v.key)}</Key><VersionId>${v.versionId}</VersionId>` +
+              `<IsLatest>${v.isLatest}</IsLatest><Size>${v.body.length}</Size></Version>`,
+        )
+        .join('');
+      const markers =
+        truncated && last !== undefined
+          ? `<NextKeyMarker>${xmlEscape(last.key)}</NextKeyMarker>` +
+            `<NextVersionIdMarker>${last.versionId}</NextVersionIdMarker>`
+          : '';
+      res.writeHead(200, { 'content-type': 'application/xml' });
+      res.end(
+        `<?xml version="1.0"?><ListVersionsResult><IsTruncated>${truncated}</IsTruncated>` +
+          `${markers}${body}</ListVersionsResult>`,
       );
       return;
     }
@@ -174,7 +283,7 @@ export async function startFakeS3(): Promise<FakeS3> {
           return;
         }
         const ordered = [...mp.parts.entries()].sort((a, b) => a[0] - b[0]).map(([, b]) => b);
-        state.objects.set(key, Buffer.concat(ordered));
+        putObject(key, Buffer.concat(ordered));
         state.multipart.delete(uploadId);
         res.writeHead(200, { 'content-type': 'application/xml' });
         res.end(
@@ -215,10 +324,16 @@ export async function startFakeS3(): Promise<FakeS3> {
 
     if (req.method === 'PUT') {
       void readBody(req).then((body) => {
-        state.objects.set(key, body);
+        putObject(key, body);
         res.writeHead(200);
         res.end();
       });
+      return;
+    }
+
+    if (req.method === 'HEAD') {
+      res.writeHead(state.objects.has(key) ? 200 : 404);
+      res.end();
       return;
     }
 
@@ -234,7 +349,36 @@ export async function startFakeS3(): Promise<FakeS3> {
       return;
     }
 
+    if (req.method === 'DELETE' && q.has('versionId')) {
+      const versionId = q.get('versionId') ?? '';
+      if (state.lockedVersions.has(versionId)) {
+        res.writeHead(403, { 'content-type': 'application/xml' });
+        res.end('<?xml version="1.0"?><Error><Code>AccessDenied</Code></Error>');
+        return;
+      }
+      const list = state.versions.get(key);
+      if (list === undefined) {
+        if (versionId === 'null') state.objects.delete(key);
+      } else {
+        state.versions.set(
+          key,
+          list.filter((version) => version.versionId !== versionId),
+        );
+        syncCurrent(key);
+      }
+      res.writeHead(204);
+      res.end();
+      return;
+    }
+
     if (req.method === 'DELETE') {
+      if (state.versioning) {
+        // A plain DELETE on a versioned bucket hides the key behind a delete
+        // marker; every stored version stays.
+        const list = state.versions.get(key) ?? [];
+        list.push({ versionId: nextVersionId(), body: null });
+        state.versions.set(key, list);
+      }
       state.objects.delete(key);
       res.writeHead(204);
       res.end();

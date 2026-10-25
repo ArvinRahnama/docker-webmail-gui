@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -52,9 +53,11 @@ afterEach(async () => {
 function uploaderStub(overrides: Partial<BackupUploader> = {}) {
   return {
     uploadBackup: vi.fn(async () => ({ status: 'uploaded' as const })),
+    purgeRemoteCopy: vi.fn(async () => 'deleted' as const),
     ...overrides,
   } as unknown as BackupUploader & {
     uploadBackup: ReturnType<typeof vi.fn>;
+    purgeRemoteCopy: ReturnType<typeof vi.fn>;
   };
 }
 
@@ -127,5 +130,36 @@ describe('BackupsService.create', () => {
     expect(done.status).toBe('succeeded');
     expect(repo.list()[0]?.verificationStatus).toBe('verified');
     expect(jobs.listLogs(job.id).some((entry) => entry.level === 'warn')).toBe(true);
+  });
+});
+
+describe('BackupsService.delete', () => {
+  it('purges the remote copy before the local archive and the row', async () => {
+    const uploader = uploaderStub();
+    const svc = service(uploader, false);
+    await finished(svc.create('warm', ACTOR).id);
+    const row = repo.getRowById(repo.list()[0]!.id)!;
+
+    await expect(svc.delete(row.id)).resolves.toEqual({ remote: 'deleted' });
+
+    expect(uploader.purgeRemoteCopy).toHaveBeenCalledWith(row.id);
+    expect(repo.getRowById(row.id)).toBeNull();
+    expect(existsSync(row.file_path)).toBe(false);
+  });
+
+  it('keeps the archive and the row when the remote copy cannot be deleted', async () => {
+    const uploader = uploaderStub({
+      purgeRemoteCopy: vi.fn(async () => {
+        throw new AppError('UPSTREAM_UNAVAILABLE', 'nothing was deleted');
+      }),
+    });
+    const svc = service(uploader, false);
+    await finished(svc.create('warm', ACTOR).id);
+    const row = repo.getRowById(repo.list()[0]!.id)!;
+
+    await expect(svc.delete(row.id)).rejects.toThrow(/nothing was deleted/);
+
+    expect(repo.getRowById(row.id)).not.toBeNull();
+    expect(existsSync(row.file_path)).toBe(true);
   });
 });

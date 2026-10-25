@@ -361,6 +361,35 @@ describe('BackupsPage — Delete is tier 3 (§8)', () => {
     await waitFor(() => {
       expect(vi.mocked(deleteBackup)).toHaveBeenCalledWith('backup-1');
     });
+    // Not uploaded, so there is no remote copy to mention.
+    expect(screen.queryByText(/Its copy on/)).not.toBeInTheDocument();
+  });
+
+  it('says the remote copy goes too, every version included, for an uploaded backup', async () => {
+    const user = userEvent.setup();
+    vi.mocked(fetchBackups).mockResolvedValue([
+      makeBackup({
+        id: 'backup-remote',
+        uploadStatus: 'uploaded',
+        uploadDestination: 's3://bucket/backups',
+        localPresent: false,
+      }),
+    ]);
+
+    renderPage();
+
+    await waitFor(() => {
+      expect(screen.getByText('backup-remote')).toBeInTheDocument();
+    });
+    await openRowMenu(user, 'backup-remote');
+    await user.click(await screen.findByRole('menuitem', { name: 'Delete backup…' }));
+
+    const dialog = await screen.findByRole('alertdialog');
+    expect(
+      within(dialog).getByText(
+        /Its copy on s3:\/\/bucket\/backups is deleted too, with every version/,
+      ),
+    ).toBeInTheDocument();
   });
 });
 

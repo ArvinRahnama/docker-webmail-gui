@@ -257,6 +257,108 @@ describe('S3Destination', () => {
     expect(fake.multipart.size).toBe(0);
   });
 
+  describe('delete is permanent', () => {
+    async function uploadTwice(dest: S3Destination, key: string): Promise<void> {
+      const src = await writeFixture('v.tar', Buffer.from('version one'));
+      await dest.upload({ key, filePath: src, sizeBytes: 11 });
+      const src2 = await writeFixture('v2.tar', Buffer.from('version two!'));
+      await dest.upload({ key, filePath: src2, sizeBytes: 12 });
+    }
+
+    it('removes every stored version on a versioned bucket, not just the current one', async () => {
+      fake.versioning = true;
+      const dest = makeDestination();
+      const key = backupObjectKey('backups', 'bkp_versioned');
+      const neighbour = backupObjectKey('backups', 'bkp_versioned2');
+      await uploadTwice(dest, key);
+      fake.objects.set(neighbour, Buffer.from('another backup sharing the prefix'));
+      expect(fake.versions.get(key)).toHaveLength(2);
+
+      await dest.delete(key);
+
+      expect(fake.objects.has(key)).toBe(false);
+      // No version and no delete marker left — a plain DELETE would have left both versions plus a marker.
+      expect(fake.versions.has(key)).toBe(false);
+      expect(fake.objects.has(neighbour)).toBe(true);
+    });
+
+    it('also clears a delete marker an earlier plain delete left behind', async () => {
+      fake.versioning = true;
+      const dest = makeDestination();
+      const key = backupObjectKey('backups', 'bkp_marked');
+      await uploadTwice(dest, key);
+      fake.versions.get(key)!.push({ versionId: 'marker-1', body: null });
+      fake.objects.delete(key);
+
+      await dest.delete(key);
+
+      expect(fake.versions.has(key)).toBe(false);
+    });
+
+    it('follows ListObjectVersions pagination', async () => {
+      fake.versioning = true;
+      fake.versionsPageSize = 1;
+      const dest = makeDestination();
+      const key = backupObjectKey('backups', 'bkp_paged');
+      await uploadTwice(dest, key);
+      const src = await writeFixture('v3.tar', Buffer.from('version three'));
+      await dest.upload({ key, filePath: src, sizeBytes: 13 });
+
+      await dest.delete(key);
+
+      expect(fake.versions.has(key)).toBe(false);
+    });
+
+    it('deletes an unversioned object through its null version', async () => {
+      const dest = makeDestination();
+      const key = backupObjectKey('backups', 'bkp_plain');
+      fake.objects.set(key, Buffer.from('archive'));
+
+      await dest.delete(key);
+
+      expect(fake.objects.has(key)).toBe(false);
+    });
+
+    it('falls back to a plain delete on a provider without a versioning API', async () => {
+      fake.versionsApi = 'not-implemented';
+      const dest = makeDestination();
+      const key = backupObjectKey('backups', 'bkp_noversions');
+      fake.objects.set(key, Buffer.from('archive'));
+
+      await dest.delete(key);
+
+      expect(fake.objects.has(key)).toBe(false);
+    });
+
+    it('refuses, naming the permission, when listing versions is denied', async () => {
+      fake.versionsApi = 'access-denied';
+      const dest = makeDestination();
+      const key = backupObjectKey('backups', 'bkp_denied');
+      fake.objects.set(key, Buffer.from('archive'));
+
+      await expect(dest.delete(key)).rejects.toThrow(/s3:ListBucketVersions/);
+      expect(fake.objects.has(key)).toBe(true);
+    });
+
+    it('reports versions an Object Lock keeps, instead of claiming success', async () => {
+      fake.versioning = true;
+      const dest = makeDestination();
+      const key = backupObjectKey('backups', 'bkp_locked');
+      await uploadTwice(dest, key);
+      fake.lockedVersions.add(fake.versions.get(key)![0]!.versionId);
+
+      await expect(dest.delete(key)).rejects.toThrow(/s3:DeleteObjectVersion/);
+    });
+
+    it('is a no-op for a key that does not exist', async () => {
+      fake.versioning = true;
+      await expect(
+        makeDestination().delete(backupObjectKey('backups', 'bkp_absent')),
+      ).resolves.toBeUndefined();
+      expect(fake.versions.size).toBe(0);
+    });
+  });
+
   it('download of a missing key throws NOT_FOUND', async () => {
     const dest = makeDestination();
     await expect(dest.download('backups/bkp_missing.tar', join(workDir, 'x.tar'))).rejects.toThrow(

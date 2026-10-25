@@ -320,7 +320,7 @@ describe('backups automation routes — remote round-trip', () => {
   });
 });
 
-describe('backups automation routes — verify and upload a new backup', () => {
+describe('backups automation routes — verify, upload and delete for good', () => {
   async function enableAutoUpload(app: BackupsHarness['app'], auth: Auth): Promise<void> {
     const response = await authedInject(app, auth, {
       method: 'PUT',
@@ -372,5 +372,48 @@ describe('backups automation routes — verify and upload a new backup', () => {
       localPresent: true,
     });
     expect(fake.objects.size).toBe(0);
+  });
+
+  it('deleting an uploaded backup removes every version of it from a versioned bucket', async () => {
+    fake.versioning = true;
+    const { app, db } = await setUpBackupsApp(NO_TIMERS);
+    const auth = await loginAs(app);
+    await configureS3(app, auth);
+    await enableAutoUpload(app, auth);
+    const id = await createBackup(app, auth);
+    expect(fake.versions.get(`backups/${id}.tar`)?.length).toBeGreaterThan(0);
+
+    const response = await authedInject(app, auth, {
+      method: 'DELETE',
+      url: `/api/v1/backups/${id}`,
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(fake.versions.size).toBe(0);
+    expect(fake.objects.size).toBe(0);
+    expect(await backupSummary(app, auth, id)).toBeUndefined();
+    const audit = db.get<{ details: string }>(
+      "SELECT details FROM audit_log WHERE action = 'backup.delete'",
+    );
+    expect(JSON.parse(audit!.details)).toMatchObject({ remote: 'deleted' });
+  });
+
+  it('keeps the backup when its remote copy cannot be deleted', async () => {
+    const { app } = await setUpBackupsApp(NO_TIMERS);
+    const auth = await loginAs(app);
+    await configureS3(app, auth);
+    await enableAutoUpload(app, auth);
+    const id = await createBackup(app, auth);
+    fake.versionsApi = 'access-denied';
+
+    const response = await authedInject(app, auth, {
+      method: 'DELETE',
+      url: `/api/v1/backups/${id}`,
+    });
+
+    expect(response.statusCode).toBe(424);
+    expect(response.json().error.message).toMatch(/nothing was deleted.*s3:ListBucketVersions/);
+    expect(await backupSummary(app, auth, id)).toBeDefined();
+    expect(fake.objects.has(`backups/${id}.tar`)).toBe(true);
   });
 });

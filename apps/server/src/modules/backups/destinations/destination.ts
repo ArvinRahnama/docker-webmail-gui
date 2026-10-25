@@ -52,7 +52,13 @@ export interface BackupDestination {
   /** Streams the object at `key` to `destPath`. Throws if the object does not exist or the transfer fails. */
   download(key: string, destPath: string): Promise<void>;
 
-  /** Deletes the object at `key`. Used by remote retention, only after a newer backup is verified present. */
+  /**
+   * Deletes the object at `key` **permanently**: on a versioned store that
+   * means every stored version and delete marker, not just hiding the
+   * current one. Idempotent — an absent key is not an error. Used by remote
+   * retention (only after a newer backup is verified present), by a manual
+   * delete, and to clear a failed upload.
+   */
   delete(key: string): Promise<void>;
 
   /** Best-effort cleanup of interrupted/stale multipart uploads. A no-op for protocols without the concept. */

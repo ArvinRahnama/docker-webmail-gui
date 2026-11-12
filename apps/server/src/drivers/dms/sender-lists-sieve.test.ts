@@ -22,9 +22,13 @@ describe('generateSenderListsSieve', () => {
     expect(validateSieveScriptContent(script).ok).toBe(true);
   });
 
-  it('only sets the shared verdict variable — it files nothing itself', () => {
-    expect(script).toContain('global "dwg_sender_verdict";');
-    expect(script).not.toMatch(/\b(fileinto|redirect|discard|reject|keep|vacation)\b/);
+  it('files allowed senders in INBOX and blocked senders in Junk, and does nothing else', () => {
+    expect(script).toContain('require ["fileinto", "special-use", "variables"];');
+    // No include/global: Dovecot 2.3 runs this as its own after-script.
+    expect(script).not.toMatch(/\b(include|global)\b/);
+    expect(script).not.toMatch(/\b(redirect|discard|reject|keep|vacation|pipe|execute)\b/);
+    const blockRule = script.slice(script.indexOf('address :domain :is "from" ["yahoo.com"]'));
+    expect(blockRule).toMatch(/^[^{]*\{\s*fileinto :specialuse "\\\\Junk" "Junk";\s*stop;\s*\}/);
   });
 
   it('matches exact addresses, exact and parent domains, and client IPs (both IPv6 forms)', () => {
@@ -41,7 +45,7 @@ describe('generateSenderListsSieve', () => {
     );
     const allowRule = script.slice(script.indexOf('address :all :is "from" ["news@gmail.com"]'));
     expect(allowRule).toMatch(
-      /^[^]*?if string :is "\$\{dwg_spoofed\}" "" \{\s*set "dwg_sender_verdict" "allow";/,
+      /^[^]*?if string :is "\$\{dwg_spoofed\}" "" \{\s*fileinto "INBOX";\s*stop;/,
     );
   });
 
@@ -59,18 +63,30 @@ describe('generateSenderListsSieve', () => {
   it('writes a valid script with no rules for an empty list', () => {
     const empty = generateSenderListsSieve('a@x.test', []);
     expect(parseSenderListsSieve(empty)).toEqual([]);
-    expect(empty).not.toContain('dwg_sender_verdict" "');
+    expect(empty).not.toContain('stop;');
   });
 });
 
 describe('parseSenderListsSieve', () => {
+  it('still reads the entries of a v1 script, so they survive the next rewrite', () => {
+    const v1 = [
+      '# dwg-sender-lists: v1',
+      '# entry: allow domain good.example admin 2026-11-12T05:23:35.151Z',
+      'require ["include", "variables"];',
+      'global "dwg_sender_verdict";',
+    ].join('\n');
+    expect(parseSenderListsSieve(v1)).toEqual([
+      { list: 'allow', kind: 'domain', value: 'good.example', source: 'admin', addedAt: AT },
+    ]);
+  });
+
   it('returns null for a script the panel did not write', () => {
     expect(parseSenderListsSieve('require ["fileinto"];\nfileinto "Spam";\n')).toBeNull();
   });
 
   it('drops tampered or invalid entry lines rather than carrying them forward', () => {
     const tampered = [
-      '# dwg-sender-lists: v1',
+      '# dwg-sender-lists: v2',
       '# entry: allow domain good.example admin 2026-11-12T05:23:35.151Z',
       '# entry: allow domain bad"];fileinto"x admin 2026-11-12T05:23:35.151Z',
       '# entry: allow address not-an-address admin 2026-11-12T05:23:35.151Z',

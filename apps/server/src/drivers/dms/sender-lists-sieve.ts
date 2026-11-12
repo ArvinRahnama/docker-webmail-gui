@@ -1,16 +1,25 @@
 /**
  * The per-mailbox sender-lists Sieve script (docker/dms/README.md).
  *
- * docker/dms/dwg/spam-to-junk.sieve — the mail server's spam-to-Junk step,
- * once the integration is installed — runs
+ * It is stored as a normal personal script (never activated, so a
+ * mailbox's own active filter or autoresponder is untouched) and runs
+ * after that personal filter, just before spam goes to Junk:
  *
- *     global "dwg_sender_verdict";
- *     include :personal :optional "dwg-sender-lists";
+ *  - Dovecot 2.3 (docker-mailserver 15): as the first after-script
+ *    (`sieve_after = file:~/sieve/dwg-sender-lists.sieve`), ahead of
+ *    docker-mailserver's own spam_to_junk.sieve. A mailbox with no list has
+ *    no file, which Dovecot skips.
+ *  - Dovecot 2.4 (docker-mailserver 16): included by
+ *    docker/dms/dwg/spam-to-junk.sieve (`include :personal :optional`).
  *
- * so this script only has to set that one variable to "allow" or "block"
- * and return. It files nothing itself; Junk/Inbox routing stays in one
- * place. It is stored as a normal personal script (never activated), so a
- * mailbox's own active filter or autoresponder is untouched.
+ * It acts itself, so it works the same both ways: an allowed sender's mail
+ * is filed in INBOX and `stop` ends all further scripts (in a 2.3 sequence,
+ * filing cancels the implicit keep, which is what stops the next script; in
+ * a 2.4 include, `stop` ends the including script). A blocked sender's mail
+ * is filed in Junk. Anything else falls through to the normal spam check.
+ * An include with a variable verdict was the first design; Dovecot 2.3
+ * cannot compile an include for a mailbox that has no personal Sieve
+ * storage, so every such mailbox would have lost spam-to-Junk entirely.
  *
  * Like the autoresponder (`autoresponder-sieve.ts`), **the script is the
  * source of truth**: every entry is written as a machine-readable comment
@@ -42,7 +51,9 @@ import {
 
 export const SENDER_LISTS_SCRIPT_NAME = 'dwg-sender-lists';
 
-const FORMAT_MARKER = '# dwg-sender-lists: v1';
+const FORMAT_MARKER = '# dwg-sender-lists: v2';
+/** v1 scripts (a verdict variable for an include) carry the same entry lines; read them so their entries survive the next rewrite. */
+const FORMAT_MARKERS = new Set([FORMAT_MARKER, '# dwg-sender-lists: v1']);
 const ENTRY_PATTERN =
   /^# entry: (allow|block) (address|domain|ip) (\S+) (report|admin) (\d{4}-\d\d-\d\dT[\d:.]+Z)$/;
 
@@ -55,11 +66,11 @@ function quoteList(values: readonly string[]): string {
 
 function verdict(list: SenderList): string {
   if (list === 'block') {
-    return `{\n    set "dwg_sender_verdict" "block";\n    return;\n}`;
+    return `{\n    fileinto :specialuse "\\\\Junk" "Junk";\n    stop;\n}`;
   }
   return (
     `{\n    if string :is "\${dwg_spoofed}" "" {\n` +
-    `        set "dwg_sender_verdict" "allow";\n        return;\n    }\n}`
+    `        fileinto "INBOX";\n        stop;\n    }\n}`
   );
 }
 
@@ -83,8 +94,8 @@ export function generateSenderListsSieve(
   const lines: string[] = [
     `# Docker Webmail GUI — sender allow/block lists for ${mailbox}.`,
     '# Written by the panel and rewritten whenever the lists change: edits',
-    "# made here are lost. docker-mailserver's spam-to-Junk step includes this",
-    '# script (docker/dms/README.md); it only sets a verdict and files nothing.',
+    '# made here are lost. Runs just before spam goes to Junk (docker/dms/README.md):',
+    '# allowed senders go to INBOX, blocked senders to Junk, the rest are untouched.',
     FORMAT_MARKER,
   ];
   for (const e of entries) {
@@ -92,8 +103,7 @@ export function generateSenderListsSieve(
   }
   lines.push(
     '',
-    'require ["include", "variables"];',
-    'global "dwg_sender_verdict";',
+    'require ["fileinto", "special-use", "variables"];',
     '',
     "# The topmost Postfix-added Received header is this server's own and",
     '# names the connecting client in brackets.',
@@ -141,7 +151,7 @@ export function generateSenderListsSieve(
  */
 export function parseSenderListsSieve(content: string): SenderListEntry[] | null {
   const lines = content.split(/\r?\n/);
-  if (!lines.includes(FORMAT_MARKER)) return null;
+  if (!lines.some((line) => FORMAT_MARKERS.has(line))) return null;
   const entries: SenderListEntry[] = [];
   const seen = new Set<string>();
   for (const line of lines) {

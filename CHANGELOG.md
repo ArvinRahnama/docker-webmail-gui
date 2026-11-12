@@ -11,6 +11,28 @@ version and are called out explicitly here.
 
 ## [Unreleased]
 
+### Fixed
+
+- **The spam-filter integration now works on docker-mailserver 15 (Dovecot
+  2.3)** — the version this panel targets and most installs run. 1.3.1's
+  installer was written for Dovecot 2.4 and, on 15, refused to activate.
+  `install.sh` now detects the Dovecot version and writes the matching
+  configuration. On 2.3 docker-mailserver's own `spam_to_junk.sieve` is
+  left untouched: each mailbox's list runs as the first after-script, and
+  the "moved into Junk" report is attached to docker-mailserver's own
+  learning rule, since 2.3 allows only one IMAPSieve rule per mailbox.
+  Verified end to end against both 15.1.0 and 16.
+- **Sender lists no longer depend on an include.** The per-mailbox list
+  script now files mail itself — allowed senders to INBOX, blocked senders
+  to Junk — instead of setting a variable for the spam-to-Junk step to
+  read. On Dovecot 2.3 that include fails to compile for every mailbox
+  that has no personal Sieve folder, which would have sent all of their
+  spam to the Inbox. Lists written by 1.3.1 are read and rewritten in the
+  new form on their next change. Re-run
+  `installer/install-dms-integration.sh` after updating.
+- An integration install that fails part-way no longer leaves
+  docker-mailserver's spam handling changed.
+
 ## [1.3.1] - 2026-11-12
 
 ### Added

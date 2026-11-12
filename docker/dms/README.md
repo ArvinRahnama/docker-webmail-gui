@@ -32,8 +32,10 @@ needed, keeping anything already in it), and applies the integration
 immediately. Re-running it updates the files. `--uninstall` removes it;
 recreate the container afterwards.
 
-Security → Sender Lists shows whether it is active. Requires
-docker-mailserver 16 (Dovecot 2.4) with `ENABLE_RSPAMD=1`.
+Security → Sender Lists shows whether it is active. Works with
+docker-mailserver 15 (Dovecot 2.3) and 16 (Dovecot 2.4); `install.sh`
+detects which and writes the matching configuration. Needs
+`ENABLE_RSPAMD=1`.
 
 ## What is installed, exactly
 
@@ -45,12 +47,23 @@ container log.
 - `/etc/rspamd/local.d/actions.conf`: `reject = null;`. An operator's own
   `rspamd/override.d/actions.conf` still wins (Rspamd's precedence); the
   script warns if that sets a reject threshold.
-- `70-dwg-spam-to-junk.sieve` replaces DMS's own spam-to-Junk script (same
-  name in Dovecot's config, `95-dwg.conf`). It includes each mailbox's
-  personal script `dwg-sender-lists`, which the panel writes and never
-  activates, so the user's own filters and autoresponder are untouched.
+- Each mailbox's list is its personal script `dwg-sender-lists`, which the
+  panel writes and never activates (the user's own filters and
+  autoresponder are untouched). It runs just before spam goes to Junk and
+  files an allowed sender's mail in INBOX, a blocked sender's in Junk:
+  - **Dovecot 2.3** (docker-mailserver 15): `95-dwg.conf` makes it the first
+    after-script (`sieve_after`) and moves docker-mailserver's own
+    after-scripts one place down. docker-mailserver's `spam_to_junk.sieve`
+    is not changed at all. A mailbox with no list has no file, which
+    Dovecot skips.
+  - **Dovecot 2.4** (docker-mailserver 16): `95-dwg.conf` points the
+    `spam_to_junk` script at ours, which includes the mailbox's list and
+    then does the normal spam check.
 - `dwg-report-ham.sieve` / `dwg-report-spam.sieve`: IMAPSieve scripts on
-  moves out of / into Junk. They call `dwg-sender-report`, which writes one
+  moves out of / into Junk. On Dovecot 2.3, which allows only one rule per
+  mailbox, the "into Junk" report is attached to docker-mailserver's own
+  learning rule (`RSPAMD_LEARN=1`) as its `_after` script, so learning and
+  reporting both run; new rules are numbered after the existing ones. They call `dwg-sender-report`, which writes one
   line to the mail log; the panel reads the log every minute. Nothing in
   the mail container talks to the panel, and the panel needs no new
   privilege: it reads the log and writes Sieve scripts with the broker

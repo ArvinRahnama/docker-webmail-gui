@@ -53,12 +53,24 @@ export interface LoginSuccess {
 }
 
 /**
- * Failure carries no reason. The caller cannot accidentally leak *why* a
- * login failed because this type does not carry that information in the
- * first place — the distinction exists only in the audit log.
+ * Failure carries no reason about the *account*. The caller cannot leak
+ * whether an address exists, is disabled, or had the right password,
+ * because this type does not carry that information in the first place —
+ * the distinction exists only in the audit log.
+ *
+ * The one thing it does carry is whether the request was refused by the
+ * brute-force lockout, and when that lifts. That is not an account fact:
+ * lockout accrues per submitted identifier and per IP whether or not the
+ * account exists, so "locked out" is said identically for a real address
+ * and a made-up one and reveals nothing an attacker did not already know
+ * (they made the attempts). Saying it matters, because answering a
+ * locked-out administrator with "incorrect email or password" made them
+ * retry the right password until they gave up.
  */
 export interface LoginFailure {
   readonly ok: false;
+  /** Seconds until the lockout lifts; present only when the lockout refused this attempt. */
+  readonly lockedOutForSeconds?: number;
 }
 
 export type LoginOutcome = LoginSuccess | LoginFailure;
@@ -113,14 +125,30 @@ export class AuthService {
     this.config = deps.config;
   }
 
-  /** True when either counter is over its threshold inside the window. */
-  private isLockedOut(identifier: string, ipAddress: string): boolean {
+  /**
+   * Seconds until the lockout lifts, or `null` when neither counter is
+   * over its threshold inside the window. The lockout lifts when enough
+   * of the failures that caused it age out of the window — the
+   * threshold-th most recent failure is the one whose expiry ends it.
+   */
+  private lockoutRemainingSeconds(identifier: string, ipAddress: string): number | null {
     const since = minutesAgo(LOCKOUT_POLICY.windowMinutes);
-    return (
-      this.attempts.countFailuresForIdentifierSince(identifier, since) >=
-        LOCKOUT_POLICY.maxFailuresPerIdentifier ||
-      this.attempts.countFailuresForIpSince(ipAddress, since) >= LOCKOUT_POLICY.maxFailuresPerIp
-    );
+    const windowMs = LOCKOUT_POLICY.windowMinutes * 60_000;
+    const releases: number[] = [];
+
+    const identifierFailures = this.attempts.recentFailuresForIdentifierSince(identifier, since);
+    if (identifierFailures.length >= LOCKOUT_POLICY.maxFailuresPerIdentifier) {
+      const pivot = identifierFailures[LOCKOUT_POLICY.maxFailuresPerIdentifier - 1] as string;
+      releases.push(Date.parse(pivot) + windowMs);
+    }
+    const ipFailures = this.attempts.recentFailuresForIpSince(ipAddress, since);
+    if (ipFailures.length >= LOCKOUT_POLICY.maxFailuresPerIp) {
+      const pivot = ipFailures[LOCKOUT_POLICY.maxFailuresPerIp - 1] as string;
+      releases.push(Date.parse(pivot) + windowMs);
+    }
+
+    if (releases.length === 0) return null;
+    return Math.max(1, Math.ceil((Math.max(...releases) - Date.now()) / 1000));
   }
 
   private recordFailure(
@@ -130,6 +158,16 @@ export class AuthService {
     adminId: string | null,
   ): LoginFailure {
     this.attempts.record({ identifier, ipAddress: input.ipAddress, success: false });
+    this.auditFailure(identifier, input, errorCode, adminId);
+    return { ok: false };
+  }
+
+  private auditFailure(
+    identifier: string,
+    input: LoginInput,
+    errorCode: string,
+    adminId: string | null,
+  ): void {
     recordAuditEvent(this.db, {
       actor: { adminId, label: identifier },
       action: 'auth.login.failure',
@@ -139,29 +177,33 @@ export class AuthService {
       ip: input.ipAddress,
       userAgent: input.userAgent,
     });
-    return { ok: false };
   }
 
   /**
    * Verifies a credential and, on success, issues a fresh session.
    *
-   * Note the shape of the failure paths: unknown address, disabled
-   * account and lockout all perform an Argon2 verification before
+   * Note the shape of the failure paths: unknown address, wrong password
+   * and disabled account all perform an Argon2 verification before
    * returning, and all return the identical `{ ok: false }`. The audit
    * log records which it was; the caller and the attacker cannot tell.
+   * Lockout also verifies (same cost) but says it is a lockout — see
+   * {@link LoginFailure} for why that is safe to say.
    */
   async login(input: LoginInput): Promise<LoginOutcome> {
     const identifier = normalizeEmail(input.email);
 
-    if (this.isLockedOut(identifier, input.ipAddress)) {
-      // LOAD-BEARING: verify against the dummy hash even though the answer
-      // is already decided. Returning early here would make a locked-out
-      // response measurably faster than a wrong-password one, which tells
-      // an attacker their guessing is being counted — and, since lockout
-      // only accrues against addresses that were tried, hints that the
-      // address is worth trying. Do not "optimise" this away.
+    const lockedOutForSeconds = this.lockoutRemainingSeconds(identifier, input.ipAddress);
+    if (lockedOutForSeconds !== null) {
+      // Keep the cost of a locked-out attempt equal to a real one, so the
+      // response time says nothing beyond what the response itself says.
       await verifyPassword(DUMMY_PASSWORD_HASH, input.password);
-      return this.recordFailure(identifier, input, 'RATE_LIMITED', null);
+      // LOAD-BEARING: audited, but NOT counted as another failure. Counting
+      // it made the lockout self-extending: every retry inside the window
+      // added a failure, so an administrator who kept trying their (correct)
+      // password stayed locked out indefinitely. The attempt is refused
+      // either way; the lockout now lifts on schedule.
+      this.auditFailure(identifier, input, 'RATE_LIMITED', null);
+      return { ok: false, lockedOutForSeconds };
     }
 
     const admin = this.admins.findByEmail(identifier);

@@ -28,6 +28,9 @@ import { SieveHomePage } from '@/security/sieve-home-page';
 import { SieveScriptsPage } from '@/security/sieve-scripts-page';
 import { AutoresponderHomePage } from '@/security/autoresponder-home-page';
 import { AutoresponderPage } from '@/security/autoresponder-page';
+import { SenderListsHomePage } from '@/security/sender-lists-home-page';
+import { SenderListsPage } from '@/security/sender-lists-page';
+import { RejectedMailPage } from '@/security/rejected-mail-page';
 import { ContainersPage } from '@/docker/containers-page';
 import { ImagesPage } from '@/docker/images-page';
 import { VolumesPage } from '@/docker/volumes-page';
@@ -89,6 +92,9 @@ export default function App() {
                 <Route path="/security/sieve/:user" element={<SieveScriptsPage />} />
                 <Route path="/security/autoresponder" element={<AutoresponderHomePage />} />
                 <Route path="/security/autoresponder/:user" element={<AutoresponderPage />} />
+                <Route path="/security/sender-lists" element={<SenderListsHomePage />} />
+                <Route path="/security/sender-lists/:user" element={<SenderListsPage />} />
+                <Route path="/security/rejected-mail" element={<RejectedMailPage />} />
                 <Route path="/docker/containers" element={<ContainersPage />} />
                 <Route path="/docker/images" element={<ImagesPage />} />
                 <Route path="/docker/volumes" element={<VolumesPage />} />

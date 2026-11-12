@@ -33,6 +33,8 @@ export interface RspamdClientPort {
   getSymbols(): Promise<RspamdResult<unknown>>;
   /** `GET /actions` — current score thresholds per action. */
   getActions(): Promise<RspamdResult<unknown>>;
+  /** `GET /history` — recent scans, raw (`parse-history.ts` binds it). Read-only, like the three above. */
+  getHistory(): Promise<RspamdResult<unknown>>;
   /** `POST /learnspam` — trains Bayes as spam. Body is the raw message. Mutating, privileged (FEATURE_MATRIX.md §15). */
   learnSpam(message: string): Promise<RspamdResult<void>>;
   /** `POST /learnham` — trains Bayes as ham. Same shape as `learnSpam`. */

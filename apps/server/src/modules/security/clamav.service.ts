@@ -48,7 +48,7 @@ export class ClamavService {
     }
 
     const ping = await this.dmsDriver.clamavPing();
-    // Exit code alone isn't enough: `socat` can succeed (exit 0) while
+    // Exit code alone isn't enough: `nc` can succeed (exit 0) while
     // relaying something other than a real `PONG` from clamd (e.g. an
     // empty reply from a socket that accepted the connection but isn't
     // actually clamd) — `reachable` should mean "clamd answered," not just

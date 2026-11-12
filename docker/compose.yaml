@@ -120,6 +120,7 @@ services:
       RSPAMD_PASSWORD: ${RSPAMD_PASSWORD:-}
       ENABLE_EXEC_CONSOLE: ${ENABLE_EXEC_CONSOLE:-false}
       ENABLE_HSTS: ${ENABLE_HSTS:-true}
+      TRUST_PROXY: ${TRUST_PROXY:-loopback,linklocal,uniquelocal}
       MCP_ENABLED: ${MCP_ENABLED:-true}
       # STATIC_DIR is deliberately *not* set here: docker/server/
       # Dockerfile bakes it (`ENV STATIC_DIR=/app/apps/web/dist`), because

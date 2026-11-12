@@ -16,6 +16,7 @@
  * conservative choice — reject — and says so in a comment, rather than
  * presenting an invented behaviour as researched fact.
  */
+import type { SpamIntegrationStatus } from '@dwg/shared';
 import {
   DmsAliasAddRequestSchema,
   DmsAliasDeleteRequestSchema,
@@ -405,6 +406,13 @@ export class FakeDmsDriver implements DmsDriver {
         value: `v=DKIM1; h=sha256; k=rsa; p=${fakeKeyBody}`,
       },
     };
+  }
+
+  /** Development and tests behave like a mail server with docker/dms/ installed; a test flips this to see the "not installed" state. */
+  spamIntegration: SpamIntegrationStatus = { installed: true, version: 1 };
+
+  async getSpamIntegration(): Promise<SpamIntegrationStatus> {
+    return this.spamIntegration;
   }
 
   async getSslType(): Promise<string | null> {

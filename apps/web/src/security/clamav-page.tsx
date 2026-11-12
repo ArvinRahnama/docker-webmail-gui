@@ -9,9 +9,13 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { StatusBadge } from '@/components/status/status-badge';
 import { UnsupportedNotice } from '@/components/unsupported-notice';
 import { ApiClientError, ApiError } from '@/lib/api-client';
+import { DataTable } from '@/components/data-table';
+import { EmptyState } from '@/components/empty-state';
+import { rejectedMailColumns } from './rejected-mail-page';
 import {
   useClamavDetectionsQuery,
   useClamavStatusQuery,
+  useRejectedMailQuery,
   useTriggerClamavUpdateMutation,
 } from './use-security-queries';
 
@@ -25,6 +29,8 @@ export function ClamavPage() {
   const statusQuery = useClamavStatusQuery();
   const detectionsQuery = useClamavDetectionsQuery();
   const updateMutation = useTriggerClamavUpdateMutation();
+  const rejectedQuery = useRejectedMailQuery();
+  const viruses = (rejectedQuery.data?.entries ?? []).filter((e) => e.category === 'virus');
   const [confirmOpen, setConfirmOpen] = useState(false);
 
   if (statusQuery.isError) {
@@ -136,6 +142,36 @@ export function ClamavPage() {
               </p>
             </>
           )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-body font-semibold">Recent viruses blocked</CardTitle>
+          <p className="text-caption text-text-muted">
+            Mail ClamAV found a virus in is rejected at delivery — the one kind of message this
+            server still refuses rather than filing in Junk. From the mail log and Rspamd's history
+            {rejectedQuery.data ? ` (${rejectedQuery.data.window})` : ''}.
+          </p>
+        </CardHeader>
+        <CardContent>
+          <DataTable
+            data={viruses}
+            columns={rejectedMailColumns}
+            getRowId={(e) => `${e.at}|${e.from ?? ''}|${e.to.join(',')}|${e.reason}`}
+            caption="Recent virus detections"
+            isLoading={rejectedQuery.isLoading}
+            initialSort={{ id: 'at', desc: true }}
+            pageSize={10}
+            emptyState={
+              <EmptyState
+                variant="first-run"
+                icon={ShieldAlert}
+                title="No viruses found"
+                description="No infected message appears in the part of the log that is still available."
+              />
+            }
+          />
         </CardContent>
       </Card>
 

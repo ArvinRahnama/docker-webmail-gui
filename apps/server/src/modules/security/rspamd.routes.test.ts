@@ -96,13 +96,49 @@ describe('/api/v1/security/rspamd', () => {
     const response = await authedInject(app, auth, {
       method: 'POST',
       url: '/api/v1/security/rspamd/actions',
+      payload: { action: 'add header', score: 7 },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(client.savedThresholds).toEqual([{ action: 'add header', score: 7 }]);
+    const rows = db.all("SELECT * FROM audit_log WHERE action = 'rspamd.threshold_set'");
+    expect(rows).toHaveLength(1);
+  });
+
+  it('refuses a reject threshold while the spam-filter integration is installed (spam goes to Junk)', async () => {
+    const client = new FakeRspamdClient();
+    const { app } = await setUpSecurityApp({
+      dmsDriver: new RspamdEnabledDriver(),
+      rspamdClient: client,
+    });
+    const auth = await loginAs(app);
+
+    const response = await authedInject(app, auth, {
+      method: 'POST',
+      url: '/api/v1/security/rspamd/actions',
+      payload: { action: 'reject', score: 18 },
+    });
+
+    expect(response.statusCode).toBe(409);
+    expect(response.json().error.message).toMatch(/never rejected/);
+    expect(client.savedThresholds).toEqual([]);
+  });
+
+  it('still allows a reject threshold when the integration is not installed', async () => {
+    const client = new FakeRspamdClient();
+    const driver = new RspamdEnabledDriver();
+    driver.spamIntegration = { installed: false, version: null };
+    const { app } = await setUpSecurityApp({ dmsDriver: driver, rspamdClient: client });
+    const auth = await loginAs(app);
+
+    const response = await authedInject(app, auth, {
+      method: 'POST',
+      url: '/api/v1/security/rspamd/actions',
       payload: { action: 'reject', score: 18 },
     });
 
     expect(response.statusCode).toBe(200);
     expect(client.savedThresholds).toEqual([{ action: 'reject', score: 18 }]);
-    const rows = db.all("SELECT * FROM audit_log WHERE action = 'rspamd.threshold_set'");
-    expect(rows).toHaveLength(1);
   });
 
   it('setting a symbol score is audited and calls the client', async () => {

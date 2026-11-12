@@ -26,6 +26,7 @@ export class FakeRspamdClient implements RspamdClientPort {
   private statValue: unknown = FIXTURE_RSPAMD_STAT;
   private symbolsValue: unknown = FIXTURE_RSPAMD_SYMBOLS;
   private actionsValue: unknown = FIXTURE_RSPAMD_ACTIONS;
+  private historyValue: unknown = { version: 2, rows: [] };
   private unreachableError: string | null = null;
 
   readonly learnedSpam: RecordedLearn[] = [];
@@ -45,6 +46,11 @@ export class FakeRspamdClient implements RspamdClientPort {
 
   setActionsResponse(value: unknown): this {
     this.actionsValue = value;
+    return this;
+  }
+
+  setHistory(value: unknown): this {
+    this.historyValue = value;
     return this;
   }
 
@@ -81,6 +87,10 @@ export class FakeRspamdClient implements RspamdClientPort {
     const guarded = this.guard(undefined);
     if (guarded.ok) this.learnedHam.push({ message });
     return guarded;
+  }
+
+  async getHistory(): Promise<RspamdResult<unknown>> {
+    return this.guard(this.historyValue);
   }
 
   async saveActionThreshold(action: string, score: number): Promise<RspamdResult<void>> {

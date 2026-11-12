@@ -42,6 +42,18 @@ import {
   type SieveScriptSummary,
   type TlsStatusResponse,
   type UpdateAutoresponderRequest,
+  AddSenderListEntryRequestSchema,
+  RejectedMailResponseSchema,
+  RemoveSenderListEntryRequestSchema,
+  SenderListsResponseSchema,
+  SenderReportsResponseSchema,
+  SpamIntegrationResponseSchema,
+  type AddSenderListEntryRequest,
+  type RejectedMailResponse,
+  type RemoveSenderListEntryRequest,
+  type SenderListsResponse,
+  type SenderReport,
+  type SpamIntegrationStatus,
 } from '@dwg/shared';
 import { request } from './api-client';
 
@@ -270,4 +282,64 @@ export async function learnRspamdHam(message: string): Promise<void> {
     method: 'POST',
     body,
   });
+}
+
+// ---------------------------------------------------------------------------
+// Spam filter (docker/dms/README.md) — per-mailbox sender lists, the user
+// reports that maintain them, and rejected mail.
+// ---------------------------------------------------------------------------
+
+const SPAM_FILTER = '/api/v1/security/spam-filter';
+
+export async function fetchSpamIntegration(): Promise<SpamIntegrationStatus> {
+  const { integration } = await request(
+    `${SPAM_FILTER}/integration`,
+    SpamIntegrationResponseSchema,
+    { method: 'GET' },
+  );
+  return integration;
+}
+
+export async function fetchSenderLists(mailbox: string): Promise<SenderListsResponse> {
+  return request(
+    `${SPAM_FILTER}/sender-lists/${encodeURIComponent(mailbox)}`,
+    SenderListsResponseSchema,
+    { method: 'GET' },
+  );
+}
+
+export async function addSenderListEntry(
+  mailbox: string,
+  input: AddSenderListEntryRequest,
+): Promise<SenderListsResponse> {
+  const body = AddSenderListEntryRequestSchema.parse(input);
+  return request(
+    `${SPAM_FILTER}/sender-lists/${encodeURIComponent(mailbox)}`,
+    SenderListsResponseSchema,
+    { method: 'POST', body },
+  );
+}
+
+export async function removeSenderListEntry(
+  mailbox: string,
+  input: RemoveSenderListEntryRequest,
+): Promise<SenderListsResponse> {
+  const body = RemoveSenderListEntryRequestSchema.parse(input);
+  return request(
+    `${SPAM_FILTER}/sender-lists/${encodeURIComponent(mailbox)}/remove`,
+    SenderListsResponseSchema,
+    { method: 'POST', body },
+  );
+}
+
+export async function fetchSenderReports(mailbox: string | null): Promise<SenderReport[]> {
+  const qs = mailbox === null ? '' : `?mailbox=${encodeURIComponent(mailbox)}`;
+  const { reports } = await request(`${SPAM_FILTER}/reports${qs}`, SenderReportsResponseSchema, {
+    method: 'GET',
+  });
+  return reports;
+}
+
+export async function fetchRejectedMail(): Promise<RejectedMailResponse> {
+  return request(`${SPAM_FILTER}/rejected`, RejectedMailResponseSchema, { method: 'GET' });
 }

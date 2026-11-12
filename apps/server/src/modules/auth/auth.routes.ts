@@ -83,6 +83,12 @@ function setSessionCookie(reply: FastifyReply, config: AppConfig, token: string)
 const LOGIN_RATE_LIMIT_MAX = 20;
 const LOGIN_RATE_LIMIT_WINDOW = '1 minute';
 
+/** "…Try again in 12 minutes." — rounded up, so the wait it names is never shorter than the real one. */
+export function lockoutMessage(seconds: number): string {
+  const minutes = Math.max(1, Math.ceil(seconds / 60));
+  return `Too many failed sign-in attempts. Try again in ${minutes} minute${minutes === 1 ? '' : 's'}.`;
+}
+
 export async function registerAuthRoutes(
   app: FastifyInstance,
   deps: AuthRoutesDeps,
@@ -117,11 +123,15 @@ export async function registerAuthRoutes(
             userAgent: userAgentOf(request),
           });
 
-          // Same envelope, same status, regardless of *why* — the service
-          // already refuses to say why (LoginFailure carries no reason
-          // field at all), so there is nothing here to branch on even by
-          // accident.
+          // Same envelope, same status, regardless of which *account* fact
+          // failed — the service refuses to say (LoginFailure carries no
+          // account reason at all). A lockout is the one exception, and it
+          // is not an account fact: see LoginFailure's doc comment.
           if (!outcome.ok) {
+            if (outcome.lockedOutForSeconds !== undefined) {
+              void reply.header('retry-after', String(outcome.lockedOutForSeconds));
+              throw new AppError('RATE_LIMITED', lockoutMessage(outcome.lockedOutForSeconds));
+            }
             throw new AppError('INVALID_CREDENTIALS', 'Incorrect email or password.');
           }
 

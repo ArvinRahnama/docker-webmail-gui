@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Search } from 'lucide-react';
 import { BreakableText } from '@/components/breakable-text';
@@ -14,6 +14,10 @@ export interface MailboxPickerProps {
   readonly description: string;
   /** Path prefix a selected mailbox is appended to, e.g. `/security/sieve` -> `/security/sieve/<email>`. */
   readonly destinationPrefix: string;
+  /** Shown between the header and the picker — e.g. a feature-wide notice. */
+  readonly notice?: ReactNode;
+  /** Shown below the picker — e.g. activity across every mailbox. */
+  readonly children?: ReactNode;
 }
 
 /**
@@ -23,7 +27,13 @@ export interface MailboxPickerProps {
  * duplicated per feature (mirrors this app's "one `DataTable`, one
  * `ConfirmDialog`" convention for shared UI shape).
  */
-export function MailboxPicker({ title, description, destinationPrefix }: MailboxPickerProps) {
+export function MailboxPicker({
+  title,
+  description,
+  destinationPrefix,
+  notice,
+  children,
+}: MailboxPickerProps) {
   const navigate = useNavigate();
   const [search, setSearch] = useState('');
   const query = useMailboxesQuery({ pageSize: 25, ...(search ? { search } : {}) });
@@ -31,6 +41,7 @@ export function MailboxPicker({ title, description, destinationPrefix }: Mailbox
   return (
     <div className="flex flex-col gap-6">
       <PageHeader title={title} description={description} />
+      {notice}
 
       <Card>
         <CardHeader>
@@ -88,6 +99,7 @@ export function MailboxPicker({ title, description, destinationPrefix }: Mailbox
           )}
         </CardContent>
       </Card>
+      {children}
     </div>
   );
 }

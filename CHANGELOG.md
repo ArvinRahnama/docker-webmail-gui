@@ -11,6 +11,59 @@ version and are called out explicitly here.
 
 ## [Unreleased]
 
+### Added
+
+- **Spam is never rejected — it goes to Junk.** A docker-mailserver
+  integration (`docker/dms/`, installed with
+  `installer/install-dms-integration.sh`) switches Rspamd's reject threshold
+  off and files spam in the mailbox's Junk folder. Viruses are still
+  rejected. Verified against docker-mailserver 16.
+- **Per-mailbox sender lists, maintained by users.** Moving a message out of
+  Junk ("not spam") allows its sender for that mailbox; moving one into Junk
+  blocks it. Works from any mail client. Ordinary senders are listed by
+  domain; Gmail-style shared providers and the server's own domains by full
+  address only; a message with no usable From address by client IP. An
+  allow entry is ignored for a message failing DMARC with a reject or
+  quarantine policy. Administrators can edit any mailbox's lists under
+  **Security → Sender Lists**, which also shows every report and what it did.
+- **Security → Rejected Mail** lists every message the server refused —
+  unknown recipients, bad sender domains, blocklisted servers, viruses — with
+  the reason, merging Rspamd's subject and score where it has them. The ClamAV
+  page lists recent viruses blocked.
+- **`reset-admin-password` recovery command:**
+  `docker exec dwg-server node apps/server/dist/cli/reset-admin-password.js <email>`
+  sets a new random password, re-enables the account, signs out its sessions
+  and clears the sign-in lockout — or creates the administrator if bootstrap
+  never did.
+- **`TRUST_PROXY`** (default `loopback,linklocal,uniquelocal`): the panel now
+  sees each visitor's real address behind a reverse proxy.
+
+### Fixed
+
+- **A locked-out administrator was told "Incorrect email or password" — and
+  stayed locked out.** Every attempt during the lockout, even with the right
+  password, counted as another failure, so retrying kept the lockout alive
+  indefinitely, and the message gave no hint that a lockout existed. Attempts
+  during a lockout are no longer counted, so it lifts 15 minutes after the
+  failures that caused it, and the login page now says "Too many failed
+  sign-in attempts. Try again in N minutes." (HTTP 429 with `Retry-After`).
+  A lockout is said identically for addresses with and without an account,
+  so it reveals nothing about which exist.
+- **Behind a reverse proxy, every visitor shared one lockout.** Without a
+  trusted proxy the per-IP lockout and rate limit counted all visitors as the
+  proxy's address, so bots failing to sign in locked the administrator out
+  too. See `TRUST_PROXY` above.
+- **ClamAV showed `Unknown` on every stock docker-mailserver image.** Its
+  status went through `socat`, which docker-mailserver does not install. It
+  now uses the image's own `nc`, and clamd's newline commands (`nSTATS`;
+  ClamAV 1.4 refuses a bare `STATS`).
+
+### Changed
+
+- A reject threshold can no longer be set on the Rspamd page while the
+  spam-filter integration is installed (409), since it would quietly undo
+  "spam goes to Junk".
+
 ### Security
 
 - **Updated dependencies with newly published advisories:** `zod` 4.6.7

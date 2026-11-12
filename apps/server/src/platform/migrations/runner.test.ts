@@ -42,12 +42,14 @@ describe('runMigrations', () => {
       // M13 addition (migration 007) — the remote destination config and its pre-change snapshots.
       'backup_destination',
       'backup_destination_snapshots',
+      // Migration 009 — processed spam / not-spam reports (docker/dms/README.md).
+      'sender_reports',
     ]) {
       expect(tables).toContain(expected);
     }
     // Migrations 006 and 008 add columns (upload state; FTP destination fields),
     // no new tables.
-    expect(appliedVersions(db)).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
+    expect(appliedVersions(db)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9]);
     db.close();
   });
 

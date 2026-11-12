@@ -56,6 +56,7 @@ function stubDriver(overrides: Partial<DmsDriver> & { capabilities?: DmsCapabili
     getMailboxUsage: overrides.getMailboxUsage ?? notImplemented('getMailboxUsage'),
     getDkimRecord: overrides.getDkimRecord ?? notImplemented('getDkimRecord'),
     getSslType: overrides.getSslType ?? notImplemented('getSslType'),
+    getSpamIntegration: overrides.getSpamIntegration ?? notImplemented('getSpamIntegration'),
     fail2banList: overrides.fail2banList ?? notImplemented('fail2banList'),
     fail2banStatus: overrides.fail2banStatus ?? notImplemented('fail2banStatus'),
     clamavPing: overrides.clamavPing ?? notImplemented('clamavPing'),

@@ -165,9 +165,55 @@ describe('AuthService.login — lockout', () => {
       await login(service, 'wrong-password');
     }
 
-    // Correct credentials now, but the window has not passed.
-    expect(await login(service, PASSWORD)).toEqual({ ok: false });
+    // Correct credentials now, but the window has not passed. The refusal
+    // says it is a lockout and when it lifts, never "wrong password".
+    const result = await login(service, PASSWORD);
+    expect(result.ok).toBe(false);
+    expect(result.ok === false && result.lockedOutForSeconds).toBeGreaterThan(0);
+    expect(result.ok === false && result.lockedOutForSeconds).toBeLessThanOrEqual(
+      LOCKOUT_POLICY.windowMinutes * 60,
+    );
 
+    db.close();
+  });
+
+  it('does not extend the lockout with attempts made while locked out (it lifts on schedule)', async () => {
+    const { db, service, attempts } = await setUp();
+
+    for (let i = 0; i < LOCKOUT_POLICY.maxFailuresPerIdentifier; i += 1) {
+      await login(service, 'wrong-password');
+    }
+    // An administrator retrying (here, with the right password) while
+    // locked out: refused, but not counted as further failures.
+    for (let i = 0; i < 5; i += 1) {
+      await login(service, PASSWORD);
+    }
+    expect(attempts.countFailuresForIdentifierSince(EMAIL, '1970-01-01T00:00:00.000Z')).toBe(
+      LOCKOUT_POLICY.maxFailuresPerIdentifier,
+    );
+    const audited = db.all(
+      "SELECT * FROM audit_log WHERE action = 'auth.login.failure' AND details LIKE '%RATE_LIMITED%'",
+    );
+    expect(audited).toHaveLength(5);
+
+    // Once the original failures age out of the window, the correct
+    // password works — the retries did not keep the lockout alive.
+    const outside = new Date(
+      Date.now() - (LOCKOUT_POLICY.windowMinutes + 1) * 60_000,
+    ).toISOString();
+    db.run('UPDATE login_attempts SET attempted_at = ?', [outside]);
+    expect((await login(service, PASSWORD)).ok).toBe(true);
+
+    db.close();
+  });
+
+  it('says "locked out" identically for an address that has no account', async () => {
+    const { db, service } = await setUp();
+    for (let i = 0; i < LOCKOUT_POLICY.maxFailuresPerIdentifier; i += 1) {
+      await login(service, 'wrong-password', 'nobody@example.com');
+    }
+    const result = await login(service, 'anything', 'nobody@example.com');
+    expect(result.ok === false && result.lockedOutForSeconds).toBeGreaterThan(0);
     db.close();
   });
 

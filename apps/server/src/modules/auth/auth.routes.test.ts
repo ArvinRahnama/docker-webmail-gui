@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { FastifyInstance, LightMyRequestResponse } from 'fastify';
 import { CSRF_HEADER_NAME } from '@dwg/shared';
+import { LOCKOUT_POLICY } from './auth.service.js';
 import { buildApp } from '../../app.js';
 import { createDatabase, type Database } from '../../platform/db.js';
 import { migrations, runMigrations } from '../../platform/migrations/index.js';
@@ -141,12 +142,68 @@ describe('POST /api/v1/auth/login — uniform failure', () => {
   it('does not branch the response on why the login service refused it', async () => {
     const { app } = await setUp({ forcePasswordChange: true });
 
-    // Correct password, but this scenario would also refuse for a
-    // disabled account or a locked-out identifier — the point is that all
-    // of those look identical to a wrong password from the HTTP layer.
+    // This scenario would also refuse for a disabled account — the point
+    // is that account facts all look identical to a wrong password from
+    // the HTTP layer. (A lockout is the one refusal that says what it is;
+    // see the next test.)
     const wrong = await login(app, { password: 'not-the-password' });
     expect(wrong.statusCode).toBe(401);
     expect(wrong.json().error.code).toBe('INVALID_CREDENTIALS');
+
+    await app.close();
+  });
+
+  it('answers a locked-out sign-in with 429 and when to retry, not "incorrect password"', async () => {
+    const { app } = await setUp();
+
+    for (let i = 0; i < LOCKOUT_POLICY.maxFailuresPerIdentifier; i += 1) {
+      await login(app, { password: 'wrong-password' });
+    }
+    const locked = await login(app);
+    expect(locked.statusCode).toBe(429);
+    expect(locked.json().error.code).toBe('RATE_LIMITED');
+    expect(locked.json().error.message).toMatch(
+      /^Too many failed sign-in attempts\. Try again in \d+ minutes?\.$/,
+    );
+    expect(Number(locked.headers['retry-after'])).toBeGreaterThan(0);
+    expect(sessionCookieFrom(locked)).toBeUndefined();
+
+    await app.close();
+  });
+
+  it('keys the login rate limit on the real client behind a trusted proxy, not on the proxy', async () => {
+    const { app } = await setUp();
+
+    // 25 different visitors arriving through a reverse proxy on loopback
+    // (inject's own address). Each is one failure for its own identifier;
+    // none may be rate-limited for what the others did.
+    for (let i = 0; i < 25; i += 1) {
+      const response = await app.inject({
+        method: 'POST',
+        url: '/api/v1/auth/login',
+        headers: { 'x-forwarded-for': `198.51.100.${i + 1}` },
+        payload: { email: `visitor${i}@example.com`, password: 'wrong-password' },
+      });
+      expect(response.statusCode).toBe(401);
+    }
+
+    await app.close();
+  });
+
+  it('ignores X-Forwarded-For when TRUST_PROXY=false', async () => {
+    const { app } = await setUp({ env: { TRUST_PROXY: 'false' } });
+
+    let limited = 0;
+    for (let i = 0; i < 25; i += 1) {
+      const response = await app.inject({
+        method: 'POST',
+        url: '/api/v1/auth/login',
+        headers: { 'x-forwarded-for': `198.51.100.${i + 1}` },
+        payload: { email: `visitor${i}@example.com`, password: 'wrong-password' },
+      });
+      if (response.statusCode === 429) limited += 1;
+    }
+    expect(limited).toBeGreaterThan(0);
 
     await app.close();
   });

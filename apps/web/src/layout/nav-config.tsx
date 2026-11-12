@@ -1,5 +1,7 @@
 import type { LucideIcon } from 'lucide-react';
 import {
+  MailX,
+  UserCheck,
   Activity,
   Archive,
   BadgeCheck,
@@ -86,6 +88,8 @@ export const NAV_GROUPS: readonly NavGroup[] = [
       { to: '/security/email-auth', label: 'Email Authentication', icon: BadgeCheck },
       { to: '/security/tls', label: 'TLS', icon: Lock },
       { to: '/security/rspamd', label: 'Rspamd', icon: ShieldAlert },
+      { to: '/security/sender-lists', label: 'Sender Lists', icon: UserCheck },
+      { to: '/security/rejected-mail', label: 'Rejected Mail', icon: MailX },
       { to: '/security/clamav', label: 'ClamAV', icon: Bug },
       { to: '/security/fail2ban', label: 'Fail2ban', icon: Ban },
       { to: '/security/sieve', label: 'Sieve', icon: Filter },

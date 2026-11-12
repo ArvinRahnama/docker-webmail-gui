@@ -1,0 +1,30 @@
+#!/bin/sh
+# Docker Webmail GUI — docker-mailserver integration (docker/dms/README.md).
+#
+# Sieve pipe program called by report-ham.sieve / report-spam.sieve with
+#   <ham|spam> <user> <from-address> <client-ip>
+# It writes one fixed-format line to the mail log, where the panel collects
+# it. Every value is reduced to a conservative character set first: the
+# From address and IP come from the message, so they are attacker-supplied,
+# and a stray newline must never be able to forge a second log line.
+
+# Consume the message so Dovecot never sees a broken pipe.
+cat >/dev/null
+
+case "$1" in
+  ham | spam) action=$1 ;;
+  *) exit 0 ;;
+esac
+
+clean() {
+  printf '%s' "$1" | tr -cd 'A-Za-z0-9@._+=:-' | cut -c1-254
+}
+
+user=$(clean "$2")
+from=$(clean "$3")
+ip=$(clean "$4")
+
+[ -n "${user}" ] || exit 0
+
+exec /usr/bin/logger -p mail.info -t dwg-sender-report -- \
+  "action=${action} user=${user} ip=${ip:--} from=${from:--}"

@@ -95,6 +95,10 @@ export class RealRspamdClient implements RspamdClientPort {
     return this.getJson('/actions');
   }
 
+  async getHistory(): Promise<RspamdResult<unknown>> {
+    return this.getJson('/history');
+  }
+
   async learnSpam(message: string): Promise<RspamdResult<void>> {
     return this.postRaw('/learnspam', message);
   }

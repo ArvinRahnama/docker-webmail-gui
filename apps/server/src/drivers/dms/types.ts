@@ -32,6 +32,7 @@ import type { DkimZoneRecord } from './dkim-record.js';
 import type { Fail2banListResult } from './fail2ban-parser.js';
 import type { SieveScriptSummary } from './sieve-list-parser.js';
 import type { MailQueueEntry } from './parsers/postqueue.js';
+import type { SpamIntegrationStatus } from '@dwg/shared';
 import type {
   AddAliasParams,
   AddMailboxParams,
@@ -67,7 +68,7 @@ export type DkimRecordReadResult =
  * Result shape for every ClamAV **read** (`clamavPing`/`clamavVersion`/
  * `clamavStats`/`clamavLogTail`). Deliberately a soft `ok`/`reason` result
  * rather than a thrown error, unlike almost every other `DmsDriver` read —
- * an unreachable clamd (or a missing `socat`/log file) is an expected,
+ * an unreachable clamd (or a missing control socket/log file) is an expected,
  * routine runtime state the UI renders as "reachable: false"
  * (FEATURE_MATRIX.md §16), not a request the admin needs to fix, so it
  * must never surface as an HTTP 5xx via the global `DmsCommandExecutionError`
@@ -111,6 +112,8 @@ export interface DmsDriver {
   sieveList(user: string): Promise<readonly SieveScriptSummary[]>;
   /** `doveadm sieve get -u <user> <name>` — a script's current source. */
   sieveGet(user: string, name: string): Promise<string>;
+  /** Whether docker/dms/'s spam-filter integration is active in the mail container — the marker its install.sh writes only after a successful install. Never throws: an unreadable marker is "not installed". */
+  getSpamIntegration(): Promise<SpamIntegrationStatus>;
   /** `postqueue -j` (M11 — dashboard's "Mail queue" tile, FEATURE_MATRIX.md §1) — every queued message this call could parse, grouping is the caller's job (`parsers/postqueue.ts`'s own doc comment quotes the research doc on why). */
   getMailQueue(): Promise<ParseResult<MailQueueEntry>>;
 

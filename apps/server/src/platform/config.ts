@@ -136,8 +136,17 @@ export const CONFIG_ENV_KEYS = [
   'RSPAMD_PASSWORD',
   'ENABLE_EXEC_CONSOLE',
   'ENABLE_HSTS',
+  'TRUST_PROXY',
   'MCP_ENABLED',
 ] as const;
+
+/** `TRUST_PROXY`: `false`/`true` as booleans, anything else as Fastify's comma-separated address list. Empty means "trust nothing", the same as `false`. */
+export function parseTrustProxy(raw: string): boolean | string {
+  const value = raw.trim();
+  if (value === '' || value.toLowerCase() === 'false') return false;
+  if (value.toLowerCase() === 'true') return true;
+  return value;
+}
 
 const rawEnvSchema = z
   .object({
@@ -214,6 +223,7 @@ const rawEnvSchema = z
 
     ENABLE_EXEC_CONSOLE: booleanVar(false),
     ENABLE_HSTS: booleanVar(true),
+    TRUST_PROXY: stringVar('loopback,linklocal,uniquelocal'),
 
     // MCP integration (docs/mcp-integration.md), run inside this process —
     // on by default, and editable from the Configuration page. Off = no MCP
@@ -339,6 +349,18 @@ export interface AppConfig {
 
   readonly enableExecConsole: boolean;
   readonly enableHsts: boolean;
+
+  /**
+   * Which hops may set `X-Forwarded-For` (Fastify `trustProxy` syntax:
+   * `false`, `true`, or a comma-separated list of addresses, CIDRs and the
+   * `loopback`/`linklocal`/`uniquelocal` names). Without it, every request
+   * behind a reverse proxy carries the proxy's own address, so the login
+   * lockout's per-IP counter and `@fastify/rate-limit` count every visitor
+   * together and a bot hammering the login page locks the administrator
+   * out too. The default trusts the proxies a normal install has — one on
+   * the same host or on the Docker network — and nothing public.
+   */
+  readonly trustProxy: boolean | string;
 
   /**
    * The MCP integration (docs/mcp-integration.md), embedded in this
@@ -542,6 +564,7 @@ export function loadConfig(
     }),
     enableExecConsole: data.ENABLE_EXEC_CONSOLE,
     enableHsts: data.ENABLE_HSTS,
+    trustProxy: parseTrustProxy(data.TRUST_PROXY),
     mcp: Object.freeze({
       enabled: data.MCP_ENABLED,
     }),

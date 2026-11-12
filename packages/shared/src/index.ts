@@ -19,6 +19,7 @@ export * from './visibility.js';
 export * from './mail.js';
 export * from './security.js';
 export * from './antispam.js';
+export * from './spam-filter.js';
 export * from './sieve.js';
 export * from './docker.js';
 export * from './jobs.js';

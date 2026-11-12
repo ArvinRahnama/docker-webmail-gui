@@ -124,6 +124,9 @@ export const DMS_CONFIG_FILE_KEYS = [
   'dovecot-quotas',
   'postfix-send-access',
   'postfix-receive-access',
+  // Not a config file: the marker docker/dms/dwg/install.sh writes once the
+  // spam-filter integration is active inside the mail container.
+  'dwg-integration-version',
 ] as const;
 export type DmsConfigFileKey = (typeof DMS_CONFIG_FILE_KEYS)[number];
 export const DmsConfigFileKeySchema = z.enum(DMS_CONFIG_FILE_KEYS);

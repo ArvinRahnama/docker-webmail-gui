@@ -7,6 +7,8 @@
  * hands it to the port, never touching a shell, never assembling a string
  * (FEATURE_MATRIX.md §0 Rule 1 and ARCHITECTURE.md §5).
  */
+import { NOT_INSTALLED, parseSpamIntegrationMarker } from './spam-integration.js';
+import type { SpamIntegrationStatus } from '@dwg/shared';
 import {
   DmsAliasAddRequestSchema,
   DmsAliasDeleteRequestSchema,
@@ -108,6 +110,14 @@ export class RealDmsDriver implements DmsDriver {
     const record = parseDkimZoneFile(content, domain, selector);
     if (record === null) return { ok: false, reason: 'unparseable' };
     return { ok: true, record };
+  }
+
+  async getSpamIntegration(): Promise<SpamIntegrationStatus> {
+    try {
+      return parseSpamIntegrationMarker(await this.execPort.readFile('dwg-integration-version'));
+    } catch {
+      return NOT_INSTALLED;
+    }
   }
 
   async getSslType(): Promise<string | null> {

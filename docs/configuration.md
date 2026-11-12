@@ -56,6 +56,17 @@ Pick one:
 plain LAN install with no proxy. Set it to `127.0.0.1` when a reverse
 proxy on the same host is the only thing that should reach it.
 
+### `TRUST_PROXY` — seeing the visitor's real address
+
+The login lockout and rate limit are keyed on the visitor's IP. Behind a
+reverse proxy every request arrives from the proxy, so unless the proxy is
+trusted to pass on the real address (`X-Forwarded-For`), all visitors share
+one counter — and bots failing to sign in lock the administrator out as
+well. The default, `loopback,linklocal,uniquelocal`, trusts a proxy on the
+same host or on a private/Docker network and nothing public. If the panel's
+port is reachable directly by machines you do not trust on a private
+network, set `TRUST_PROXY=false`, since those could then claim any address.
+
 ### `DMS_CONTAINER_NAME` / `DMS_CONTAINER_LABEL` — finding your mail server
 
 This project does **not** deploy `docker-mailserver`; it manages one that

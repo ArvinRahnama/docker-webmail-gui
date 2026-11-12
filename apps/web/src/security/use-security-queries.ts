@@ -7,6 +7,8 @@ import type {
   GenerateDkimRequest,
   PropagationRecordType,
   UpdateAutoresponderRequest,
+  AddSenderListEntryRequest,
+  RemoveSenderListEntryRequest,
 } from '@dwg/shared';
 import {
   activateSieveScript,
@@ -33,6 +35,12 @@ import {
   triggerClamavUpdate,
   unbanFail2banIp,
   updateAutoresponder,
+  addSenderListEntry,
+  fetchRejectedMail,
+  fetchSenderLists,
+  fetchSenderReports,
+  fetchSpamIntegration,
+  removeSenderListEntry,
 } from '@/lib/security-api';
 
 export const emailAuthReportKey = (domain: string, selector: string) =>
@@ -299,4 +307,67 @@ export function useUpdateAutoresponderMutation(user: string) {
       void queryClient.invalidateQueries({ queryKey: sieveScriptsKey(user) });
     },
   });
+}
+
+// ---------------------------------------------------------------------------
+// Spam filter — sender lists, user reports, rejected mail
+// ---------------------------------------------------------------------------
+
+export const spamIntegrationKey = ['security', 'spam-filter', 'integration'] as const;
+export const senderListsKey = (mailbox: string) =>
+  ['security', 'spam-filter', 'sender-lists', mailbox] as const;
+export const senderReportsKey = (mailbox: string | null) =>
+  ['security', 'spam-filter', 'reports', mailbox ?? '*'] as const;
+export const rejectedMailKey = ['security', 'spam-filter', 'rejected'] as const;
+
+export function useSpamIntegrationQuery() {
+  return useQuery({ queryKey: spamIntegrationKey, queryFn: fetchSpamIntegration });
+}
+
+export function useSenderListsQuery(mailbox: string) {
+  return useQuery({
+    queryKey: senderListsKey(mailbox),
+    queryFn: () => fetchSenderLists(mailbox),
+    enabled: mailbox.length > 0,
+  });
+}
+
+export function useSenderReportsQuery(mailbox: string | null) {
+  return useQuery({
+    queryKey: senderReportsKey(mailbox),
+    queryFn: () => fetchSenderReports(mailbox),
+    // Reports arrive in the background (the collector runs every minute).
+    refetchInterval: 60_000,
+  });
+}
+
+export function useRejectedMailQuery() {
+  return useQuery({
+    queryKey: rejectedMailKey,
+    queryFn: fetchRejectedMail,
+    refetchInterval: 60_000,
+  });
+}
+
+function useSenderListMutation<Input>(
+  mailbox: string,
+  mutationFn: (mailbox: string, input: Input) => ReturnType<typeof fetchSenderLists>,
+) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: Input) => mutationFn(mailbox, input),
+    onSuccess: (data) => {
+      queryClient.setQueryData(senderListsKey(mailbox), data);
+      // The list is stored as a Sieve script, which the mailbox's Sieve page also lists.
+      void queryClient.invalidateQueries({ queryKey: sieveScriptsKey(mailbox) });
+    },
+  });
+}
+
+export function useAddSenderListEntryMutation(mailbox: string) {
+  return useSenderListMutation<AddSenderListEntryRequest>(mailbox, addSenderListEntry);
+}
+
+export function useRemoveSenderListEntryMutation(mailbox: string) {
+  return useSenderListMutation<RemoveSenderListEntryRequest>(mailbox, removeSenderListEntry);
 }

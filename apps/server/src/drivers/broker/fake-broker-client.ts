@@ -58,6 +58,8 @@ const FIXTURE_DMS_CONFIG_FILES: Record<DmsConfigFileKey, string> = {
   'dovecot-quotas': FIXTURE_DOVECOT_QUOTAS_CF,
   'postfix-send-access': FIXTURE_POSTFIX_SEND_ACCESS_CF,
   'postfix-receive-access': FIXTURE_POSTFIX_RECEIVE_ACCESS_CF,
+  // Development mode behaves like a mail server with docker/dms/ installed.
+  'dwg-integration-version': '1\n',
 };
 import {
   FIXTURE_CONSOLE_OUTPUTS,

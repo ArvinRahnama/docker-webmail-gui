@@ -35,6 +35,8 @@ export const AUDIT_ACTIONS = [
   'auth.logout',
   'auth.password_change',
   'admin.bootstrap_created',
+  // `cli/reset-admin-password.ts`, run by the operator with `docker exec`.
+  'admin.password_reset_cli',
   'admin.create',
   'admin.update',
   'admin.delete',
@@ -64,6 +66,12 @@ export const AUDIT_ACTIONS = [
   'sieve.script_activate',
   'sieve.script_deactivate',
   'autoresponder.update',
+  // Per-mailbox sender allow/block lists (docker/dms/README.md). `_add` and
+  // `_remove` are an administrator's own edits; `_report` is a change made
+  // automatically because the mailbox's user moved mail into or out of Junk.
+  'sender_list.add',
+  'sender_list.remove',
+  'sender_list.report',
   // M9 — Docker & observability (FEATURE_MATRIX.md §24-26, §32). One
   // action per broker write the Docker modules expose — matching the
   // exact operation names in `@dwg/shared`'s `BROKER_OPERATIONS` so an

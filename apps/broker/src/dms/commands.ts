@@ -348,34 +348,36 @@ export function buildFail2banStatusCommand(): CommandResult {
 // ---------------------------------------------------------------------------
 
 /**
- * Default clamd control-socket path for the Debian `clamav-daemon` package
- * docker-mailserver installs under `ENABLE_CLAMAV=1`
- * (`docs/research/03-mail-stack-components.md` §2) — `[INFERRED]`, not
- * independently confirmed against a live image this session. If a real
- * deployment uses a different path, this constant is the one place to fix
- * it; nothing downstream hardcodes the path a second time.
+ * clamd's control socket under docker-mailserver's `ENABLE_CLAMAV=1`
+ * (`LocalSocket` in `/etc/clamav/clamd.conf`). Confirmed against
+ * docker-mailserver 16 (ClamAV 1.4.3) on 2026-11-12. If a deployment
+ * differs, this constant is the one place to fix it.
  */
 const CLAMD_SOCKET_PATH = '/var/run/clamav/clamd.ctl';
 
 // ClamdVerb is `@dwg/shared`'s closed enum — imported above, not redeclared.
 
 /**
- * Sends one clamd control-socket command and reads the reply, via `socat`
- * piping the command over **stdin** — never an argv element, and never a
- * shell pipe (★3 / SECURITY.md §3.2). The research doc's own worked example
- * is the shell one-liner `echo VERSION | socat - UNIX-CONNECT:...`; this
- * reproduces the same two-process shape without `sh -c` by reusing the
- * exact stdin channel `commands.ts` already pipes a password through
- * elsewhere in this module. `socat`'s presence in the image is
- * `[UNCERTAIN]` (research doc names it as the practical example, but this
- * session could not confirm it against a live container) — a missing
- * binary simply fails the exec with a non-zero exit, which the driver
- * surfaces as a normal "unreachable" state, never a crash. `verb` is a
- * closed union, never caller-supplied text, so there is nothing here for a
- * validator to reject.
+ * Sends one clamd control-socket command and reads the reply, via
+ * OpenBSD `nc -N -U` with the command on **stdin** — never an argv element,
+ * and never a shell pipe (★3 / SECURITY.md §3.2): the same stdin channel
+ * this module already pipes a password through elsewhere.
+ *
+ * Why `nc` and not `socat`: docker-mailserver does not install `socat`
+ * (FEATURE_MATRIX.md's runtime-verification item 7), so the earlier
+ * `socat` transport left ClamAV permanently `Unknown` on every stock
+ * image. `netcat-openbsd` *is* in the image; `-U` connects to a unix
+ * socket and `-N` half-closes after stdin's EOF so clamd's reply is read
+ * to the end. Verified against docker-mailserver 16: `nPING` -> `PONG`,
+ * `nVERSION` -> `ClamAV 1.4.3/28109/...`, `nSTATS` -> the pool dump.
+ *
+ * The `n` prefix is clamd's newline-delimited command form. ClamAV 1.4
+ * answers a bare `STATS` with `UNKNOWN COMMAND`; the prefixed form works
+ * for all three verbs. `verb` is a closed union, never caller-supplied
+ * text, so there is nothing here for a validator to reject.
  */
 export function buildClamdCommand(verb: ClamdVerb): CommandResult {
-  return ok(['socat', '-', `UNIX-CONNECT:${CLAMD_SOCKET_PATH}`], `${verb}\n`);
+  return ok(['nc', '-N', '-U', CLAMD_SOCKET_PATH], `n${verb}\n`);
 }
 
 /** `freshclam` — triggers a signature database update (FEATURE_MATRIX.md §16: "a real operation, offered with confirmation and rate limiting"). No arguments, so there is nothing to validate. */

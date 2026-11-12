@@ -69,6 +69,10 @@ import { SieveService } from './modules/security/sieve.service.js';
 import { registerSieveRoutes } from './modules/security/sieve.routes.js';
 import { AutoresponderService } from './modules/security/autoresponder.service.js';
 import { registerAutoresponderRoutes } from './modules/security/autoresponder.routes.js';
+import { SenderListsService } from './modules/security/sender-lists.service.js';
+import { RejectedMailService } from './modules/security/rejected-mail.service.js';
+import { startSenderReportCollector } from './modules/security/sender-report-collector.js';
+import { registerSpamFilterRoutes } from './modules/security/spam-filter.routes.js';
 import { createBrokerClient, type BrokerClient } from './drivers/broker/index.js';
 import { ContainersService } from './modules/docker/containers.service.js';
 import { registerContainersRoutes } from './modules/docker/containers.routes.js';
@@ -187,6 +191,8 @@ export interface BuildAppOptions {
   readonly selfUpdateReleaseSource?: SelfUpdateReleaseSourcePort;
   /** Same override rationale as `rspamdSampleIntervalMs` — the default is long enough never to fire during a test's lifetime. */
   readonly notificationsEvaluateIntervalMs?: number;
+  /** Cadence for picking up users' spam / not-spam reports from the mail log (`sender-report-collector.ts`). Tests omit it; the default is long enough never to fire during a test's lifetime. */
+  readonly senderReportCollectIntervalMs?: number;
   /** Cadence for the scheduled-backup tick (M13). Tests omit it; the default checks often enough to fire a due backup promptly, but every tick is a no-op unless a schedule is enabled. */
   readonly backupSchedulerIntervalMs?: number;
   /** Cadence for the background remote-reconcile sweep (M13). Same override rationale; a no-op unless a destination is configured and auto-upload is on. */
@@ -336,6 +342,10 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     // in-process counter.
     requestIdHeader: REQUEST_ID_HEADER,
     genReqId: () => generateId('req'),
+    // `request.ip` is the client's real address only if the reverse proxy
+    // in front is trusted to say so (`TRUST_PROXY`, config.ts). The login
+    // lockout and rate limit are keyed on it.
+    trustProxy: config.trustProxy,
   });
 
   // Whoever created the database is who closes it: index.ts owns and
@@ -438,6 +448,19 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   // `sieveService`'s own put/activate/deactivate — see that service's doc
   // comment for why there is no separate persistence layer.
   const autoresponderService = new AutoresponderService(dmsDriver);
+
+  // Spam filtering beyond Rspamd's controls (docker/dms/README.md): each
+  // mailbox's sender allow/block lists, kept up to date from its users'
+  // spam / not-spam reports, and the list of mail the server rejected.
+  const senderListsService = new SenderListsService(dmsDriver, db);
+  const rejectedMailService = new RejectedMailService(brokerClient, rspamdClient, dmsDriver);
+  const senderReportCollector = startSenderReportCollector(
+    { db, brokerClient, senderListsService, logger },
+    options.senderReportCollectIntervalMs,
+  );
+  app.addHook('onClose', () => {
+    senderReportCollector.stop();
+  });
 
   // M9 — Docker & observability (FEATURE_MATRIX.md §24-26, §32). The one
   // `BrokerClient` these modules share is constructed above, before the
@@ -602,6 +625,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   await registerClamavRoutes(app, { db, clamavService, middleware });
   await registerSieveRoutes(app, { db, sieveService, middleware });
   await registerAutoresponderRoutes(app, { db, autoresponderService, middleware });
+  await registerSpamFilterRoutes(app, { db, senderListsService, rejectedMailService, middleware });
   await registerContainersRoutes(app, { db, containersService, middleware });
   await registerImagesRoutes(app, { db, imagesService, middleware });
   await registerVolumesRoutes(app, { db, volumesService, middleware });

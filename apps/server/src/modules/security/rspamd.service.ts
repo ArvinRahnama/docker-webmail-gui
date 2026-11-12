@@ -90,6 +90,15 @@ export class RspamdService {
 
   async setActionThreshold(action: string, score: number): Promise<void> {
     await this.assertSupported();
+    if (action === 'reject' && (await this.dmsDriver.getSpamIntegration()).installed) {
+      // The integration's whole promise is that spam is filed in Junk, never
+      // refused (docker/dms/README.md). A dynamic reject threshold set here
+      // would quietly break it, so it is refused while the integration is on.
+      throw new AppError(
+        'CONFLICT',
+        'Spam is never rejected on this server: the spam-filter integration files it in Junk instead. A reject threshold cannot be set while it is installed.',
+      );
+    }
     const result = await this.client.saveActionThreshold(action, score);
     if (!result.ok) throw new AppError('UPSTREAM_UNAVAILABLE', result.error);
   }

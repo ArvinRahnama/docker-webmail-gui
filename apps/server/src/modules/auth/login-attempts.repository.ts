@@ -61,6 +61,26 @@ export class LoginAttemptsRepository {
     return row?.n ?? 0;
   }
 
+  /** Timestamps of one identifier's failures at or after `since`, newest first — what the lockout's release time is computed from. */
+  recentFailuresForIdentifierSince(identifier: string, since: string): string[] {
+    return this.db
+      .all<{ attempted_at: string }>(
+        'SELECT attempted_at FROM login_attempts WHERE identifier = ? AND success = 0 AND attempted_at >= ? ORDER BY attempted_at DESC',
+        [identifier, since],
+      )
+      .map((row) => row.attempted_at);
+  }
+
+  /** Timestamps of one address's failures at or after `since`, newest first. */
+  recentFailuresForIpSince(ipAddress: string, since: string): string[] {
+    return this.db
+      .all<{ attempted_at: string }>(
+        'SELECT attempted_at FROM login_attempts WHERE ip_address = ? AND success = 0 AND attempted_at >= ? ORDER BY attempted_at DESC',
+        [ipAddress, since],
+      )
+      .map((row) => row.attempted_at);
+  }
+
   /**
    * Clears the failure history for an identifier after a successful
    * login.

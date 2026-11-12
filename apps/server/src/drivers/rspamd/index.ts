@@ -9,3 +9,4 @@ export { createRspamdClient } from './create-client.js';
 export { parseRspamdStat } from './parse-stat.js';
 export { parseRspamdSymbols, type RspamdSymbolsParseResult } from './parse-symbols.js';
 export { parseRspamdActions, type RspamdActionsParseResult } from './parse-actions.js';
+export { parseRspamdHistory, type RspamdHistoryRow } from './parse-history.js';

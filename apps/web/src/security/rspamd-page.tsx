@@ -40,7 +40,9 @@ import {
   useRspamdTrendQuery,
   useSetRspamdActionThresholdMutation,
   useSetRspamdSymbolScoreMutation,
+  useSpamIntegrationQuery,
 } from './use-security-queries';
+import { SpamIntegrationNotice } from './spam-integration-notice';
 
 /** A name + current score + an inline, only-enabled-when-changed Save — reused for both action thresholds and symbol scores, the two rows FEATURE_MATRIX.md §15 allows editing at all. */
 function EditableScoreRow({
@@ -231,6 +233,7 @@ function SymbolScoresCard({ symbols }: { readonly symbols: readonly RspamdSymbol
 export function RspamdPage() {
   const statusQuery = useRspamdStatusQuery();
   const trendQuery = useRspamdTrendQuery();
+  const integrationQuery = useSpamIntegrationQuery();
   const learnSpamMutation = useLearnRspamdSpamMutation();
   const learnHamMutation = useLearnRspamdHamMutation();
   const [learnMessage, setLearnMessage] = useState('');
@@ -279,6 +282,7 @@ export function RspamdPage() {
         title="Rspamd"
         description="Spam filtering — live statistics, action thresholds, symbol scores, and Bayes training."
       />
+      <SpamIntegrationNotice integration={integrationQuery.data} />
 
       <Card>
         <CardHeader className="flex-row items-center justify-between gap-2 space-y-0">

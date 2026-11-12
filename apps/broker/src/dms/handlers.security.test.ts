@@ -80,6 +80,12 @@ describe('dms.file.read — a symbolic key, never a path', () => {
       const [call] = calls;
       expect(call).toBeDefined();
       expect(call?.argv[0]).toBe('cat');
+      if (file === 'dwg-integration-version') {
+        // The one key that is not a config file: the spam-filter
+        // integration's own marker, at one fixed path (docker/dms/dwg/install.sh).
+        expect(call?.argv[1]).toBe('/etc/dovecot/dwg-integration-version');
+        continue;
+      }
       expect(call?.argv[1]).toMatch(/^\/tmp\/docker-mailserver\/[a-z-]+\.cf$/);
     }
   });

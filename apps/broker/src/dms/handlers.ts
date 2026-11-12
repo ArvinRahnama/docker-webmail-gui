@@ -86,6 +86,10 @@ const DMS_CONFIG_FILE_PATHS: Record<DmsConfigFileKey, string> = {
   'dovecot-quotas': `${DMS_CONFIG_DIR}/dovecot-quotas.cf`,
   'postfix-send-access': `${DMS_CONFIG_DIR}/postfix-send-access.cf`,
   'postfix-receive-access': `${DMS_CONFIG_DIR}/postfix-receive-access.cf`,
+  // Written by docker/dms/dwg/install.sh inside the container (not in the
+  // config volume) only once the integration actually installed — so it
+  // reflects what is running, not merely what was copied in.
+  'dwg-integration-version': '/etc/dovecot/dwg-integration-version',
 };
 
 /**

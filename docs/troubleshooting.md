@@ -40,6 +40,31 @@ daemon is not running, or your user is not in the `docker` group. Adding
 yourself to that group is equivalent to granting root — that is the same
 fact this whole project is built around.
 
+**"Incorrect email or password" with the password you are sure of.** The
+login page never says which part was wrong, by design. The usual causes:
+the password was changed and forgotten; `BOOTSTRAP_ADMIN_PASSWORD` was
+edited in `.env` after the first start (it is applied only once, when no
+administrator exists yet); or the bootstrap password contained a `$`, which
+Docker Compose's `.env` interpolation removed, so the stored password was
+never the one in the file. The server log says if bootstrap refused to
+create the administrator at all. Whatever the cause, reset it from the
+host:
+
+```sh
+docker exec dwg-server node apps/server/dist/cli/reset-admin-password.js admin@example.com
+```
+
+It prints a new password (you choose your own at the next sign-in),
+re-enables the account, signs out its sessions and clears the lockout. If
+no administrator exists yet, it creates that one.
+
+**"Too many failed sign-in attempts. Try again in N minutes."** Ten failures
+for one address, or thirty from one IP, within 15 minutes. It lifts on its
+own; retrying meanwhile does not extend it. Behind a reverse proxy, check
+`TRUST_PROXY` ([`configuration.md`](configuration.md)) — otherwise every
+visitor counts as the proxy, and strangers' failures lock you out too. The
+reset command above also clears it.
+
 **Login appears to succeed and then bounces back to the login page.**
 Almost always `COOKIE_SECURE=true` over plain HTTP on a non-localhost
 address. See [`configuration.md`](configuration.md).
@@ -61,15 +86,15 @@ differs from the one that was tested.
 [`FEATURE_MATRIX.md`](../FEATURE_MATRIX.md)'s "Deferred to runtime
 verification" table is the authoritative list; in operator terms:
 
-| If you see                                                 | The likely cause                                                                                                                                                                                                                 |
-| ---------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Mailbox or storage usage as `Unknown` rather than a number | `doveadm -f json quota get`'s key casing or units did not match. It reports `Unknown` rather than a guessed figure.                                                                                                              |
-| ClamAV shown as `Unknown`                                  | **Expected on a stock image.** clamd's control socket is reached through `socat`, which docker-mailserver does not install — confirmed against v15.1.0. Detected at runtime and reported honestly rather than failing obscurely. |
-| A ClamAV version shown as a raw string                     | The `VERSION` string format was not as documented, so it is displayed verbatim rather than parsed.                                                                                                                               |
-| The Fail2ban page showing raw command output               | `setup fail2ban status`'s output shape differed from the documented one. Raw output beats invented structure.                                                                                                                    |
-| DKIM key path or status as `Unknown`                       | The key path under `ENABLE_RSPAMD=1` is detected at runtime rather than assumed.                                                                                                                                                 |
-| A spam statistic missing rather than zero                  | Rspamd `/stat` field names are bound defensively; only confirmed fields render.                                                                                                                                                  |
-| Restriction status not reflecting a restriction you set    | `postfix-{send,receive}-access.cf`'s exact line format was parsed as standard Postfix `access(5)` syntax, unconfirmed against a real sample.                                                                                     |
+| If you see                                                 | The likely cause                                                                                                                                                                                                                                                                |
+| ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Mailbox or storage usage as `Unknown` rather than a number | `doveadm -f json quota get`'s key casing or units did not match. It reports `Unknown` rather than a guessed figure.                                                                                                                                                             |
+| ClamAV shown as `Unknown`                                  | `ENABLE_CLAMAV=1` is not set in docker-mailserver, or clamd is still loading its signatures (a minute or so after start). The status check uses the image's own `nc`; earlier releases used `socat`, which docker-mailserver does not install, so they always showed `Unknown`. |
+| A ClamAV version shown as a raw string                     | The `VERSION` string format was not as documented, so it is displayed verbatim rather than parsed.                                                                                                                                                                              |
+| The Fail2ban page showing raw command output               | `setup fail2ban status`'s output shape differed from the documented one. Raw output beats invented structure.                                                                                                                                                                   |
+| DKIM key path or status as `Unknown`                       | The key path under `ENABLE_RSPAMD=1` is detected at runtime rather than assumed.                                                                                                                                                                                                |
+| A spam statistic missing rather than zero                  | Rspamd `/stat` field names are bound defensively; only confirmed fields render.                                                                                                                                                                                                 |
+| Restriction status not reflecting a restriction you set    | `postfix-{send,receive}-access.cf`'s exact line format was parsed as standard Postfix `access(5)` syntax, unconfirmed against a real sample.                                                                                                                                    |
 
 None of these are failures of the panel so much as honest reporting of
 the limit of what it knows. If you hit one against a real DMS, that is
@@ -91,6 +116,20 @@ the broker's socket instead. The installer joins the `server` container
 to your DMS container's network automatically. If it could not, connect
 it by hand — see [`docker.md`](docker.md) §3 — or set `RSPAMD_PASSWORD`
 if the controller requires one.
+
+## Spam filter
+
+**Spam is still rejected / Junk moves change nothing.** The mail-server half
+is not installed; Security → Sender Lists says so. Run
+`./installer/install-dms-integration.sh` ([`../docker/dms/README.md`](../docker/dms/README.md)).
+If it is installed but spam is still rejected, look for
+`rspamd/override.d/actions.conf` in docker-mailserver's config directory
+setting `reject` — an operator override wins, and the container log warns
+about it at start.
+
+**A report did not show up.** Reports are read from the mail log once a
+minute. Moving mail to Trash is deliberately not a report. Moves made while
+the integration was not installed are not recorded anywhere.
 
 ## MCP connections
 

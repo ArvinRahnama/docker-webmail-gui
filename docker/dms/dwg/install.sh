@@ -66,10 +66,12 @@ compile_global() {
 install_common_scripts() {
   local pipe_dir=$1
   mkdir -p "${pipe_dir}" || { warn 'could not create the Sieve pipe directory'; return 1; }
-  install -m 0644 "${SRC_DIR}/report-ham.sieve" "${pipe_dir}/dwg-report-ham.sieve" &&
+  if ! { install -m 0644 "${SRC_DIR}/report-ham.sieve" "${pipe_dir}/dwg-report-ham.sieve" &&
     install -m 0644 "${SRC_DIR}/report-spam.sieve" "${pipe_dir}/dwg-report-spam.sieve" &&
-    install -m 0755 "${SRC_DIR}/sender-report" "${pipe_dir}/dwg-sender-report" ||
-    { warn 'could not install the Sieve report scripts'; return 1; }
+    install -m 0755 "${SRC_DIR}/sender-report" "${pipe_dir}/dwg-sender-report"; }; then
+    warn 'could not install the Sieve report scripts'
+    return 1
+  fi
   compile_global "${pipe_dir}/dwg-report-ham.sieve" "${pipe_dir}/dwg-report-spam.sieve"
 }
 
@@ -114,6 +116,7 @@ install_sieve_23() {
   local sieve_dir
   sieve_dir=$(doveconf -h plugin/sieve_dir 2>/dev/null || true)
   # Dovecot's own `~` (the mailbox's home), not the shell's: keep it literal.
+  # shellcheck disable=SC2088 # Dovecot expands this ~, per mailbox.
   [[ -n ${sieve_dir} ]] || sieve_dir='~/sieve'
   local -a after=()
   local i=1 key value
@@ -196,6 +199,7 @@ install_sieve_23() {
     echo '}'
     if [[ ${imap_plugins} != *imap_sieve* ]]; then
       echo 'protocol imap {'
+      # shellcheck disable=SC2016 # Dovecot's own $mail_plugins, written literally.
       echo '  mail_plugins = $mail_plugins imap_sieve'
       echo '}'
     fi

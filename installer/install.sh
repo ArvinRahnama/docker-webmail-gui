@@ -55,6 +55,9 @@ SCRIPT_DIR=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 REPO_ROOT=$(CDPATH='' cd -- "${SCRIPT_DIR}/.." && pwd)
 COMPOSE_FILE="${REPO_ROOT}/docker/compose.yaml"
 MCP_COMPOSE_FILE="${REPO_ROOT}/docker/compose.mcp.yaml"
+# An operator's own additions (another network for a reverse proxy, extra
+# labels, ...). Never part of this repository; see dc() below.
+OVERRIDE_COMPOSE_FILE="${REPO_ROOT}/docker/compose.override.yaml"
 ENV_FILE="${REPO_ROOT}/.env"
 
 log() { printf '%s\n' "$*"; }
@@ -67,13 +70,28 @@ die() {
 # Every `docker compose` call goes through this, so the MCP overlay is either
 # on all of them or on none (MCP_ENABLED is resolved in step 6, before the
 # first call).
+#
+# docker/compose.override.yaml, when the operator has one, is applied last,
+# exactly as a plain `docker compose` run from docker/ would apply it. This
+# script names its files with -f, which turns Compose's own automatic
+# pickup of the override off — so before this, re-running the installer
+# recreated the containers without the operator's additions, and a panel
+# reached through a reverse proxy on an extra network silently dropped off
+# that network (and off the mail server's, losing Rspamd).
 dc() {
-  if [ "${MCP_ENABLED}" = "true" ]; then
-    docker compose -f "${COMPOSE_FILE}" -f "${MCP_COMPOSE_FILE}" --env-file "${ENV_FILE}" "$@"
-  else
-    docker compose -f "${COMPOSE_FILE}" --env-file "${ENV_FILE}" "$@"
+  set -- --env-file "${ENV_FILE}" "$@"
+  if [ -f "${OVERRIDE_COMPOSE_FILE}" ]; then
+    set -- -f "${OVERRIDE_COMPOSE_FILE}" "$@"
   fi
+  if [ "${MCP_ENABLED}" = "true" ]; then
+    set -- -f "${MCP_COMPOSE_FILE}" "$@"
+  fi
+  docker compose -f "${COMPOSE_FILE}" "$@"
 }
+
+if [ -f "${OVERRIDE_COMPOSE_FILE}" ]; then
+  log "Including your docker/compose.override.yaml in every docker compose call."
+fi
 
 # ---------------------------------------------------------------------------
 # 1. Detect OS and architecture. Linux only, for now — the DOCKER_GID

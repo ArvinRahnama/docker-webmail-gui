@@ -11,6 +11,21 @@ version and are called out explicitly here.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Re-running `installer/install.sh` dropped `docker/compose.override.yaml`.**
+  The installer names its Compose files with `-f`, which turns off
+  Compose's own pickup of the override, so an update recreated the panel
+  without the operator's additions — a panel joined to a reverse proxy's
+  network (Traefik) became unreachable, and one joined to the mail
+  server's network lost Rspamd. The installer now applies the override
+  last on every call when it exists, and says so. The file is now
+  git-ignored, and `docs/docker.md` documents it.
+
+### Changed
+
+- CI shellchecks the docker-mailserver integration scripts too.
+
 ## [1.3.2] - 2026-11-12
 
 ### Fixed

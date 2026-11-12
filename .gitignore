@@ -81,3 +81,6 @@ desktop.ini
 
 # Generated knowledge graph (regenerable via the graphify skill; ~4MB)
 graphify-out/
+
+# An operator's own Compose additions (installer/install.sh applies it).
+docker/compose.override.yaml

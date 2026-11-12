@@ -184,11 +184,12 @@ jobs:
           docker network create dms-placeholder-net
           docker run -d --name mailserver --network dms-placeholder-net --label com.docker-webmail-gui.role=mail alpine:3.20 sleep infinity
 
-      - name: shellcheck installer/*.sh
+      - name: shellcheck installer/*.sh and the docker-mailserver integration
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq shellcheck
-          shellcheck --shell=sh installer/install.sh installer/uninstall.sh
+          shellcheck --shell=sh installer/install.sh installer/uninstall.sh installer/install-dms-integration.sh docker/dms/dwg/sender-report
+          shellcheck docker/dms/dwg/install.sh
 
       - name: Validate docker/compose.yaml and the MCP overlay (static config check, no daemon needed)
         run: |

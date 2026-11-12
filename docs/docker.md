@@ -161,6 +161,27 @@ the panel is not reachable from the LAN on plain HTTP at all, and
 `COOKIE_SECURE=true` becomes correct rather than a lockout (§2). Either
 way `install.sh` carries the value forward on every re-run.
 
+### `docker/compose.override.yaml` — your own additions
+
+For anything this project's files do not cover — joining a reverse
+proxy's own Docker network (Traefik's, say) or the mail server's, extra
+labels — put it in `docker/compose.override.yaml`. It is yours: git ignores
+it, and `install.sh` applies it last on every `docker compose` call,
+exactly as Compose itself would. For example, to let a Traefik container on
+an external `proxy` network reach the panel:
+
+```yaml
+services:
+  server:
+    networks: [frontend, broker, proxy]
+networks:
+  proxy:
+    external: true
+```
+
+When you run Compose by hand, name it too, after the project's files:
+`docker compose -f docker/compose.yaml -f docker/compose.mcp.yaml -f docker/compose.override.yaml --env-file .env up -d`.
+
 ### What the images themselves are checked for
 
 Two of the rows above are properties of the _image_, not of how it is run,

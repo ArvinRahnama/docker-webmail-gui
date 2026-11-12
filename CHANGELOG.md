@@ -11,6 +11,8 @@ version and are called out explicitly here.
 
 ## [Unreleased]
 
+## [1.3.2] - 2026-11-12
+
 ### Fixed
 
 - **The spam-filter integration now works on docker-mailserver 15 (Dovecot
@@ -1092,7 +1094,8 @@ document set rather than a product.
   will be called out here. Pin the exact image version rather than a
   floating tag — see `docs/docker.md`.
 
-[Unreleased]: https://github.com/ArvinRahnama/docker-webmail-gui/compare/v1.3.1...HEAD
+[Unreleased]: https://github.com/ArvinRahnama/docker-webmail-gui/compare/v1.3.2...HEAD
+[1.3.2]: https://github.com/ArvinRahnama/docker-webmail-gui/compare/v1.3.1...v1.3.2
 [1.3.1]: https://github.com/ArvinRahnama/docker-webmail-gui/compare/v1.3.0...v1.3.1
 [1.3.0]: https://github.com/ArvinRahnama/docker-webmail-gui/compare/v1.2.1...v1.3.0
 [1.2.1]: https://github.com/ArvinRahnama/docker-webmail-gui/compare/v1.2.0...v1.2.1

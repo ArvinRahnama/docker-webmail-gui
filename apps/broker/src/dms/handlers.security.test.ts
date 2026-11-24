@@ -302,3 +302,18 @@ describe('dms.dkim.record.read — the public record only', () => {
     expect(code).toContain('handleDmsDkimRecordRead');
   });
 });
+
+describe('dms.fail2ban.allowlist', () => {
+  it('runs fixed code with a validated IP and refuses an option in its place', async () => {
+    const { deps, calls } = harness();
+    const operation = 'dms.fail2ban.allowlist';
+    await expect(
+      handleDmsCommand({ operation, change: { action: 'add', ip: '--help' } }, deps),
+    ).rejects.toMatchObject({ code: 'VALIDATION_FAILED' });
+    expect(calls).toHaveLength(0);
+
+    await handleDmsCommand({ operation, change: { action: 'add', ip: '2001:db8::53' } }, deps);
+    expect(calls[0]?.argv).toEqual(['python3', '-', 'add', '2001:db8::53']);
+    expect(calls[0]?.stdin).not.toContain('2001:db8::53');
+  });
+});

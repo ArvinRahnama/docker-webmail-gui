@@ -62,6 +62,8 @@ export const AUDIT_ACTIONS = [
   'clamav.signature_update',
   'fail2ban.ban',
   'fail2ban.unban',
+  'fail2ban.allowlist.add',
+  'fail2ban.allowlist.remove',
   'sieve.script_update',
   'sieve.script_activate',
   'sieve.script_deactivate',

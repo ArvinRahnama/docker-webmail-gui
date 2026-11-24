@@ -39,6 +39,16 @@ export class Fail2banService {
     return { capability: capabilities.fail2ban, bannedIps: [...list.bannedIps], rawStatus };
   }
 
+  async getAllowlist(): Promise<string[]> {
+    await this.assertSupported();
+    return this.dmsDriver.fail2banAllowlist();
+  }
+
+  async changeAllowlist(action: 'add' | 'remove', ip: string): Promise<void> {
+    await this.assertSupported();
+    await this.dmsDriver.changeFail2banAllowlist(action, ip);
+  }
+
   private async assertSupported(): Promise<void> {
     const capabilities = await this.dmsDriver.getCapabilities();
     if (!capabilities.fail2ban.supported) {

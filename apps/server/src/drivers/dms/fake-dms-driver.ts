@@ -25,6 +25,7 @@ import {
   DmsEmailDeleteRequestSchema,
   DmsEmailRestrictRequestSchema,
   DmsEmailUpdateRequestSchema,
+  DmsFail2banAllowlistRequestSchema,
   DmsFail2banBanRequestSchema,
   DmsFail2banUnbanRequestSchema,
   DmsQuotaDeleteRequestSchema,
@@ -428,6 +429,25 @@ export class FakeDmsDriver implements DmsDriver {
   async fail2banUnban(params: Fail2banIpParams): Promise<void> {
     assertValid(DmsFail2banUnbanRequestSchema, { operation: 'dms.fail2ban.unban', ...params });
     this.bannedIps.delete(params.ip);
+  }
+
+  private readonly allowedIps = new Set<string>();
+
+  async fail2banAllowlist(): Promise<string[]> {
+    return [...this.allowedIps].sort();
+  }
+
+  async changeFail2banAllowlist(action: 'add' | 'remove', ip: string): Promise<void> {
+    assertValid(DmsFail2banAllowlistRequestSchema, {
+      operation: 'dms.fail2ban.allowlist',
+      change: { action, ip },
+    });
+    if (action === 'add') {
+      this.allowedIps.add(ip);
+      this.bannedIps.delete(ip);
+    } else {
+      this.allowedIps.delete(ip);
+    }
   }
 
   async fail2banList(): Promise<Fail2banListResult> {

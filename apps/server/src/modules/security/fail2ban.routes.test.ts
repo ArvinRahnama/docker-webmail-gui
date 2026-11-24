@@ -103,6 +103,47 @@ describe('/api/v1/security/fail2ban', () => {
     expect(listResponse.json().bannedIps).not.toContain('198.51.100.20');
   });
 
+  it('lets a postmaster add and remove a Postfix exception and audits both changes', async () => {
+    const { db, app } = await setUpSecurityApp({ dmsDriver: new Fail2banEnabledDriver() });
+    const auth = await loginAs(app);
+    const resource = '/api/v1/security/fail2ban/allowlist';
+    const ip = '2001:db8::53';
+
+    const invalid = await authedInject(app, auth, {
+      method: 'POST',
+      url: `${resource}/add`,
+      payload: { ip: '2001:db8:::53' },
+    });
+    expect(invalid.statusCode).toBe(400);
+    expect(
+      (await app.inject({ method: 'POST', url: `${resource}/add`, payload: { ip } })).statusCode,
+    ).toBe(401);
+
+    const add = await authedInject(app, auth, {
+      method: 'POST',
+      url: `${resource}/add`,
+      payload: { ip },
+    });
+    expect(add.statusCode).toBe(200);
+    const list = () => authedInject(app, auth, { method: 'GET', url: resource });
+    expect((await list()).json()).toEqual([ip]);
+
+    const remove = await authedInject(app, auth, {
+      method: 'POST',
+      url: `${resource}/remove`,
+      payload: { ip },
+    });
+    expect(remove.statusCode).toBe(200);
+    expect((await list()).json()).toEqual([]);
+    const audits = db.all<{ action: string }>(
+      "SELECT action FROM audit_log WHERE action LIKE 'fail2ban.allowlist.%' ORDER BY action",
+    );
+    expect(audits.map(({ action }) => action)).toEqual([
+      'fail2ban.allowlist.add',
+      'fail2ban.allowlist.remove',
+    ]);
+  });
+
   it('rejects an invalid IP without ever banning anything', async () => {
     const { app } = await setUpSecurityApp({ dmsDriver: new Fail2banEnabledDriver() });
     const auth = await loginAs(app);

@@ -15,6 +15,8 @@ import { UnsupportedNotice } from '@/components/unsupported-notice';
 import { ApiClientError, ApiError } from '@/lib/api-client';
 import {
   useBanIpMutation,
+  useFail2banAllowlistMutation,
+  useFail2banAllowlistQuery,
   useFail2banStatusQuery,
   useUnbanIpMutation,
 } from './use-security-queries';
@@ -110,7 +112,7 @@ export function Fail2banPage() {
     <div className="flex flex-col gap-6">
       <PageHeader
         title="Fail2ban"
-        description="Currently banned IPs across every jail, and the raw jail status."
+        description="Banned IPs across all jails and the Postfix allowlist."
       />
 
       <Card>
@@ -155,6 +157,8 @@ export function Fail2banPage() {
         }
       />
 
+      <PostfixAllowlist />
+
       <Card>
         <CardHeader>
           <CardTitle className="text-body font-semibold">Raw jail status</CardTitle>
@@ -193,5 +197,122 @@ export function Fail2banPage() {
         }}
       />
     </div>
+  );
+}
+
+function PostfixAllowlist() {
+  const query = useFail2banAllowlistQuery();
+  const mutation = useFail2banAllowlistMutation();
+  const [input, setInput] = useState('');
+  const [change, setChange] = useState<{ action: 'add' | 'remove'; ip: string } | null>(null);
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-body font-semibold">Postfix allowlist</CardTitle>
+        <p className="text-caption text-text-muted">
+          Exempt trusted IPs from automatic Postfix bans. Adding an IP also lifts its active Postfix
+          ban.
+        </p>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-4">
+        {query.isError ? (
+          <ErrorState
+            message="Could not load the Postfix allowlist."
+            errorId={
+              query.error instanceof ApiError || query.error instanceof ApiClientError
+                ? query.error.errorId
+                : 'unknown'
+            }
+            onRetry={() => void query.refetch()}
+          />
+        ) : query.isPending ? (
+          <Skeleton className="h-20 w-full" />
+        ) : (
+          <>
+            <form
+              className="flex flex-wrap items-end gap-3"
+              onSubmit={(event) => {
+                event.preventDefault();
+                const ip = input.trim();
+                if (ip) setChange({ action: 'add', ip });
+              }}
+            >
+              <div className="flex min-w-56 flex-col gap-2">
+                <Label htmlFor="fail2ban-allowlist-ip">IP address to allow</Label>
+                <Input
+                  id="fail2ban-allowlist-ip"
+                  value={input}
+                  onChange={(event) => setInput(event.target.value)}
+                  placeholder="203.0.113.5"
+                  autoComplete="off"
+                  maxLength={64}
+                />
+              </div>
+              <Button type="submit" disabled={!input.trim()} pending={mutation.isPending}>
+                Add to allowlist
+              </Button>
+            </form>
+            {query.data.length === 0 ? (
+              <p className="text-caption text-text-muted">
+                No IPs have been added to the allowlist.
+              </p>
+            ) : (
+              <ul className="divide-y divide-border-subtle">
+                {query.data.map((ip) => (
+                  <li className="flex items-center justify-between gap-4 py-2" key={ip}>
+                    <span className="break-all font-mono-sm">{ip}</span>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="secondary"
+                      aria-label={`Remove ${ip} from allowlist`}
+                      onClick={() => setChange({ action: 'remove', ip })}
+                    >
+                      Remove
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </>
+        )}
+      </CardContent>
+      <ConfirmDialog
+        open={change !== null}
+        onOpenChange={(open) => {
+          if (!open) setChange(null);
+        }}
+        tier={2}
+        title={
+          change?.action === 'remove'
+            ? `Remove ${change.ip} from the allowlist?`
+            : `Allow ${change?.ip ?? ''}?`
+        }
+        description={
+          change?.action === 'remove'
+            ? 'Postfix Fail2ban can automatically ban this IP again.'
+            : 'This lifts an active Postfix ban and exempts the IP from future automatic Postfix bans.'
+        }
+        confirmLabel={change?.action === 'remove' ? 'Remove' : 'Allow'}
+        pending={mutation.isPending}
+        onConfirm={() => {
+          if (!change) return;
+          mutation.mutate(change, {
+            onSuccess: () => {
+              if (change.action === 'add') setInput('');
+              setChange(null);
+              toast.success(
+                change.action === 'add' ? 'IP allowlisted' : 'IP removed from allowlist',
+              );
+            },
+            onError: (error) =>
+              toast.error(
+                error instanceof ApiError ? error.message : 'Could not update the allowlist',
+              ),
+          });
+        }}
+      />
+    </Card>
   );
 }

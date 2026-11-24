@@ -13,6 +13,7 @@ import type {
 import {
   activateSieveScript,
   banFail2banIp,
+  changeFail2banAllowlist,
   deactivateSieveScripts,
   fetchAutoresponderStatus,
   fetchClamavDetections,
@@ -21,6 +22,7 @@ import {
   fetchDnsPropagation,
   fetchEmailAuthReport,
   fetchFail2banStatus,
+  fetchFail2banAllowlist,
   fetchRspamdStatus,
   fetchRspamdTrend,
   fetchSieveScript,
@@ -142,6 +144,26 @@ export const fail2banStatusKey = ['security', 'fail2ban'] as const;
 
 export function useFail2banStatusQuery() {
   return useQuery({ queryKey: fail2banStatusKey, queryFn: fetchFail2banStatus });
+}
+
+const fail2banAllowlistKey = ['security', 'fail2ban-allowlist'] as const;
+
+export function useFail2banAllowlistQuery() {
+  return useQuery({
+    queryKey: fail2banAllowlistKey,
+    queryFn: fetchFail2banAllowlist,
+  });
+}
+
+export function useFail2banAllowlistMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: changeFail2banAllowlist,
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: fail2banAllowlistKey });
+      void queryClient.invalidateQueries({ queryKey: fail2banStatusKey });
+    },
+  });
 }
 
 export function useBanIpMutation() {

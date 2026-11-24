@@ -78,6 +78,9 @@ function stubDriver(overrides: Partial<DmsDriver> & { capabilities?: DmsCapabili
     generateDkim: overrides.generateDkim ?? notImplemented('generateDkim'),
     fail2banBan: overrides.fail2banBan ?? notImplemented('fail2banBan'),
     fail2banUnban: overrides.fail2banUnban ?? notImplemented('fail2banUnban'),
+    fail2banAllowlist: overrides.fail2banAllowlist ?? notImplemented('fail2banAllowlist'),
+    changeFail2banAllowlist:
+      overrides.changeFail2banAllowlist ?? notImplemented('changeFail2banAllowlist'),
     clamavUpdateSignatures:
       overrides.clamavUpdateSignatures ?? notImplemented('clamavUpdateSignatures'),
     sievePut: overrides.sievePut ?? notImplemented('sievePut'),

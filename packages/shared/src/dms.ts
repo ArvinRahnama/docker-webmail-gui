@@ -48,6 +48,7 @@
  * still fails fast, locally, with the same message it always did.
  */
 import { z } from 'zod';
+import { Fail2banAllowlistIpSchema } from './antispam.js';
 import { MailDataChoiceSchema } from './mail.js';
 import {
   validateAddressForArgv,
@@ -301,6 +302,17 @@ export const DmsFail2banUnbanRequestSchema = z
   .object({ operation: dmsOp('dms.fail2ban.unban'), ip: IpField })
   .strict();
 
+export const DmsFail2banAllowlistRequestSchema = z
+  .object({
+    operation: dmsOp('dms.fail2ban.allowlist'),
+    change: z.discriminatedUnion('action', [
+      z.object({ action: z.literal('list') }).strict(),
+      z.object({ action: z.literal('add'), ip: Fail2banAllowlistIpSchema }).strict(),
+      z.object({ action: z.literal('remove'), ip: Fail2banAllowlistIpSchema }).strict(),
+    ]),
+  })
+  .strict();
+
 // --- clamav --------------------------------------------------------------
 
 export const DmsClamdControlRequestSchema = z
@@ -369,6 +381,7 @@ export const DMS_REQUEST_SCHEMAS = [
   DmsFail2banLogRequestSchema,
   DmsFail2banBanRequestSchema,
   DmsFail2banUnbanRequestSchema,
+  DmsFail2banAllowlistRequestSchema,
   DmsClamdControlRequestSchema,
   DmsClamavUpdateRequestSchema,
   DmsClamavLogRequestSchema,
@@ -406,6 +419,7 @@ export const DMS_OPERATIONS = [
   'dms.fail2ban.log',
   'dms.fail2ban.ban',
   'dms.fail2ban.unban',
+  'dms.fail2ban.allowlist',
   'dms.clamd.control',
   'dms.clamav.update',
   'dms.clamav.log',
@@ -419,7 +433,7 @@ export const DMS_OPERATIONS = [
 export type DmsOperation = (typeof DMS_OPERATIONS)[number];
 
 /**
- * The 26 operations that run a command inside the mail container, as
+ * The operations that run a command inside the mail container, as
  * opposed to the three that read state (`dms.file.read`, `dms.env.read`,
  * `dms.dkim.record.read`). Every one of these resolves to a
  * broker-constructed argv and shares {@link DmsExecResponseSchema}.

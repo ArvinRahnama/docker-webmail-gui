@@ -38,6 +38,7 @@ import { BrokerError } from '../errors.js';
 import type { OperationDeps } from '../operations.js';
 import { resolveOrForbid } from '../operations.js';
 import type { CommandResult } from './commands.js';
+import { buildFail2banAllowlistCommand } from './fail2ban-allowlist.js';
 import {
   buildAliasAddCommand,
   buildAliasDeleteCommand,
@@ -120,6 +121,9 @@ const DMS_COMMAND_BUILDERS = {
   'dms.fail2ban.log': buildFail2banLogCommand,
   'dms.fail2ban.ban': buildFail2banBanCommand,
   'dms.fail2ban.unban': buildFail2banUnbanCommand,
+  'dms.fail2ban.allowlist': (
+    body: Extract<BrokerRequest, { operation: 'dms.fail2ban.allowlist' }>,
+  ) => buildFail2banAllowlistCommand(body.change),
   'dms.clamd.control': (body: Extract<BrokerRequest, { operation: 'dms.clamd.control' }>) =>
     buildClamdCommand(body.verb),
   'dms.clamav.update': buildFreshclamCommand,

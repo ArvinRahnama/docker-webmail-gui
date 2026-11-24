@@ -17,7 +17,9 @@ import {
   DmsEmailDeleteRequestSchema,
   DmsEmailRestrictRequestSchema,
   DmsEmailUpdateRequestSchema,
+  DmsFail2banAllowlistRequestSchema,
   DmsFail2banBanRequestSchema,
+  Fail2banAllowlistResponseSchema,
   DmsFail2banUnbanRequestSchema,
   DmsQuotaDeleteRequestSchema,
   DmsQuotaSetRequestSchema,
@@ -232,6 +234,23 @@ export class RealDmsDriver implements DmsDriver {
   async fail2banList(): Promise<Fail2banListResult> {
     const stdout = await this.runRead({ operation: 'dms.fail2ban.list' });
     return parseFail2banList(stdout);
+  }
+
+  async fail2banAllowlist(): Promise<string[]> {
+    const stdout = await this.runRead({
+      operation: 'dms.fail2ban.allowlist',
+      change: { action: 'list' },
+    });
+    return Fail2banAllowlistResponseSchema.parse(JSON.parse(stdout));
+  }
+
+  async changeFail2banAllowlist(action: 'add' | 'remove', ip: string): Promise<void> {
+    await this.run(
+      parseDmsRequest(DmsFail2banAllowlistRequestSchema, {
+        operation: 'dms.fail2ban.allowlist',
+        change: { action, ip },
+      }),
+    );
   }
 
   async fail2banStatus(): Promise<string> {

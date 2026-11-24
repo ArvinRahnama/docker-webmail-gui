@@ -90,7 +90,7 @@ row.
   SSRF.
 - **ClamAV** — status and version. Virus counts are log-derived and
   labelled as such, because clamd exposes no counter.
-- **Fail2ban** — jail status and unban.
+- **Fail2ban** — jail status, ban, unban, and a persistent Postfix allowlist. Adding an allowed IP also lifts any active ban for that address in the Postfix jail.
 - **Sieve** — script management, with scripts referencing
   `vnd.dovecot.execute` or `sieve_pipe` rejected outright, since both
   invoke external programs.

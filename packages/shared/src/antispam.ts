@@ -160,6 +160,12 @@ export const Fail2banStatusResponseSchema = z.object({
 });
 export type Fail2banStatusResponse = z.infer<typeof Fail2banStatusResponseSchema>;
 
+export const Fail2banAllowlistIpSchema = z.union([z.ipv4(), z.ipv6()]);
+export const Fail2banAllowlistIpRequestSchema = z
+  .object({ ip: Fail2banAllowlistIpSchema })
+  .strict();
+export const Fail2banAllowlistResponseSchema = z.array(Fail2banAllowlistIpSchema);
+
 export const Fail2banIpRequestSchema = z.object({
   ip: z.string().min(1).max(64),
 });

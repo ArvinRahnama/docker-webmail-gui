@@ -8,6 +8,8 @@
  */
 import type { FastifyInstance } from 'fastify';
 import {
+  Fail2banAllowlistIpRequestSchema,
+  Fail2banAllowlistResponseSchema,
   Fail2banIpRequestSchema,
   Fail2banStatusResponseSchema,
   Fail2banWriteResponseSchema,
@@ -41,6 +43,31 @@ export async function registerFail2banRoutes(
         const status = await fail2banService.getStatus();
         void reply.send(Fail2banStatusResponseSchema.parse(status));
       });
+
+      fail2banApp.get('/allowlist', async (_request, reply) => {
+        const ips = await fail2banService.getAllowlist();
+        void reply.send(Fail2banAllowlistResponseSchema.parse(ips));
+      });
+
+      for (const action of ['add', 'remove'] as const) {
+        fail2banApp.post(`/allowlist/${action}`, async (request, reply) => {
+          const auth = requireAuthContext(request);
+          const { ip } = parseBody(Fail2banAllowlistIpRequestSchema, request.body);
+          await fail2banService.changeAllowlist(action, ip);
+
+          recordAuditEvent(db, {
+            actor: { adminId: auth.admin.id, label: auth.admin.email },
+            action: `fail2ban.allowlist.${action}`,
+            target: { type: 'ip', id: ip },
+            result: 'success',
+            ip: request.ip,
+            userAgent: request.headers['user-agent'] ?? null,
+            details: { jail: 'postfix' },
+          });
+
+          void reply.send(Fail2banWriteResponseSchema.parse({ ok: true }));
+        });
+      }
 
       fail2banApp.post('/ban', async (request, reply) => {
         const auth = requireAuthContext(request);

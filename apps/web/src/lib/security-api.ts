@@ -10,6 +10,7 @@ import {
   ClamAvUpdateResponseSchema,
   DkimStatusResponseSchema,
   EmailAuthReportSchema,
+  Fail2banAllowlistResponseSchema,
   Fail2banStatusResponseSchema,
   Fail2banWriteResponseSchema,
   GenerateDkimRequestSchema,
@@ -144,6 +145,26 @@ export async function triggerClamavUpdate(): Promise<ClamAvUpdateResponse> {
 
 export async function fetchFail2banStatus(): Promise<Fail2banStatusResponse> {
   return request('/api/v1/security/fail2ban', Fail2banStatusResponseSchema, { method: 'GET' });
+}
+
+export async function fetchFail2banAllowlist(): Promise<string[]> {
+  return request('/api/v1/security/fail2ban/allowlist', Fail2banAllowlistResponseSchema, {
+    method: 'GET',
+  });
+}
+
+export async function changeFail2banAllowlist(change: {
+  action: 'add' | 'remove';
+  ip: string;
+}): Promise<void> {
+  await request(
+    `/api/v1/security/fail2ban/allowlist/${change.action}`,
+    Fail2banWriteResponseSchema,
+    {
+      method: 'POST',
+      body: { ip: change.ip },
+    },
+  );
 }
 
 export async function banFail2banIp(ip: string): Promise<void> {

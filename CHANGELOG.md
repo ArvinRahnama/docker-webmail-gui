@@ -11,6 +11,14 @@ version and are called out explicitly here.
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-11-24
+
+### Added
+
+- Postmasters can add or remove IPs in the Postfix allowlist on the Fail2ban
+  page. Adding an IP lifts its current Postfix ban. The allowlist is saved
+  in docker-mailserver's configuration and persists across restarts.
+
 ### Fixed
 
 - **Re-running `installer/install.sh` dropped `docker/compose.override.yaml`.**
@@ -1109,7 +1117,8 @@ document set rather than a product.
   will be called out here. Pin the exact image version rather than a
   floating tag — see `docs/docker.md`.
 
-[Unreleased]: https://github.com/ArvinRahnama/docker-webmail-gui/compare/v1.3.2...HEAD
+[Unreleased]: https://github.com/ArvinRahnama/docker-webmail-gui/compare/v1.4.0...HEAD
+[1.4.0]: https://github.com/ArvinRahnama/docker-webmail-gui/compare/v1.3.2...v1.4.0
 [1.3.2]: https://github.com/ArvinRahnama/docker-webmail-gui/compare/v1.3.1...v1.3.2
 [1.3.1]: https://github.com/ArvinRahnama/docker-webmail-gui/compare/v1.3.0...v1.3.1
 [1.3.0]: https://github.com/ArvinRahnama/docker-webmail-gui/compare/v1.2.1...v1.3.0

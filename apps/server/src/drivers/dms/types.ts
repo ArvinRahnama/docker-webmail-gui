@@ -130,6 +130,8 @@ export interface DmsDriver {
   generateDkim(params?: ConfigDkimParams): Promise<void>;
   fail2banBan(params: Fail2banIpParams): Promise<void>;
   fail2banUnban(params: Fail2banIpParams): Promise<void>;
+  fail2banAllowlist(): Promise<string[]>;
+  changeFail2banAllowlist(action: 'add' | 'remove', ip: string): Promise<void>;
   /** `freshclam` — triggers a signature database update. Unlike the ClamAV reads above, this genuinely does throw on failure (`DmsCommandExecutionError`, mapped globally to `UPSTREAM_UNAVAILABLE`): it is an admin-initiated mutation with a single real outcome to report, not a routine "is the daemon up" probe. Resolves with `freshclam`'s own stdout. */
   clamavUpdateSignatures(): Promise<string>;
   /** `doveadm sieve put -u <user> <name>`, content via stdin — see `commands.ts`'s `buildSievePutCommand` doc comment for why a non-zero exit here means a real Pigeonhole compile failure, not an unrelated upstream error. */

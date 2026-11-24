@@ -82,6 +82,7 @@ export interface DataTableProps<T extends RowData> {
    */
   readonly emptyState: ReactNode;
   readonly pageSize?: number;
+  readonly hideSinglePagePagination?: boolean;
   readonly isLoading?: boolean;
   // Explicit `| undefined` (not a bare optional): callers conditionally
   // pass these as `condition ? value : undefined` (e.g. hiding selection
@@ -114,6 +115,7 @@ export function DataTable<T extends RowData>({
   caption,
   emptyState,
   pageSize = DEFAULT_PAGE_SIZE,
+  hideSinglePagePagination = false,
   isLoading = false,
   selectedIds,
   onSelectedIdsChange,
@@ -315,32 +317,34 @@ export function DataTable<T extends RowData>({
         </table>
       </div>
 
-      <div className="flex items-center justify-between text-caption text-text-muted">
-        <span>
-          Page {table.state.pagination.pageIndex + 1} of {Math.max(1, table.getPageCount())} ·{' '}
-          {data.length} total
-        </span>
-        <div className="flex items-center gap-1">
-          <button
-            type="button"
-            onClick={() => table.previousPage()}
-            disabled={!table.getCanPreviousPage()}
-            className="inline-flex size-7 items-center justify-center rounded-sm border border-border-default disabled:cursor-not-allowed disabled:opacity-40"
-            aria-label="Previous page"
-          >
-            <ChevronLeft className="size-4" aria-hidden="true" />
-          </button>
-          <button
-            type="button"
-            onClick={() => table.nextPage()}
-            disabled={!table.getCanNextPage()}
-            className="inline-flex size-7 items-center justify-center rounded-sm border border-border-default disabled:cursor-not-allowed disabled:opacity-40"
-            aria-label="Next page"
-          >
-            <ChevronRight className="size-4" aria-hidden="true" />
-          </button>
+      {!hideSinglePagePagination || table.getPageCount() > 1 ? (
+        <div className="flex items-center justify-between text-caption text-text-muted">
+          <span>
+            Page {table.state.pagination.pageIndex + 1} of {Math.max(1, table.getPageCount())} ·{' '}
+            {data.length} total
+          </span>
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => table.previousPage()}
+              disabled={!table.getCanPreviousPage()}
+              className="inline-flex size-7 items-center justify-center rounded-sm border border-border-default disabled:cursor-not-allowed disabled:opacity-40"
+              aria-label="Previous page"
+            >
+              <ChevronLeft className="size-4" aria-hidden="true" />
+            </button>
+            <button
+              type="button"
+              onClick={() => table.nextPage()}
+              disabled={!table.getCanNextPage()}
+              className="inline-flex size-7 items-center justify-center rounded-sm border border-border-default disabled:cursor-not-allowed disabled:opacity-40"
+              aria-label="Next page"
+            >
+              <ChevronRight className="size-4" aria-hidden="true" />
+            </button>
+          </div>
         </div>
-      </div>
+      ) : null}
     </div>
   );
 }

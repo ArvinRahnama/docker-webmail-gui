@@ -11,6 +11,14 @@ version and are called out explicitly here.
 
 ## [Unreleased]
 
+## [1.4.1] - 2026-11-25
+
+### Changed
+
+- Put banned IPs and Postfix exceptions side by side on the Fail2ban page, with
+  a shared IP filter, counts, inline validation, and consistent confirmations.
+  Jail diagnostics now expand on demand and can be copied.
+
 ## [1.4.0] - 2026-11-24
 
 ### Added
@@ -1117,7 +1125,8 @@ document set rather than a product.
   will be called out here. Pin the exact image version rather than a
   floating tag — see `docs/docker.md`.
 
-[Unreleased]: https://github.com/ArvinRahnama/docker-webmail-gui/compare/v1.4.0...HEAD
+[Unreleased]: https://github.com/ArvinRahnama/docker-webmail-gui/compare/v1.4.1...HEAD
+[1.4.1]: https://github.com/ArvinRahnama/docker-webmail-gui/compare/v1.4.0...v1.4.1
 [1.4.0]: https://github.com/ArvinRahnama/docker-webmail-gui/compare/v1.3.2...v1.4.0
 [1.3.2]: https://github.com/ArvinRahnama/docker-webmail-gui/compare/v1.3.1...v1.3.2
 [1.3.1]: https://github.com/ArvinRahnama/docker-webmail-gui/compare/v1.3.0...v1.3.1
